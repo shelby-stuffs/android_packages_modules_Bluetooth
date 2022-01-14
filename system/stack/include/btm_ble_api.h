@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright (C) 1999-2012 Broadcom Corporation
+ *  Copyright 1999-2012 Broadcom Corporation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -25,705 +25,629 @@
 #ifndef BTM_BLE_API_H
 #define BTM_BLE_API_H
 
+#include <base/callback_forward.h>
+#include <hardware/bt_common_types.h>
+
+#include <cstdint>
+#include <memory>
+
 #include "btm_api.h"
+#include "btm_ble_api_types.h"
+#include "osi/include/alarm.h"
+#include "stack/btm/neighbor_inquiry.h"
+#include "types/bt_transport.h"
+#include "types/raw_address.h"
 
-#define CHNL_MAP_LEN    5
-typedef UINT8 tBTM_BLE_CHNL_MAP[CHNL_MAP_LEN];
+void btm_ble_init();
+void btm_ble_free();
 
-#define BTM_BLE_SCAN_MODE_PASS      0
-#define BTM_BLE_SCAN_MODE_ACTI      1
-#define BTM_BLE_SCAN_MODE_NONE      0xff
-typedef UINT8 tBTM_BLE_SCAN_MODE;
-
-/* advertising channel map */
-#define BTM_BLE_ADV_CHNL_37    (0x01 << 0)
-#define BTM_BLE_ADV_CHNL_38    (0x01 << 1)
-#define BTM_BLE_ADV_CHNL_39    (0x01 << 2)
-typedef UINT8 tBTM_BLE_ADV_CHNL_MAP;
-
-/*d efault advertising channel map */
-#ifndef BTM_BLE_DEFAULT_ADV_CHNL_MAP
-#define BTM_BLE_DEFAULT_ADV_CHNL_MAP   (BTM_BLE_ADV_CHNL_37| BTM_BLE_ADV_CHNL_38| BTM_BLE_ADV_CHNL_39)
-#endif
-
-/* advertising filter policy */
-#define AP_SCAN_CONN_ALL           0x00        /* default */
-#define AP_SCAN_WL_CONN_ALL        0x01
-#define AP_SCAN_ALL_CONN_WL        0x02
-#define AP_SCAN_CONN_WL            0x03
-#define AP_SCAN_CONN_POLICY_MAX    0x04
-typedef UINT8   tBTM_BLE_AFP;
-
-/* default advertising filter policy */
-#ifndef BTM_BLE_DEFAULT_AFP
-#define BTM_BLE_DEFAULT_AFP   AP_SCAN_CONN_ALL
-#endif
-
-/* scanning filter policy */
-#define SP_ADV_ALL     0x00     /* accept adv pakt from all, directed adv pkt not directed to me is ignored */
-#define SP_ADV_WL      0x01     /* accept adv pakt from device in white list, directed adv pkt not directed to me is ignored */
-typedef UINT8   tBTM_BLE_SFP;
-
-#ifndef BTM_BLE_DEFAULT_SFP
-#define BTM_BLE_DEFAULT_SFP   SP_ADV_ALL
-#endif
-
-/* adv parameter boundary values */
-#define BTM_BLE_ADV_INT_MIN            0x0020
-#define BTM_BLE_ADV_INT_MAX            0x4000
-
-/* connection parameter boundary value */
-#define BTM_BLE_SCAN_INT_MIN            0x0004
-#define BTM_BLE_SCAN_INT_MAX            0x4000
-#define BTM_BLE_SCAN_WIN_MIN            0x0004
-#define BTM_BLE_SCAN_WIN_MAX            0x4000
-#define BTM_BLE_CONN_INT_MIN            0x0006
-#define BTM_BLE_CONN_INT_MAX            0x0C80
-#define BTM_BLE_CONN_LATENCY_MAX        500
-#define BTM_BLE_CONN_SUP_TOUT_MIN       0x000A
-#define BTM_BLE_CONN_SUP_TOUT_MAX       0x0C80
-#define BTM_BLE_CONN_PARAM_UNDEF        0xffff      /* use this value when a specific value not to be overwritten */
-
-/* default connection parameters if not configured, use GAP recommend value for auto/selective connection */
-/* default scan interval */
-#ifndef BTM_BLE_CONN_EST_SCAN_INT
-#define BTM_BLE_CONN_EST_SCAN_INT    96    /* 312.5 ms   = 500 *0.625 */
-#endif
-/* default scan window for background connection, applicable for auto connection or selective conenction */
-#ifndef BTM_BLE_CONN_EST_SCAN_WIND
-#define BTM_BLE_CONN_EST_SCAN_WIND   48      /* 187.5 ms = 400 *0.625 */
-#endif
-
-/* default scan paramter used in reduced power cycle */
-#ifndef BTM_BLE_CONN_EST_SCAN_INT_LO
-#define BTM_BLE_CONN_EST_SCAN_INT_LO    2048    /* 1.28 s   = 500 *0.625 */
-#endif
-#ifndef BTM_BLE_CONN_EST_SCAN_WIND_LO
-#define BTM_BLE_CONN_EST_SCAN_WIND_LO   18      /* 11.25 ms = 400 *0.625 */
-#endif
-
-/* default connection interval min */
-#ifndef BTM_BLE_CONN_INT_MIN_DEF
-#define BTM_BLE_CONN_INT_MIN_DEF     40      /* 50ms = 400 * 1.25 */
-#endif
-/* default connectino interval max */
-#ifndef BTM_BLE_CONN_INT_MAX_DEF
-#define BTM_BLE_CONN_INT_MAX_DEF     56      /* 70ms = 56 * 1.25 */
-#endif
-/* default slave latency */
-#ifndef BTM_BLE_CONN_SLAVE_LATENCY_DEF
-#define BTM_BLE_CONN_SLAVE_LATENCY_DEF  0      /* 0 */
-#endif
-/* default supervision timeout */
-#ifndef BTM_BLE_CONN_TIMEOUT_DEF
-#define BTM_BLE_CONN_TIMEOUT_DEF    2000
-#endif
-
-#define BTM_CMAC_TLEN_SIZE          8                   /* 64 bits */
-#define BTM_BLE_AUTH_SIGN_LEN       12                   /* BLE data signature length 8 Bytes + 4 bytes counter*/
-typedef UINT8 BLE_SIGNATURE[BTM_BLE_AUTH_SIGN_LEN];         /* Device address */
-
-/* Structure returned with Rand/Encrypt complete callback */
-typedef struct
-{
-    UINT8   status;
-    UINT8   param_len;
-    UINT16  opcode;
-    UINT8   param_buf[BT_OCTET16_LEN];
-} tBTM_RAND_ENC;
-
-/* General callback function for notifying an application that a synchronous
-** BTM function is complete. The pointer contains the address of any returned data.
-*/
-typedef void (tBTM_RAND_ENC_CB) (tBTM_RAND_ENC *p1);
-
-#define BTM_BLE_FILTER_TARGET_SCANNER       0x01
-#define BTM_BLE_FILTER_TARGET_ADVR          0x00
-
-#define BTM_BLE_POLICY_BLACK_ALL            0x00    /* relevant to both */
-#define BTM_BLE_POLICY_ALLOW_SCAN           0x01    /* relevant to advertiser */
-#define BTM_BLE_POLICY_ALLOW_CONN           0x02    /* relevant to advertiser */
-#define BTM_BLE_POLICY_WHITE_ALL            0x03    /* relevant to both */
-
-typedef struct
-{
-    UINT8               adv_int_min;
-    UINT8               adv_int_max;
-    tBTM_BLE_CHNL_MAP   chnl_map;
-
-}tBTM_BLE_ADV_PARAMS;
-
-/* ADV data flag bit definition used for BTM_BLE_AD_TYPE_FLAG */
-#define BTM_BLE_LIMIT_DISC_FLAG         (0x01 << 0)
-#define BTM_BLE_GEN_DISC_FLAG           (0x01 << 1)
-#define BTM_BLE_BREDR_NOT_SPT           (0x01 << 2)
-#define BTM_BLE_NON_LIMIT_DISC_FLAG     (0x00 )         /* lowest bit unset */
-#define BTM_BLE_ADV_FLAG_MASK           (BTM_BLE_LIMIT_DISC_FLAG | BTM_BLE_BREDR_NOT_SPT | BTM_BLE_GEN_DISC_FLAG)
-#define BTM_BLE_LIMIT_DISC_MASK         (BTM_BLE_LIMIT_DISC_FLAG )
-
-#define BTM_BLE_AD_BIT_DEV_NAME        (0x0001 << 0)
-#define BTM_BLE_AD_BIT_FLAGS           (0x0001 << 1)
-#define BTM_BLE_AD_BIT_MANU            (0x0001 << 2)
-#define BTM_BLE_AD_BIT_TX_PWR          (0x0001 << 3)
-#define BTM_BLE_AD_BIT_ATTR            (0x0001 << 4)
-#define BTM_BLE_AD_BIT_INT_RANGE       (0x0001 << 5)
-#define BTM_BLE_AD_BIT_SERVICE         (0x0001 << 6)
-#define BTM_BLE_AD_BIT_SERVICE_SOL     (0x0001 << 7)
-#define BTM_BLE_AD_BIT_SERVICE_DATA    (0x0001 << 8)
-#define BTM_BLE_AD_BIT_SIGN_DATA       (0x0001 << 9)
-#define BTM_BLE_AD_BIT_PROPRIETARY     (0x0001 << 15)
-
-typedef  UINT16  tBTM_BLE_AD_MASK;
-
-#define BTM_BLE_AD_TYPE_FLAG            0x01
-#define BTM_BLE_AD_TYPE_SRV_PART        0x02
-#define BTM_BLE_AD_TYPE_SRV_CMPL        0x03
-#define BTM_BLE_AD_TYPE_NAME_SHORT      0x08
-#define BTM_BLE_AD_TYPE_NAME_CMPL       0x09
-#define BTM_BLE_AD_TYPE_TX_PWR          0x0A
-#define BTM_BLE_AD_TYPE_DEV_CLASS       0x0D
-#define BTM_BLE_AD_TYPE_ATTR            0x10
-#define BTM_BLE_AD_TYPE_MANU            0xff
-#define BTM_BLE_AD_TYPE_INT_RANGE       0x12
-#define BTM_BLE_AD_TYPE_SOL_SRV_UUID    0x14
-typedef UINT8   tBTM_BLE_AD_TYPE;
-
-/* slave preferred connection interval range */
-typedef struct
-{
-    UINT16  low;
-    UINT16  hi;
-
-}tBTM_BLE_INT_RANGE;
-
-/* Service tag supported in the device */
-typedef struct
-{
-    UINT8       num_service;
-    BOOLEAN     list_cmpl;
-    UINT16      *p_uuid;
-}tBTM_BLE_SERVICE;
-
-/* attribute data */
-typedef struct
-{
-    UINT16       uuid;
-    UINT16       data_len;
-    UINT8       *p_data;
-}tBTM_BLE_ATTR;
-
-#ifndef BTM_BLE_NUM_AD_ATTR_MAX
-#define BTM_BLE_NUM_AD_ATTR_MAX         10
-#endif
-/* attribute list contained in adv data */
-typedef struct
-{
-    UINT8               num_attr;
-    tBTM_BLE_ATTR       attr_list[BTM_BLE_NUM_AD_ATTR_MAX];
-}tBTM_BLE_ATTR_DATA;
-
-typedef struct
-{
-    UINT8       len;
-    UINT8      *p_val;
-}tBTM_BLE_MANU;
-
-typedef struct
-{
-    UINT8       adv_type;
-    UINT8       len;
-    UINT8       *p_val;     /* number of len byte */
-}tBTM_BLE_PROP_ELEM;
-
-typedef struct
-{
-    UINT8                   num_elem;
-    tBTM_BLE_PROP_ELEM      *p_elem;
-}tBTM_BLE_PROPRIETARY;
-
-typedef struct
-{
-    tBTM_BLE_MANU           manu;        /* manufactuer data */
-    tBTM_BLE_INT_RANGE      int_range;      /* slave prefered conn interval range */
-    tBTM_BLE_SERVICE        services;       /* services */
-    tBTM_BLE_ATTR_DATA      attr;           /* attribute data */
-    UINT8                   flag;
-    tBTM_BLE_PROPRIETARY    *p_proprietary;
-}tBTM_BLE_ADV_DATA;
-
-/* These are the fields returned in each device adv packet.  It
-** is returned in the results callback if registered.
-*/
-typedef struct
-{
-    UINT8               conn_mode;
-    tBTM_BLE_AD_MASK    ad_mask;        /* mask of the valid adv data field */
-    UINT8               flag;
-    UINT8               tx_power_level;
-    UINT8               remote_name_len;
-    UINT8               *p_remote_name;
-    tBTM_BLE_ATTR_DATA  attr_data;
-    tBTM_BLE_SERVICE    service;
-} tBTM_BLE_INQ_DATA;
-
-enum
-{
-    BTM_BLE_CONN_NONE,
-    BTM_BLE_CONN_AUTO,
-    BTM_BLE_CONN_SELECTIVE
-};
-typedef UINT8   tBTM_BLE_CONN_TYPE;
-
-typedef BOOLEAN (tBTM_BLE_SEL_CBACK)(BD_ADDR random_bda,     UINT8 *p_remote_name);
-
-/* callback function for SMP signing algorithm, signed data in little endian order with tlen bits long */
-typedef void (tBTM_BLE_SIGN_CBACK)(void *p_ref_data, UINT8 *p_signing_data);
-typedef void (tBTM_BLE_VERIFY_CBACK)(void *p_ref_data, BOOLEAN match);
-/* random address set complete callback */
-typedef void (tBTM_BLE_RANDOM_SET_CBACK) (BD_ADDR random_bda);
-
-typedef void (tBTM_BLE_SCAN_REQ_CBACK)(BD_ADDR remote_bda, tBLE_ADDR_TYPE addr_type, UINT8 adv_evt);
 /*****************************************************************************
-**  EXTERNAL FUNCTION DECLARATIONS
-*****************************************************************************/
-#ifdef __cplusplus
-extern "C" {
-#endif
+ *  EXTERNAL FUNCTION DECLARATIONS
+ ****************************************************************************/
 /*******************************************************************************
-**
-** Function         BTM_SecAddBleDevice
-**
-** Description      Add/modify device.  This function will be normally called
-**                  during host startup to restore all required information
-**                  for a LE device stored in the NVRAM.
-**
-** Parameters:      bd_addr          - BD address of the peer
-**                  bd_name          - Name of the peer device.  NULL if unknown.
-**                  dev_type         - Remote device's device type.
-**                  addr_type        - LE device address type.
-**
-** Returns          TRUE if added OK, else FALSE
-**
-*******************************************************************************/
-BTM_API extern BOOLEAN BTM_SecAddBleDevice (BD_ADDR bd_addr, BD_NAME bd_name,
-                                           tBT_DEVICE_TYPE dev_type, tBLE_ADDR_TYPE addr_type);
+ *
+ * Function         BTM_SecAddBleDevice
+ *
+ * Description      Add/modify device.  This function will be normally called
+ *                  during host startup to restore all required information
+ *                  for a LE device stored in the NVRAM.
+ *
+ * Parameters:      bd_addr          - BD address of the peer
+ *                  dev_type         - Remote device's device type.
+ *                  addr_type        - LE device address type.
+ *
+ ******************************************************************************/
+extern void BTM_SecAddBleDevice(const RawAddress& bd_addr,
+                                tBT_DEVICE_TYPE dev_type,
+                                tBLE_ADDR_TYPE addr_type);
 
 /*******************************************************************************
-**
-** Function         BTM_SecAddBleKey
-**
-** Description      Add/modify LE device information.  This function will be
-**                  normally called during host startup to restore all required
-**                  information stored in the NVRAM.
-**
-** Parameters:      bd_addr          - BD address of the peer
-**                  p_le_key         - LE key values.
-**                  key_type         - LE SMP key type.
+ *
+ * Function         BTM_SecAddBleKey
+ *
+ * Description      Add/modify LE device information.  This function will be
+ *                  normally called during host startup to restore all required
+ *                  information stored in the NVRAM.
+ *
+ * Parameters:      bd_addr          - BD address of the peer
+ *                  p_le_key         - LE key values.
+ *                  key_type         - LE SMP key type.
 *
-** Returns          TRUE if added OK, else FALSE
-**
-*******************************************************************************/
-BTM_API extern BOOLEAN BTM_SecAddBleKey (BD_ADDR bd_addr, tBTM_LE_KEY_VALUE *p_le_key,
-                                         tBTM_LE_KEY_TYPE key_type);
+ ******************************************************************************/
+extern void BTM_SecAddBleKey(const RawAddress& bd_addr,
+                             tBTM_LE_KEY_VALUE* p_le_key,
+                             tBTM_LE_KEY_TYPE key_type);
+
+/**
+ * This function is called to set scan parameters. |cb| is called with operation
+ * status
+ **/
+extern void BTM_BleSetScanParams(std::vector<uint32_t> scan_interval, std::vector<uint32_t> scan_window,
+                                 tBLE_SCAN_MODE scan_type,
+                                 base::Callback<void(uint8_t)> cb);
 
 /*******************************************************************************
-**
-** Function         BTM_BleSetAdvParams
-**
-** Description      This function is called to set advertising parameters.
-**
-** Parameters:       None.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern tBTM_STATUS BTM_BleSetAdvParams(UINT16 adv_int_min, UINT16 adv_int_max,
-                                tBLE_BD_ADDR *p_dir_bda, tBTM_BLE_ADV_CHNL_MAP chnl_map);
+ *
+ * Function         BTM_BleGetVendorCapabilities
+ *
+ * Description      This function reads local LE features
+ *
+ * Parameters       p_cmn_vsc_cb : Locala LE capability structure
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+extern void BTM_BleGetVendorCapabilities(tBTM_BLE_VSC_CB* p_cmn_vsc_cb);
 
 /*******************************************************************************
-**
-** Function         BTM_BleWriteAdvData
-**
-** Description      This function is called to write advertising data.
-**
-** Parameters:       None.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern tBTM_STATUS BTM_BleWriteAdvData(tBTM_BLE_AD_MASK  data_mask,
-                                               tBTM_BLE_ADV_DATA *p_data);
+ *
+ * Function         BTM_BleGetDynamicAudioBuffer
+ *
+ * Description      This function reads dynamic audio buffer
+ *
+ * Parameters       p_dynamic_audio_buffer_cb : Dynamic Audio Buffer structure
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+extern void BTM_BleGetDynamicAudioBuffer(
+    tBTM_BT_DYNAMIC_AUDIO_BUFFER_CB* p_dynamic_audio_buffer_cb);
 
 /*******************************************************************************
-**
-** Function         BTM_BleSetAdvParams
-**
-** Description      This function is called to set advertising parameters.
-**
-** Parameters       adv_int_min: minimum advertising interval
-**                  adv_int_max: maximum advertising interval
-**                  p_dir_bda: connectable direct initiator's LE device address
-**                  chnl_map: advertising channel map.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern void BTM_BleReadAdvParams (UINT16 *adv_int_min, UINT16 *adv_int_max,
-                            tBLE_BD_ADDR *p_dir_bda, tBTM_BLE_ADV_CHNL_MAP *p_chnl_map);
+ *
+ * Function         BTM_BleSetStorageConfig
+ *
+ * Description      This function is called to setup storage configuration and
+ *                  setup callbacks.
+ *
+ * Parameters       uint8_t batch_scan_full_max -Batch scan full maximum
+                    uint8_t batch_scan_trunc_max - Batch scan truncated value
+ maximum
+                    uint8_t batch_scan_notify_threshold - Threshold value
+                    cb - Setup callback
+                    tBTM_BLE_SCAN_THRESHOLD_CBACK *p_thres_cback -Threshold
+ callback
+                    void *p_ref - Reference value
+ *
+ *
+ ******************************************************************************/
+extern void BTM_BleSetStorageConfig(
+    uint8_t batch_scan_full_max, uint8_t batch_scan_trunc_max,
+    uint8_t batch_scan_notify_threshold,
+    base::Callback<void(uint8_t /* status */)> cb,
+    tBTM_BLE_SCAN_THRESHOLD_CBACK* p_thres_cback, tBTM_BLE_REF_VALUE ref_value);
 
+/* This function is called to enable batch scan */
+extern void BTM_BleEnableBatchScan(
+    tBTM_BLE_BATCH_SCAN_MODE scan_mode, uint32_t scan_interval,
+    uint32_t scan_window, tBTM_BLE_DISCARD_RULE discard_rule,
+    tBLE_ADDR_TYPE addr_type, base::Callback<void(uint8_t /* status */)> cb);
 
-/*******************************************************************************
-**
-** Function         BTM_BleSetScanParams
-**
-** Description      This function is called to set Scan parameters.
-**
-** Parameters       adv_int_min: minimum advertising interval
-**                  adv_int_max: maximum advertising interval
-**                  scan_type: scan mode.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern void BTM_BleSetScanParams(UINT16 scan_interval, UINT16 scan_window,
-                                         tBTM_BLE_SCAN_MODE scan_type);
+/* This function is called to disable batch scanning */
+extern void BTM_BleDisableBatchScan(
+    base::Callback<void(uint8_t /* status */)> cb);
 
-/*******************************************************************************
-**
-** Function         BTM_BleWriteScanRsp
-**
-** Description      This function is called to write LE scan response.
-**
-** Parameters:      p_scan_rsp: scan response.
-**
-** Returns          status
-**
-*******************************************************************************/
-BTM_API extern tBTM_STATUS BTM_BleWriteScanRsp(tBTM_BLE_AD_MASK data_mask,
-                                               tBTM_BLE_ADV_DATA *p_data);
+/* This function is called to read batch scan reports */
+extern void BTM_BleReadScanReports(tBLE_SCAN_MODE scan_mode,
+                                   tBTM_BLE_SCAN_REP_CBACK cb);
+
+/* This function is called to setup the callback for tracking */
+extern void BTM_BleTrackAdvertiser(tBTM_BLE_TRACK_ADV_CBACK* p_track_cback,
+                                   tBTM_BLE_REF_VALUE ref_value);
 
 /*******************************************************************************
-**
-** Function         BTM_BleReset
-**
-** Description      This function is called to reset ULP controller.
-**
-** Parameters       None.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern void BTM_BleReset(void);
+ *
+ * Function         BTM_BleObserve
+ *
+ * Description      This procedure keep the device listening for advertising
+ *                  events from a broadcast device.
+ *
+ * Parameters       start: start or stop observe.
+ *                  duration: how long the scan should last, in seconds. 0 means
+ *                  scan without timeout. Starting the scan second time without
+ *                  timeout will disable the timer.
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+extern tBTM_STATUS BTM_BleObserve(bool start, uint8_t duration,
+                                  tBTM_INQ_RESULTS_CB* p_results_cb,
+                                  tBTM_CMPL_CB* p_cmpl_cb);
 
 /*******************************************************************************
-**
-** Function         BTM_BleObserve
-**
-** Description      This procedure keep the device listening for advertising
-**                  events from a broadcast device.
-**
-** Parameters       start: start or stop observe.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern tBTM_STATUS BTM_BleObserve(BOOLEAN start, UINT8 duration,
-                           tBTM_INQ_RESULTS_CB *p_results_cb, tBTM_CMPL_CB *p_cmpl_cb);
+ *
+ * Function         BTM_BleOpportunisticObserve
+ *
+ * Description      Register/unregister opportunistic scan callback. This method
+ *                  does not trigger scan start/stop, but if scan is ever started,
+ *                  this callback would get called with scan results. Additionally,
+ *                  this callback is not reset on each scan start/stop. It's
+ *                  intended to be used by LE Audio related profiles, that would
+ *                  find yet unpaired members of CSIS set, or broadcasts.
+ *
+ * Parameters       enable: enable/disable observing.
+ *                  p_results_cb: callback for results.
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+extern void BTM_BleOpportunisticObserve(bool enable,
+                                        tBTM_INQ_RESULTS_CB* p_results_cb);
 
+/** Returns local device encryption root (ER) */
+const Octet16& BTM_GetDeviceEncRoot();
 
-/*******************************************************************************
-**
-** Function         BTM_GetDeviceIDRoot
-**
-** Description      This function is called to read the local device identity
-**                  root.
-**
-** Returns          void
-**                  the local device ER is copied into er
-**
-*******************************************************************************/
-BTM_API extern void BTM_GetDeviceIDRoot (BT_OCTET16 ir);
+/** Returns local device identity root (IR) */
+extern const Octet16& BTM_GetDeviceIDRoot();
 
-/*******************************************************************************
-**
-** Function         BTM_GetDeviceEncRoot
-**
-** Description      This function is called to read the local device encryption
-**                  root.
-**
-** Returns          void
-**                  the local device ER is copied into er
-**
-*******************************************************************************/
-BTM_API extern void BTM_GetDeviceEncRoot (BT_OCTET16 er);
+/** Return local device DHK. */
+extern const Octet16& BTM_GetDeviceDHK();
 
 /*******************************************************************************
-**
-** Function         BTM_GetDeviceDHK
-**
-** Description      This function is called to read the local device DHK.
-**
-** Returns          void
-**                  the local device DHK is copied into dhk
-**
-*******************************************************************************/
-BTM_API extern void BTM_GetDeviceDHK (BT_OCTET16 dhk);
+ *
+ * Function         BTM_SecurityGrant
+ *
+ * Description      This function is called to grant security process.
+ *
+ * Parameters       bd_addr - peer device bd address.
+ *                  res     - result of the operation BTM_SUCCESS if success.
+ *                            Otherwise, BTM_REPEATED_ATTEMPTS is too many
+ *                            attempts.
+ *
+ * Returns          None
+ *
+ ******************************************************************************/
+extern void BTM_SecurityGrant(const RawAddress& bd_addr, uint8_t res);
 
 /*******************************************************************************
-**
-** Function         BTM_SecurityGrant
-**
-** Description      This function is called to grant security process.
-**
-** Parameters       bd_addr - peer device bd address.
-**                  res     - result of the operation BTM_SUCCESS if success.
-**                            Otherwise, BTM_REPEATED_ATTEMPTS is too many attempts.
-**
-** Returns          None
-**
-*******************************************************************************/
-BTM_API extern void BTM_SecurityGrant(BD_ADDR bd_addr, UINT8 res);
+ *
+ * Function         BTM_BlePasskeyReply
+ *
+ * Description      This function is called after Security Manager submitted
+ *                  passkey request to the application.
+ *
+ * Parameters:      bd_addr - Address of the device for which passkey was
+ *                            requested
+ *                  res     - result of the operation SMP_SUCCESS if success
+ *                  passkey - numeric value in the range of
+ *                               BTM_MIN_PASSKEY_VAL(0) -
+ *                               BTM_MAX_PASSKEY_VAL(999999(0xF423F)).
+ *
+ ******************************************************************************/
+extern void BTM_BlePasskeyReply(const RawAddress& bd_addr, uint8_t res,
+                                uint32_t passkey);
 
 /*******************************************************************************
-**
-** Function         BTM_BlePasskeyReply
-**
-** Description      This function is called after Security Manager submitted
-**                  passkey request to the application.
-**
-** Parameters:      bd_addr      - Address of the device for which passkey was requested
-**                  res          - result of the operation SMP_SUCCESS if success
-**                  passkey - numeric value in the range of
-**                  BTM_MIN_PASSKEY_VAL(0) - BTM_MAX_PASSKEY_VAL(999999(0xF423F)).
-**
-*******************************************************************************/
-BTM_API extern void BTM_BlePasskeyReply (BD_ADDR bd_addr, UINT8 res, UINT32 passkey);
+ *
+ * Function         BTM_BleConfirmReply
+ *
+ * Description      This function is called after Security Manager submitted
+ *                  numeric comparison request to the application.
+ *
+ * Parameters:      bd_addr      - Address of the device with which numeric
+ *                                 comparison was requested
+ *                  res          - comparison result BTM_SUCCESS if success
+ *
+ ******************************************************************************/
+extern void BTM_BleConfirmReply(const RawAddress& bd_addr, uint8_t res);
 
 /*******************************************************************************
-**
-** Function         BTM_LeOobDataReply
-**
-** Description      This function is called to provide the OOB data for
-**                  SMP in response to BTM_LE_OOB_REQ_EVT
-**
-** Parameters:      bd_addr     - Address of the peer device
-**                  res         - result of the operation SMP_SUCCESS if success
-**                  p_data      - simple pairing Randomizer  C.
-**
-*******************************************************************************/
-BTM_API extern void BTM_BleOobDataReply(BD_ADDR bd_addr, UINT8 res, UINT8 len, UINT8 *p_data);
-
-
-/*******************************************************************************
-**
-** Function         BTM_BleDataSignature
-**
-** Description      This function is called to sign the data using AES128 CMAC
-**                  algorith.
-**
-** Parameter        bd_addr: target device the data to be signed for.
-**                  p_text: singing data
-**                  len: length of the signing data
-**                  signature: output parameter where data signature is going to
-**                             be stored.
-**
-** Returns          TRUE if signing sucessul, otherwise FALSE.
-**
-*******************************************************************************/
-BTM_API extern BOOLEAN BTM_BleDataSignature (BD_ADDR bd_addr, UINT8 *p_text, UINT16 len,
-                                             BLE_SIGNATURE signature);
+ *
+ * Function         BTM_LeOobDataReply
+ *
+ * Description      This function is called to provide the OOB data for
+ *                  SMP in response to BTM_LE_OOB_REQ_EVT
+ *
+ * Parameters:      bd_addr     - Address of the peer device
+ *                  res         - result of the operation SMP_SUCCESS if success
+ *                  p_data      - simple pairing Randomizer  C.
+ *
+ ******************************************************************************/
+extern void BTM_BleOobDataReply(const RawAddress& bd_addr, uint8_t res,
+                                uint8_t len, uint8_t* p_data);
 
 /*******************************************************************************
-**
-** Function         BTM_BleVerifySignature
-**
-** Description      This function is called to verify the data signature
-**
-** Parameter        bd_addr: target device the data to be signed for.
-**                  p_orig:  original data before signature.
-**                  len: length of the signing data
-**                  counter: counter used when doing data signing
-**                  p_comp: signature to be compared against.
-
-** Returns          TRUE if signature verified correctly; otherwise FALSE.
-**
-*******************************************************************************/
-BTM_API extern BOOLEAN BTM_BleVerifySignature (BD_ADDR bd_addr, UINT8 *p_orig,
-                                            UINT16 len, UINT32 counter,
-                                            UINT8 *p_comp);
+ *
+ * Function         BTM_BleSecureConnectionOobDataReply
+ *
+ * Description      This function is called to provide the OOB data for
+ *                  SMP in response to BTM_LE_OOB_REQ_EVT when secure connection
+ *                  data is available
+ *
+ * Parameters:      bd_addr     - Address of the peer device
+ *                  p_c         - pointer to Confirmation
+ *                  p_r         - pointer to Randomizer.
+ *
+ ******************************************************************************/
+extern void BTM_BleSecureConnectionOobDataReply(const RawAddress& bd_addr,
+                                                uint8_t* p_c, uint8_t* p_r);
 
 /*******************************************************************************
-**
-** Function         BTM_SetRandomAddr
-**
-** Description      This function is called to set the local device random address
-**                  .
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern void BTM_SetRandomAddr (tBTM_BLE_RANDOM_SET_CBACK *p_cback);
+ *
+ * Function         BTM_BleDataSignature
+ *
+ * Description      This function is called to sign the data using AES128 CMAC
+ *                  algorith.
+ *
+ * Parameter        bd_addr: target device the data to be signed for.
+ *                  p_text: singing data
+ *                  len: length of the signing data
+ *                  signature: output parameter where data signature is going to
+ *                             be stored.
+ *
+ * Returns          true if signing sucessul, otherwise false.
+ *
+ ******************************************************************************/
+extern bool BTM_BleDataSignature(const RawAddress& bd_addr, uint8_t* p_text,
+                                 uint16_t len, BLE_SIGNATURE signature);
 
 /*******************************************************************************
-**
-** Function         BTM_ReadConnectionAddr
-**
-** Description      This function is called to set the local device random address
-**                  .
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern void BTM_ReadConnectionAddr (BD_ADDR conn_addr);
+ *
+ * Function         BTM_BleVerifySignature
+ *
+ * Description      This function is called to verify the data signature
+ *
+ * Parameter        bd_addr: target device the data to be signed for.
+ *                  p_orig:  original data before signature.
+ *                  len: length of the signing data
+ *                  counter: counter used when doing data signing
+ *                  p_comp: signature to be compared against.
+
+ * Returns          true if signature verified correctly; otherwise false.
+ *
+ ******************************************************************************/
+extern bool BTM_BleVerifySignature(const RawAddress& bd_addr, uint8_t* p_orig,
+                                   uint16_t len, uint32_t counter,
+                                   uint8_t* p_comp);
 
 /*******************************************************************************
-**
-** Function         BTM_BleLoadLocalKeys
-**
-** Description      Local local identity key, encryption root or sign counter.
-**
-** Parameters:      key_type: type of key, can be BTM_BLE_KEY_TYPE_ID, BTM_BLE_KEY_TYPE_ER
-**                            or BTM_BLE_KEY_TYPE_COUNTER.
-**                  p_key: pointer to the key.
+ *
+ * Function         BTM_IsBleConnection
+ *
+ * Description      This function is called to check if the connection handle
+ *                  for an LE link
+ *
+ * Returns          true if connection is LE link, otherwise false.
+ *
+ ******************************************************************************/
+extern bool BTM_IsBleConnection(uint16_t conn_handle);
+
+/*******************************************************************************
+ *
+ * Function         BTM_ReadRemoteConnectionAddr
+ *
+ * Description      Read the remote device address currently used.
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+extern bool BTM_ReadRemoteConnectionAddr(const RawAddress& pseudo_addr,
+                                         RawAddress& conn_addr,
+                                         tBLE_ADDR_TYPE* p_addr_type);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleLoadLocalKeys
+ *
+ * Description      Local local identity key, encryption root or sign counter.
+ *
+ * Parameters:      key_type: type of key, can be BTM_BLE_KEY_TYPE_ID,
+ *                            BTM_BLE_KEY_TYPE_ER
+ *                            or BTM_BLE_KEY_TYPE_COUNTER.
+ *                  p_key: pointer to the key.
 *
-** Returns          non2.
-**
-*******************************************************************************/
-BTM_API extern void BTM_BleLoadLocalKeys(UINT8 key_type, tBTM_BLE_LOCAL_KEYS *p_key);
+ * Returns          non2.
+ *
+ ******************************************************************************/
+extern void BTM_BleLoadLocalKeys(uint8_t key_type, tBTM_BLE_LOCAL_KEYS* p_key);
 
-
-/*******************************************************************************
-**
-** Function         BTM_BleSetBgConnType
-**
-** Description      This function is called to set BLE background connection
-**                  procedure type. It can be auto connection, or selective connection.
-**
-** Parameters       conn_type: it can be auto connection, or selective connection.
-**                  p_select_cback: callback function when selective connection procedure
-**                              is being used.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern BOOLEAN BTM_BleSetBgConnType(tBTM_BLE_CONN_TYPE   conn_type,
-                                    tBTM_BLE_SEL_CBACK   *p_select_cback);
-
-/*******************************************************************************
-**
-** Function         BTM_BleUpdateBgConnDev
-**
-** Description      This function is called to add or remove a device into/from
-**                  background connection procedure. The background connection
-*                   procedure is decided by the background connection type, it can be
-*                   auto connection, or selective connection.
-**
-** Parameters       add_remove: TRUE to add; FALSE to remove.
-**                  remote_bda: device address to add/remove.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern BOOLEAN BTM_BleUpdateBgConnDev(BOOLEAN add_remove, BD_ADDR   remote_bda);
-
+#include "stack/btm/btm_ble_bgconn.h"
 
 /********************************************************
-**
-** Function         BTM_BleSetPrefConnParams
-**
-** Description      Set a peripheral's preferred connection parameters. When
-**                  any of the value does not want to be updated while others
-**                  do, use BTM_BLE_CONN_PARAM_UNDEF for the ones want to
-**                  leave untouched.
-**
-** Parameters:      bd_addr          - BD address of the peripheral
-**                  min_conn_int     - minimum preferred connection interval
-**                  max_conn_int     - maximum preferred connection interval
-**                  slave_latency    - preferred slave latency
-**                  supervision_tout - preferred supervision timeout
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern  void BTM_BleSetPrefConnParams (BD_ADDR bd_addr,
-                                               UINT16 min_conn_int,  UINT16 max_conn_int,
-                                               UINT16 slave_latency, UINT16 supervision_tout);
+ *
+ * Function         BTM_BleSetPrefConnParams
+ *
+ * Description      Set a peripheral's preferred connection parameters. When
+ *                  any of the value does not want to be updated while others
+ *                  do, use BTM_BLE_CONN_PARAM_UNDEF for the ones want to
+ *                  leave untouched.
+ *
+ * Parameters:      bd_addr          - BD address of the peripheral
+ *                  min_conn_int     - minimum preferred connection interval
+ *                  max_conn_int     - maximum preferred connection interval
+ *                  peripheral_latency    - preferred peripheral latency
+ *                  supervision_tout - preferred supervision timeout
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+extern void BTM_BleSetPrefConnParams(const RawAddress& bd_addr,
+                                     uint16_t min_conn_int,
+                                     uint16_t max_conn_int,
+                                     uint16_t peripheral_latency,
+                                     uint16_t supervision_tout);
 
 /******************************************************************************
-**
-** Function         BTM_BleSetConnScanParams
-**
-** Description      Set scan parameters used in BLE connection request
-**
-** Parameters:      scan_interval    - scan interval
-**                  scan_window      - scan window
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern  void BTM_BleSetConnScanParams (UINT16 scan_interval, UINT16 scan_window);
+ *
+ * Function         BTM_BleReadControllerFeatures
+ *
+ * Description      Reads BLE specific controller features
+ *
+ * Parameters:      tBTM_BLE_CTRL_FEATURES_CBACK : Callback to notify when
+ *                  features are read
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+extern void BTM_BleReadControllerFeatures(
+    tBTM_BLE_CTRL_FEATURES_CBACK* p_vsc_cback);
 
 /*******************************************************************************
-**
-** Function         BTM_CheckAdvData
-**
-** Description      This function is called to get ADV data for a specific type.
-**
-** Parameters       p_adv - pointer of ADV data
-**                  type   - finding ADV data type
-**                  p_length - return the length of ADV data not including type
-**
-** Returns          pointer of ADV data
-**
-*******************************************************************************/
-BTM_API extern  UINT8 *BTM_CheckAdvData( UINT8 *p_adv, UINT8 type, UINT8 *p_length);
+ *
+ * Function         BTM__BLEReadDiscoverability
+ *
+ * Description      This function is called to read the current LE
+ *                  discoverability mode of the device.
+ *
+ * Returns          BTM_BLE_NON_DISCOVERABLE ,BTM_BLE_LIMITED_DISCOVERABLE or
+ *                     BTM_BLE_GENRAL_DISCOVERABLE
+ *
+ ******************************************************************************/
+uint16_t BTM_BleReadDiscoverability();
 
 /*******************************************************************************
-**
-** Function         BTM_ReadDevInfo
-**
-** Description      This function is called to read the device/address type
-**                  of BD address.
-**
-** Parameter        remote_bda: remote device address
-**                  p_dev_type: output parameter to read the device type.
-**                  p_addr_type: output parameter to read the address type.
-**
-*******************************************************************************/
-BTM_API extern void BTM_ReadDevInfo (BD_ADDR remote_bda, tBT_DEVICE_TYPE *p_dev_type,
-                                     tBLE_ADDR_TYPE *p_addr_type);
+ *
+ * Function         BTM__BLEReadConnectability
+ *
+ * Description      This function is called to read the current LE
+ *                  connectibility mode of the device.
+ *
+ * Returns          BTM_BLE_NON_CONNECTABLE or BTM_BLE_CONNECTABLE
+ *
+ ******************************************************************************/
+extern uint16_t BTM_BleReadConnectability();
 
 /*******************************************************************************
-**
-** Function         BTM_BleBroadcast
-**
-** Description      This function is to start or stop broadcasting.
-**
-** Parameters       start: start or stop broadcasting.
-**
-** Returns          status.
-**
-*******************************************************************************/
-BTM_API extern tBTM_STATUS BTM_BleBroadcast(BOOLEAN start);
+ *
+ * Function         BTM_ReadDevInfo
+ *
+ * Description      This function is called to read the device/address type
+ *                  of BD address.
+ *
+ * Parameter        remote_bda: remote device address
+ *                  p_dev_type: output parameter to read the device type.
+ *                  p_addr_type: output parameter to read the address type.
+ *
+ ******************************************************************************/
+extern void BTM_ReadDevInfo(const RawAddress& remote_bda,
+                            tBT_DEVICE_TYPE* p_dev_type,
+                            tBLE_ADDR_TYPE* p_addr_type);
 
 /*******************************************************************************
-**
-** Function         BTM_RegisterScanReqEvt
-**
-** Description      This function is called to register a scan request callback
-**                  on the advertiser.
-**
-** Parameters       p_scan_req_cback: scan request callback.  If NULL, remove the
-**                                    registration.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTM_API extern void BTM_RegisterScanReqEvt(tBTM_BLE_SCAN_REQ_CBACK *p_scan_req_cback);
+ *
+ * Function         BTM_ReadConnectedTransportAddress
+ *
+ * Description      This function is called to read the paired device/address
+ *                  type of other device paired corresponding to the BD_address
+ *
+ * Parameter        remote_bda: remote device address, carry out the transport
+ *                              address
+ *                  transport: active transport
+ *
+ * Return           true if an active link is identified; false otherwise
+ *
+ ******************************************************************************/
+extern bool BTM_ReadConnectedTransportAddress(RawAddress* remote_bda,
+                                              tBT_TRANSPORT transport);
 
+/*******************************************************************************
+ *
+ * Function         BTM_BleConfigPrivacy
+ *
+ * Description      This function is called to enable or disable the privacy in
+ *                  the local device.
+ *
+ * Parameters       enable: true to enable it; false to disable it.
+ *
+ * Returns          bool    privacy mode set success; otherwise failed.
+ *
+ ******************************************************************************/
+extern bool BTM_BleConfigPrivacy(bool enable);
 
-#ifdef __cplusplus
-}
-#endif
+/*******************************************************************************
+ *
+ * Function         BTM_BleLocalPrivacyEnabled
+ *
+ * Description        Checks if local device supports private address
+ *
+ * Returns          Return true if local privacy is enabled else false
+ *
+ ******************************************************************************/
+extern bool BTM_BleLocalPrivacyEnabled(void);
+
+/*******************************************************************************
+ *
+ * Function          BTM_BleMaxMultiAdvInstanceCount
+ *
+ * Description      Returns the maximum number of multi adv instances supported
+ *                  by the controller.
+ *
+ * Returns          Max multi adv instance count
+ *
+ ******************************************************************************/
+extern uint8_t BTM_BleMaxMultiAdvInstanceCount();
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleReceiverTest
+ *
+ * Description      This function is called to start the LE Receiver test
+ *
+ * Parameter       rx_freq - Frequency Range
+ *               p_cmd_cmpl_cback - Command Complete callback
+ *
+ ******************************************************************************/
+void BTM_BleReceiverTest(uint8_t rx_freq, tBTM_CMPL_CB* p_cmd_cmpl_cback);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleTransmitterTest
+ *
+ * Description      This function is called to start the LE Transmitter test
+ *
+ * Parameter       tx_freq - Frequency Range
+ *                       test_data_len - Length in bytes of payload data in each
+ *                                       packet
+ *                       packet_payload - Pattern to use in the payload
+ *                       p_cmd_cmpl_cback - Command Complete callback
+ *
+ ******************************************************************************/
+void BTM_BleTransmitterTest(uint8_t tx_freq, uint8_t test_data_len,
+                            uint8_t packet_payload,
+                            tBTM_CMPL_CB* p_cmd_cmpl_cback);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleTestEnd
+ *
+ * Description     This function is called to stop the in-progress TX or RX test
+ *
+ * Parameter       p_cmd_cmpl_cback - Command complete callback
+ *
+ ******************************************************************************/
+void BTM_BleTestEnd(tBTM_CMPL_CB* p_cmd_cmpl_cback);
+
+/*******************************************************************************
+ *
+ * Function         BTM_UseLeLink
+ *
+ * Description      Select the underlying physical link to use.
+ *
+ * Returns          true to use LE, false use BR/EDR.
+ *
+ ******************************************************************************/
+extern bool BTM_UseLeLink(const RawAddress& bd_addr);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleAdvFilterParamSetup
+ *
+ * Description      This function is called to setup the adv data payload filter
+ *                  condition.
+ *
+ ******************************************************************************/
+extern void BTM_BleAdvFilterParamSetup(
+    tBTM_BLE_SCAN_COND_OP action, tBTM_BLE_PF_FILT_INDEX filt_index,
+    std::unique_ptr<btgatt_filt_param_setup_t> p_filt_params,
+    tBTM_BLE_PF_PARAM_CB cb);
+
+/**
+ * This functions are called to configure the adv data payload filter condition
+ */
+extern void BTM_LE_PF_set(tBTM_BLE_PF_FILT_INDEX filt_index,
+                          std::vector<ApcfCommand> commands,
+                          tBTM_BLE_PF_CFG_CBACK cb);
+extern void BTM_LE_PF_clear(tBTM_BLE_PF_FILT_INDEX filt_index,
+                            tBTM_BLE_PF_CFG_CBACK cb);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleEnableDisableFilterFeature
+ *
+ * Description      Enable or disable the APCF feature
+ *
+ * Parameters       enable - true - enables APCF, false - disables APCF
+ *
+ ******************************************************************************/
+extern void BTM_BleEnableDisableFilterFeature(
+    uint8_t enable, tBTM_BLE_PF_STATUS_CBACK p_stat_cback);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleGetEnergyInfo
+ *
+ * Description      This function obtains the energy info
+ *
+ * Parameters       p_ener_cback - Callback pointer
+ *
+ * Returns          status
+ *
+ ******************************************************************************/
+extern tBTM_STATUS BTM_BleGetEnergyInfo(
+    tBTM_BLE_ENERGY_INFO_CBACK* p_ener_cback);
+
+/*******************************************************************************
+ *
+ * Function         BTM_SetBleDataLength
+ *
+ * Description      Set the maximum BLE transmission packet size
+ *
+ * Returns          BTM_SUCCESS if success; otherwise failed.
+ *
+ ******************************************************************************/
+extern tBTM_STATUS BTM_SetBleDataLength(const RawAddress& bd_addr,
+                                        uint16_t tx_pdu_length);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleReadPhy
+ *
+ * Description      To read the current PHYs for specified LE connection
+ *
+ *
+ * Returns          BTM_SUCCESS if success; otherwise failed.
+ *
+ ******************************************************************************/
+extern void BTM_BleReadPhy(
+    const RawAddress& bd_addr,
+    base::Callback<void(uint8_t tx_phy, uint8_t rx_phy, uint8_t status)> cb);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleSetPhy
+ *
+ * Description      To set PHY preferences for specified LE connection
+ *
+ *
+ * Returns          BTM_SUCCESS if success; otherwise failed.
+ *
+ ******************************************************************************/
+extern void BTM_BleSetPhy(const RawAddress& bd_addr, uint8_t tx_phys,
+                          uint8_t rx_phys, uint16_t phy_options);
+
+extern void btm_ble_multi_adv_cleanup(void);
+
+/*******************************************************************************
+ *
+ * Function         btm_ble_get_acl_remote_addr
+ *
+ * Description      This function reads the active remote address used for the
+ *                  connection.
+ *
+ * Returns          success return true, otherwise false.
+ *
+ ******************************************************************************/
+bool btm_ble_get_acl_remote_addr(uint16_t hci_handle, RawAddress& conn_addr,
+                                 tBLE_ADDR_TYPE* p_addr_type);
 
 #endif

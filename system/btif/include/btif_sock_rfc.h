@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright (C) 2009-2012 Broadcom Corporation
+ *  Copyright 2009-2012 Broadcom Corporation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -22,17 +22,22 @@
  *
  *  Description:   Bluetooth socket Interface
  *
- *******************************************************************************/
+ ******************************************************************************/
 
 #ifndef BTIF_SOCK_RFC_H
 #define BTIF_SOCK_RFC_H
 
-bt_status_t btsock_rfc_init(int handle);
+#include "btif_uid.h"
+#include "types/bluetooth/uuid.h"
+#include "types/raw_address.h"
+bt_status_t btsock_rfc_init(int handle, uid_set_t* set);
 bt_status_t btsock_rfc_cleanup();
-bt_status_t btsock_rfc_listen(const char* name, const uint8_t* uuid, int channel,
-                              int* sock_fd, int flags);
-bt_status_t btsock_rfc_connect(const bt_bdaddr_t *bd_addr, const uint8_t* uuid,
-                               int channel, int* sock_fd, int flags);
+bt_status_t btsock_rfc_listen(const char* name, const bluetooth::Uuid* uuid,
+                              int channel, int* sock_fd, int flags,
+                              int app_uid);
+bt_status_t btsock_rfc_connect(const RawAddress* bd_addr,
+                               const bluetooth::Uuid* uuid, int channel,
+                               int* sock_fd, int flags, int app_uid);
 void btsock_rfc_signaled(int fd, int flags, uint32_t user_id);
 
 #endif

@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright (C) 1999-2012 Broadcom Corporation
+ *  Copyright 1999-2012 Broadcom Corporation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -25,8 +25,6 @@
 #ifndef PORTEXT_H
 #define PORTEXT_H
 
-#include "gki.h"
-
-/* Port emulation entity Entry Points */
-extern void rfcomm_process_timeout (TIMER_LIST_ENT  *p_tle);
+extern void rfcomm_port_timer_timeout(void* data);
+extern void rfcomm_mcb_timer_timeout(void* data);
 #endif

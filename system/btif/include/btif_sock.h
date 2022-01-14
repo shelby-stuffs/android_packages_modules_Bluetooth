@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright (C) 2009-2012 Broadcom Corporation
+ *  Copyright 2014 Google, Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -16,21 +16,13 @@
  *
  ******************************************************************************/
 
-/*******************************************************************************
- *
- *  Filename:      btif_sock.h
- *
- *  Description:   Bluetooth socket Interface
- *
- *******************************************************************************/
+#pragma once
 
-#ifndef BTIF_SOCK_H
-#define BTIF_SOCK_H
+#include "btif_uid.h"
 
 #include <hardware/bt_sock.h>
 
-bt_status_t btif_sock_init();
-btsock_interface_t *btif_sock_get_interface();
-void btif_sock_cleanup();
+const btsock_interface_t* btif_sock_get_interface(void);
 
-#endif
+bt_status_t btif_sock_init(uid_set_t* uid_set);
+void btif_sock_cleanup(void);

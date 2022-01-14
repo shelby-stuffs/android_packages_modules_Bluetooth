@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright (C) 2009-2012 Broadcom Corporation
+ *  Copyright 2014 Google, Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -16,62 +16,65 @@
  *
  ******************************************************************************/
 
-/*******************************************************************************
- *
- *  Filename:      btif_config.h
- *
- *  Description:   Bluetooth configuration Interface
- *
- *******************************************************************************/
+#pragma once
 
-#ifndef BTIF_CONFIG_H
-#define BTIF_CONFIG_H
+#include <stdbool.h>
+#include <stddef.h>
 
-#ifdef __cplusplus
-#include <stdint.h>
-extern "C" {
-#endif
+#include <list>
+#include <string>
+#include <vector>
 
-/*******************************************************************************
-** Constants & Macros
-********************************************************************************/
+#include "osi/include/config.h"
+#include "types/ble_address_with_type.h"
+#include "types/raw_address.h"
 
-#define BTIF_CFG_TYPE_INVALID   0
-#define BTIF_CFG_TYPE_STR       1
-#define BTIF_CFG_TYPE_INT      (1 << 1)
-#define BTIF_CFG_TYPE_BIN      (1 << 2)
-#define BTIF_CFG_TYPE_VOLATILE (1 << 15)
+static const char BTIF_CONFIG_MODULE[] = "btif_config_module";
 
+static const std::string BT_CONFIG_KEY_SDP_DI_MANUFACTURER =
+    "SdpDiManufacturer";
+static const std::string BT_CONFIG_KEY_SDP_DI_MODEL = "SdpDiModel";
+static const std::string BT_CONFIG_KEY_SDP_DI_HW_VERSION =
+    "SdpDiHardwareVersion";
+static const std::string BT_CONFIG_KEY_SDP_DI_VENDOR_ID_SRC =
+    "SdpDiVendorIdSource";
 
-/*******************************************************************************
-**  Functions
-********************************************************************************/
+static const std::string BT_CONFIG_KEY_REMOTE_VER_MFCT = "Manufacturer";
+static const std::string BT_CONFIG_KEY_REMOTE_VER_VER = "LmpVer";
+static const std::string BT_CONFIG_KEY_REMOTE_VER_SUBVER = "LmpSubVer";
 
-int btif_config_init();
+bool btif_config_exist(const std::string& section, const std::string& key);
+bool btif_config_get_int(const std::string& section, const std::string& key,
+                         int* value);
+bool btif_config_set_int(const std::string& section, const std::string& key,
+                         int value);
+bool btif_config_get_uint64(const std::string& section, const std::string& key,
+                            uint64_t* value);
+bool btif_config_set_uint64(const std::string& section, const std::string& key,
+                            uint64_t value);
+bool btif_config_get_str(const std::string& section, const std::string& key,
+                         char* value, int* size_bytes);
+bool btif_config_set_str(const std::string& section, const std::string& key,
+                         const std::string& value);
+bool btif_config_get_bin(const std::string& section, const std::string& key,
+                         uint8_t* value, size_t* length);
+bool btif_config_set_bin(const std::string& section, const std::string& key,
+                         const uint8_t* value, size_t length);
+bool btif_config_remove(const std::string& section, const std::string& key);
 
-int btif_config_exist(const char* section, const char* key, const char* name);
-int btif_config_get_int(const char* section, const char* key, const char* name, int* value);
-int btif_config_set_int(const char* section, const char* key, const char* name, int value);
-int btif_config_get_str(const char* section, const char* key, const char* name, char* value, int* bytes);
-int btif_config_set_str(const char* section, const char* key, const char* name, const char* value);
+size_t btif_config_get_bin_length(const std::string& section,
+                                  const std::string& key);
 
-int btif_config_get(const char* section, const char* key, const char* name, char* value, int* bytes, int* type);
-int btif_config_set(const char* section, const char* key, const char* name, const char*  value, int bytes, int type);
+std::vector<RawAddress> btif_config_get_paired_devices();
 
-int btif_config_remove(const char* section, const char* key, const char* name);
+void btif_config_save(void);
+void btif_config_flush(void);
+bool btif_config_clear(void);
 
-short btif_config_next_key(short current_key_pos, const char* section, char * key_name, int* key_name_bytes);
-short btif_config_next_value(short pos, const char* section, const char* key, char* value_name, int* value_name_bytes);
+// TODO(zachoverflow): Eww...we need to move these out. These are peer specific,
+// not config general.
+bool btif_get_address_type(const RawAddress& bd_addr,
+                           tBLE_ADDR_TYPE* p_addr_type);
+bool btif_get_device_type(const RawAddress& bd_addr, int* p_device_type);
 
-typedef void (*btif_config_enum_callback)(void* user_data, const char* section, const char* key, const char* name,
-                                          const char*  value, int bytes, int type);
-int btif_config_enum(btif_config_enum_callback cb, void* user_data);
-
-int btif_config_save();
-void btif_config_flush();
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+void btif_debug_config_dump(int fd);

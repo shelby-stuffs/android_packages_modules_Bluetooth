@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright (C) 1999-2012 Broadcom Corporation
+ *  Copyright 1999-2012 Broadcom Corporation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -25,33 +25,10 @@
 #ifndef SBC_TYPES_H
 #define SBC_TYPES_H
 
-#ifdef BUILDCFG
+#include <stdint.h>
+
 #include "bt_target.h"
-#endif
 
-#include "data_types.h"
-
-typedef short SINT16;
-typedef long SINT32;
-
-#if (SBC_IPAQ_OPT == TRUE)
-
-#if (SBC_FOR_EMBEDDED_LINUX == TRUE)
-typedef long long SINT64;
-#else
-typedef __int64 SINT64;
-#endif
-
-#elif (SBC_IS_64_MULT_IN_WINDOW_ACCU == TRUE) || (SBC_IS_64_MULT_IN_IDCT == TRUE)
-
-#if (SBC_FOR_EMBEDDED_LINUX == TRUE)
-typedef long long SINT64;
-#else
-typedef __int64 SINT64;
-#endif
-
-#endif
-
-#define abs32(x) ( (x >= 0) ? x : (-x) )
+#define abs32(x) (((x) >= 0) ? (x) : (-(x)))
 
 #endif

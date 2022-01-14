@@ -1,6 +1,7 @@
 /******************************************************************************
  *
- *  Copyright (C) 2009-2012 Broadcom Corporation
+ *  Copyright (c) 2014 The Android Open Source Project
+ *  Copyright 2009-2012 Broadcom Corporation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -20,54 +21,47 @@
 #define BTIF_UTIL_H
 
 #include <hardware/bluetooth.h>
-#include <hardware/bt_hf.h>
-#include <utils/Log.h>
+#include <stdbool.h>
+#include <sys/time.h>
 
-#include "data_types.h"
-#include "bt_types.h"
-
-/*******************************************************************************
-**  Constants & Macros
-********************************************************************************/
-
-#define CASE_RETURN_STR(const) case const: return #const;
-
+#include "stack/include/bt_dev_class.h"
+#include "utils/include/bt_utils.h"
 
 /*******************************************************************************
-**  Type definitions for callback functions
-********************************************************************************/
+ *  Constants & Macros
+ ******************************************************************************/
 
-typedef char bdstr_t[18];
-
+#define CASE_RETURN_STR(const) \
+  case const:                  \
+    return #const;
 
 /*******************************************************************************
-**  Functions
-********************************************************************************/
+ *  Type definitions for callback functions
+ ******************************************************************************/
+
+/*******************************************************************************
+ *  Functions
+ ******************************************************************************/
 
 const char* dump_bt_status(bt_status_t status);
-const char* dump_dm_search_event(UINT16 event);
-const char* dump_dm_event(UINT16 event);
-const char* dump_hf_event(UINT16 event);
-const char* dump_hh_event(UINT16 event);
-const char* dump_hf_conn_state(UINT16 event);
-const char* dump_hf_call_state(bthf_call_state_t call_state);
+const char* dump_dm_search_event(uint16_t event);
+const char* dump_dm_event(uint16_t event);
+const char* dump_hf_event(uint16_t event);
+const char* dump_hf_client_event(uint16_t event);
+const char* dump_hh_event(uint16_t event);
+const char* dump_hd_event(uint16_t event);
 const char* dump_property_type(bt_property_type_t type);
-const char* dump_hf_audio_state(UINT16 event);
 const char* dump_adapter_scan_mode(bt_scan_mode_t mode);
 const char* dump_thread_evt(bt_cb_thread_evt evt);
+const char* dump_av_conn_state(uint16_t event);
+const char* dump_av_audio_state(uint16_t event);
+const char* dump_rc_event(uint8_t event);
+const char* dump_rc_notification_event_id(uint8_t event_id);
+const char* dump_rc_pdu(uint8_t pdu);
 
-const char* dump_av_conn_state(UINT16 event);
-const char* dump_av_audio_state(UINT16 event);
+uint32_t devclass2uint(DEV_CLASS dev_class);
+void uint2devclass(uint32_t dev, DEV_CLASS dev_class);
 
-int str2bd(char *str, bt_bdaddr_t *addr);
-char *bd2str(bt_bdaddr_t *addr, bdstr_t *bdstr);
-
-UINT32 devclass2uint(DEV_CLASS dev_class);
-void uint2devclass(UINT32 dev, DEV_CLASS dev_class);
-void uuid16_to_uuid128(uint16_t uuid16, bt_uuid_t* uuid128);
-
-void uuid_to_string(bt_uuid_t *p_uuid, char *str);
-void string_to_uuid(char *str, bt_uuid_t *p_uuid);
-int ascii_2_hex (char *p_ascii, int len, UINT8 *p_hex);
+int ascii_2_hex(const char* p_ascii, int len, uint8_t* p_hex);
 
 #endif /* BTIF_UTIL_H */

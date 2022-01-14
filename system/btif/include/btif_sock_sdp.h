@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright (C) 2009-2012 Broadcom Corporation
+ *  Copyright 2009-2012 Broadcom Corporation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -18,22 +18,24 @@
 
 #ifndef BTIF_SOCK_SDP_H
 #define BTIF_SOCK_SDP_H
-static const UINT8  UUID_OBEX_OBJECT_PUSH[] = {0x00, 0x00, 0x11, 0x05, 0x00, 0x00, 0x10, 0x00,
-                                               0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB};
-static const UINT8  UUID_PBAP_PSE[]         = {0x00, 0x00, 0x11, 0x2F, 0x00, 0x00, 0x10, 0x00,
-                                               0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB};
-static const UINT8  UUID_SPP[]              = {0x00, 0x00, 0x11, 0x01, 0x00, 0x00, 0x10, 0x00,
-                                               0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB};
 
-static inline BOOLEAN is_uuid_empty(const uint8_t* uuid)
-{
-   static  uint8_t empty_uuid[16];
-   return uuid == NULL || memcmp(uuid, empty_uuid, sizeof(empty_uuid)) == 0;
-}
+#include <bluetooth/uuid.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
-int add_rfc_sdp_rec(const char* name, const uint8_t* uuid, int scn);
+static const bluetooth::Uuid UUID_OBEX_OBJECT_PUSH =
+    bluetooth::Uuid::From16Bit(0x1105);
+static const bluetooth::Uuid UUID_PBAP_PSE = bluetooth::Uuid::From16Bit(0x112F);
+static const bluetooth::Uuid UUID_MAP_MAS = bluetooth::Uuid::From16Bit(0x1132);
+static const bluetooth::Uuid UUID_SAP = bluetooth::Uuid::From16Bit(0x112D);
+static const bluetooth::Uuid UUID_SPP = bluetooth::Uuid::From16Bit(0x1101);
+static const bluetooth::Uuid UUID_DIP = bluetooth::Uuid::From16Bit(0x1200);
+static const bluetooth::Uuid UUID_MAP_MNS = bluetooth::Uuid::From16Bit(0x1133);
+
+int add_rfc_sdp_rec(const char* name, bluetooth::Uuid uuid, int scn);
 void del_rfc_sdp_rec(int handle);
-BOOLEAN is_reserved_rfc_channel(int channel);
-int get_reserved_rfc_channel(const uint8_t* uuid);
+bool is_reserved_rfc_channel(int channel);
+int get_reserved_rfc_channel(const bluetooth::Uuid& uuid);
 
 #endif

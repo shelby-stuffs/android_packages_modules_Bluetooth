@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright (C) 2007-2012 Broadcom Corporation
+ *  Copyright 2007-2012 Broadcom Corporation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -24,27 +24,29 @@
 #ifndef BTA_JV_CO_H
 #define BTA_JV_CO_H
 
-#include "bta_jv_api.h"
+#include <cstdint>
+
+#include "stack/include/bt_hdr.h"
+#include "stack/include/bt_types.h"
 
 /*****************************************************************************
-**  Function Declarations
-*****************************************************************************/
-
+ *  Function Declarations
+ ****************************************************************************/
 
 /*******************************************************************************
-**
-** Function         bta_jv_co_rfc_data
-**
-** Description      This function is called by JV to send data to the java glue
-**                  code when the RX data path is configured to use a call-out
-**
-** Returns          void
-**
-*******************************************************************************/
+ *
+ * Function         bta_jv_co_rfc_data
+ *
+ * Description      This function is called by JV to send data to the java glue
+ *                  code when the RX data path is configured to use a call-out
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
 
-BTA_API extern int bta_co_rfc_data_incoming(void *user_data, BT_HDR *p_buf);
-BTA_API extern int bta_co_rfc_data_outgoing_size(void *user_data, int *size);
-BTA_API extern int bta_co_rfc_data_outgoing(void *user_data, UINT8* buf, UINT16 size);
+extern int bta_co_rfc_data_incoming(uint32_t rfcomm_slot_id, BT_HDR* p_buf);
+extern int bta_co_rfc_data_outgoing_size(uint32_t rfcomm_slot_id, int* size);
+extern int bta_co_rfc_data_outgoing(uint32_t rfcomm_slot_id, uint8_t* buf,
+                                    uint16_t size);
 
 #endif /* BTA_DG_CO_H */
-
