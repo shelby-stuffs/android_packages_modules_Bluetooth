@@ -3309,22 +3309,6 @@ void btm_sec_encrypt_change(uint16_t handle, tHCI_STATUS status,
         BTM_TRACE_DEBUG("%s start SM over BR/EDR", __func__);
         SMP_BR_PairWith(p_dev_rec->bd_addr);
       }
-    } else {
-      // BR/EDR is successfully encrypted. Correct LK type if needed
-      // (BR/EDR LK derived from LE LTK was used for encryption)
-      if ((encr_enable == 1) && /* encryption is ON for SSP */
-          /* LK type is for BR/EDR SC */
-          (p_dev_rec->link_key_type == BTM_LKEY_TYPE_UNAUTH_COMB_P_256 ||
-           p_dev_rec->link_key_type == BTM_LKEY_TYPE_AUTH_COMB_P_256)) {
-        if (p_dev_rec->link_key_type == BTM_LKEY_TYPE_UNAUTH_COMB_P_256)
-          p_dev_rec->link_key_type = BTM_LKEY_TYPE_UNAUTH_COMB;
-        else /* BTM_LKEY_TYPE_AUTH_COMB_P_256 */
-          p_dev_rec->link_key_type = BTM_LKEY_TYPE_AUTH_COMB;
-
-        BTM_TRACE_DEBUG("updated link key type to %d",
-                        p_dev_rec->link_key_type);
-        btm_send_link_key_notif(p_dev_rec);
-      }
     }
   }
 
@@ -3820,6 +3804,20 @@ void btm_sec_disconnected(uint16_t handle, tHCI_REASON reason,
     LOG_DEBUG("Cleaned up pending security state device:%s transport:%s",
               PRIVATE_ADDRESS(p_dev_rec->bd_addr),
               bt_transport_text(transport).c_str());
+  }
+}
+
+void btm_sec_role_changed(tHCI_STATUS hci_status, const RawAddress& bd_addr,
+                          tHCI_ROLE new_role) {
+  tBTM_SEC_DEV_REC* p_dev_rec = btm_find_dev(bd_addr);
+
+  if (p_dev_rec == nullptr || hci_status != HCI_SUCCESS) {
+    return;
+  }
+  if (new_role == HCI_ROLE_CENTRAL && btm_dev_authenticated(p_dev_rec) &&
+      !btm_dev_encrypted(p_dev_rec)) {
+    BTM_SetEncryption(p_dev_rec->bd_addr, BT_TRANSPORT_BR_EDR, NULL, NULL,
+                      BTM_BLE_SEC_NONE);
   }
 }
 
