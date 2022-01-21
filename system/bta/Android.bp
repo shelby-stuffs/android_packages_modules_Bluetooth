@@ -295,6 +295,7 @@ cc_test {
     ],
     srcs : [
         ":TestMockBtif",
+        ":TestMockMainShimLeScanning",
         "csis/csis_client.cc",
         "csis/csis_client_test.cc",
         "groups/groups.cc",
@@ -514,6 +515,7 @@ cc_test {
         "libbt-protos-lite",
         "libosi",
         "liblc3codec",
+        "liblc3encoder",
     ],
     sanitize: {
         cfi: true,
