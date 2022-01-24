@@ -29,12 +29,16 @@ using bluetooth::audio::le_audio::LeAudioClientInterface;
 
 namespace {
 LeAudioCodecConfiguration source_codec_config;
+bluetooth::common::MessageLoopThread worker_thread(
+    "bt_le_audio_sink_worker_thread");
 bluetooth::common::RepeatingTimer audio_timer;
 LeAudioClientInterface* leAudioClientInterface = nullptr;
-LeAudioClientInterface::Sink* sinkClientInterface = nullptr;
 LeAudioClientInterface::Source* sourceClientInterface = nullptr;
 LeAudioClientAudioSinkReceiver* localAudioSinkReceiver = nullptr;
 LeAudioClientAudioSourceReceiver* localAudioSourceReceiver = nullptr;
+/* Guard audio sink receiver mutual access from stack with internal mutex */
+std::mutex sinkInterfaceMutex;
+LeAudioClientInterface::Sink* sinkClientInterface = nullptr;
 
 enum {
   HAL_UNINITIALIZED,
@@ -89,6 +93,7 @@ void send_audio_data() {
         bluetooth::common::time_get_os_boottime_us();
   }
 
+  std::lock_guard<std::mutex> guard(sinkInterfaceMutex);
   if (localAudioSinkReceiver != nullptr) {
     localAudioSinkReceiver->OnAudioDataReady(data);
   }
@@ -97,7 +102,7 @@ void send_audio_data() {
 void start_audio_ticks() {
   wakelock_acquire();
   audio_timer.SchedulePeriodic(
-      get_main_thread()->GetWeakPtr(), FROM_HERE, base::Bind(&send_audio_data),
+      worker_thread.GetWeakPtr(), FROM_HERE, base::Bind(&send_audio_data),
       base::TimeDelta::FromMicroseconds(source_codec_config.data_interval_us));
 }
 
@@ -106,7 +111,25 @@ void stop_audio_ticks() {
   wakelock_release();
 }
 
+bool init_audio_sink_thread() {
+  worker_thread.StartUp();
+  if (!worker_thread.IsRunning()) {
+    LOG(ERROR) << __func__ << ", unable to start up media thread";
+    return false;
+  }
+
+  /* Schedule the rest of the operations */
+  if (!worker_thread.EnableRealTimeScheduling()) {
+#if defined(OS_ANDROID)
+    LOG(FATAL) << __func__ << ", Failed to increase media thread priority";
+#endif
+  }
+
+  return true;
+}
+
 bool le_audio_sink_on_resume_req(bool start_media_task) {
+  std::lock_guard<std::mutex> guard(sinkInterfaceMutex);
   if (localAudioSinkReceiver == nullptr) {
     LOG(ERROR) << __func__ << ": localAudioSinkReceiver is nullptr";
     return false;
@@ -143,6 +166,7 @@ bool le_audio_source_on_resume_req(bool start_media_task) {
 }
 
 bool le_audio_sink_on_suspend_req() {
+  std::lock_guard<std::mutex> guard(sinkInterfaceMutex);
   stop_audio_ticks();
   if (localAudioSinkReceiver != nullptr) {
     // Call OnAudioSuspend and block till it returns.
@@ -195,6 +219,7 @@ bool le_audio_source_on_suspend_req() {
 
 bool le_audio_sink_on_metadata_update_req(
     const source_metadata_t& source_metadata) {
+  std::lock_guard<std::mutex> guard(sinkInterfaceMutex);
   if (localAudioSinkReceiver == nullptr) {
     LOG(ERROR) << __func__ << ", audio receiver not started";
     return false;
@@ -218,6 +243,12 @@ bool le_audio_sink_on_metadata_update_req(
   LOG(ERROR) << __func__ << ", do_in_main_thread err=" << status;
 
   return false;
+}
+
+bool le_audio_source_on_metadata_update_req(
+    const sink_metadata_t& sink_metadata) {
+  // TODO: update microphone configuration based on sink metadata
+  return true;
 }
 
 }  // namespace
@@ -256,6 +287,7 @@ bool LeAudioClientAudioSource::Start(
   sinkClientInterface->SetPcmParameters(pcmParameters);
   sinkClientInterface->StartSession();
 
+  std::lock_guard<std::mutex> guard(sinkInterfaceMutex);
   localAudioSinkReceiver = audioReceiver;
   le_audio_sink_hal_state = HAL_STARTED;
 
@@ -278,6 +310,7 @@ void LeAudioClientAudioSource::Stop() {
 
   sinkClientInterface->StopSession();
   le_audio_sink_hal_state = HAL_STOPPED;
+  std::lock_guard<std::mutex> guard(sinkInterfaceMutex);
   localAudioSinkReceiver = nullptr;
 
   stop_audio_ticks();
@@ -304,6 +337,7 @@ const void* LeAudioClientAudioSource::Acquire() {
       .on_resume_ = le_audio_sink_on_resume_req,
       .on_suspend_ = le_audio_sink_on_suspend_req,
       .on_metadata_update_ = le_audio_sink_on_metadata_update_req,
+      .on_sink_metadata_update_ = le_audio_source_on_metadata_update_req,
   };
 
   sinkClientInterface =
@@ -313,6 +347,8 @@ const void* LeAudioClientAudioSource::Acquire() {
     LOG(ERROR) << __func__ << ", can't get LE audio sink client interface";
     return nullptr;
   }
+
+  if (!init_audio_sink_thread()) return nullptr;
 
   le_audio_sink_hal_state = HAL_STOPPED;
   return sinkClientInterface;
@@ -330,6 +366,7 @@ void LeAudioClientAudioSource::Release(const void* instance) {
     return;
   }
 
+  worker_thread.ShutDown();
   sinkClientInterface->Cleanup();
   leAudioClientInterface->ReleaseSink(sinkClientInterface);
   le_audio_sink_hal_state = HAL_UNINITIALIZED;
@@ -462,6 +499,7 @@ const void* LeAudioClientAudioSink::Acquire() {
   auto source_stream_cb = bluetooth::audio::le_audio::StreamCallbacks{
       .on_resume_ = le_audio_source_on_resume_req,
       .on_suspend_ = le_audio_source_on_suspend_req,
+      .on_sink_metadata_update_ = le_audio_source_on_metadata_update_req,
   };
 
   sourceClientInterface =

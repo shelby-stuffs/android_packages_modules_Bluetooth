@@ -2425,13 +2425,17 @@ public class AdapterService extends Service {
         }
 
         @Override
-        public int isCisCentralSupported() {
+        public int isLeAudioSupported() {
             AdapterService service = getService();
             if (service == null) {
                 return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
             }
 
-            if (service.mAdapterProperties.isLeConnectedIsochronousStreamCentralSupported()) {
+            HashSet<Class> supportedProfileServices =
+                    new HashSet<Class>(Arrays.asList(Config.getSupportedProfiles()));
+            HashSet<Class> leAudioUnicastProfiles = Config.geLeAudioUnicastProfiles();
+
+            if (supportedProfileServices.containsAll(leAudioUnicastProfiles)) {
                 return BluetoothStatusCodes.SUCCESS;
             }
 
@@ -2728,6 +2732,23 @@ public class AdapterService extends Service {
     @VisibleForTesting
     public DatabaseManager getDatabase() {
         return mDatabaseManager;
+    }
+
+    public byte[] getByteIdentityAddress(BluetoothDevice device) {
+        DeviceProperties deviceProp = mRemoteDevices.getDeviceProperties(device);
+        if (deviceProp.isConsolidated()) {
+            return Utils.getBytesFromAddress(deviceProp.getIdentityAddress());
+        } else {
+            return Utils.getByteAddress(device);
+        }
+    }
+
+    public BluetoothDevice getDeviceFromByte(byte[] address) {
+        BluetoothDevice device = mRemoteDevices.getDevice(address);
+        if (device == null) {
+            device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(address);
+        }
+        return device;
     }
 
     private class CallerInfo {
