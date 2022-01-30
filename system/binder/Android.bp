@@ -96,6 +96,7 @@ cc_library_shared {
 filegroup {
     name: "libbluetooth-binder-aidl",
     srcs: [
+        ":modules-utils-synchronous-result-receiver-aidl",
         "android/bluetooth/IBluetooth.aidl",
         "android/bluetooth/IBluetoothA2dp.aidl",
         "android/bluetooth/IBluetoothA2dpSink.aidl",
