@@ -20,13 +20,13 @@ import static android.bluetooth.BluetoothDevice.TRANSPORT_AUTO;
 import static android.text.format.DateUtils.MINUTE_IN_MILLIS;
 import static android.text.format.DateUtils.SECOND_IN_MILLIS;
 
-import static com.android.bluetooth.Utils.addressToBytes;
 import static com.android.bluetooth.Utils.callerIsSystemOrActiveOrManagedUser;
 import static com.android.bluetooth.Utils.callerIsSystemOrActiveUser;
 import static com.android.bluetooth.Utils.enforceBluetoothPrivilegedPermission;
 import static com.android.bluetooth.Utils.enforceCdmAssociation;
 import static com.android.bluetooth.Utils.enforceDumpPermission;
 import static com.android.bluetooth.Utils.enforceLocalMacAddressPermission;
+import static com.android.bluetooth.Utils.getBytesFromAddress;
 import static com.android.bluetooth.Utils.hasBluetoothPrivilegedPermission;
 import static com.android.bluetooth.Utils.isPackageNameAccurate;
 
@@ -99,7 +99,6 @@ import com.android.bluetooth.BluetoothStatsLog;
 import com.android.bluetooth.Utils;
 import com.android.bluetooth.a2dp.A2dpService;
 import com.android.bluetooth.a2dpsink.A2dpSinkService;
-import com.android.bluetooth.btservice.MetricsLogger;
 import com.android.bluetooth.btservice.RemoteDevices.DeviceProperties;
 import com.android.bluetooth.btservice.activityattribution.ActivityAttributionService;
 import com.android.bluetooth.btservice.bluetoothkeystore.BluetoothKeystoreService;
@@ -524,7 +523,7 @@ public class AdapterService extends Service {
 
         setAdapterService(this);
 
-        invalidateBluetoothCaches();
+        //invalidateBluetoothCaches();
 
         // First call to getSharedPreferences will result in a file read into
         // memory cache. Call it here asynchronously to avoid potential ANR
@@ -714,9 +713,11 @@ public class AdapterService extends Service {
         setProfileServiceState(GattService.class, BluetoothAdapter.STATE_OFF);
     }
 
+    /*
     private void invalidateBluetoothGetStateCache() {
         BluetoothAdapter.invalidateBluetoothGetStateCache();
     }
+     */
 
     void updateLeAudioProfileServiceState(boolean isCisCentralSupported) {
         if (isCisCentralSupported) {
@@ -737,7 +738,7 @@ public class AdapterService extends Service {
 
     void updateAdapterState(int prevState, int newState) {
         mAdapterProperties.setState(newState);
-        invalidateBluetoothGetStateCache();
+        //invalidateBluetoothGetStateCache();
         if (mCallbacks != null) {
             int n = mCallbacks.beginBroadcast();
             debugLog("updateAdapterState() - Broadcasting state " + BluetoothAdapter.nameForState(
@@ -835,7 +836,7 @@ public class AdapterService extends Service {
         clearAdapterService(this);
 
         mCleaningUp = true;
-        invalidateBluetoothCaches();
+        //invalidateBluetoothCaches();
 
         unregisterReceiver(mAlarmBroadcastReceiver);
 
@@ -930,6 +931,7 @@ public class AdapterService extends Service {
         }
     }
 
+    /*
     private void invalidateBluetoothCaches() {
         BluetoothAdapter.invalidateGetProfileConnectionStateCache();
         BluetoothAdapter.invalidateIsOffloadedFilteringSupportedCache();
@@ -937,6 +939,7 @@ public class AdapterService extends Service {
         BluetoothAdapter.invalidateBluetoothGetStateCache();
         BluetoothAdapter.invalidateGetAdapterConnectionStateCache();
     }
+     */
 
     private void setProfileServiceState(Class service, int state) {
         if (state == BluetoothAdapter.STATE_ON) {
@@ -1264,8 +1267,8 @@ public class AdapterService extends Service {
 
         AdapterServiceBinder(AdapterService svc) {
             mService = svc;
-            mService.invalidateBluetoothGetStateCache();
-            BluetoothAdapter.getDefaultAdapter().disableBluetoothGetStateCache();
+            //mService.invalidateBluetoothGetStateCache();
+            //BluetoothAdapter.getDefaultAdapter().disableBluetoothGetStateCache();
         }
 
         public void cleanup() {
@@ -1670,7 +1673,7 @@ public class AdapterService extends Service {
                 deviceProp.setBondingInitiatedLocally(false);
             }
 
-            return service.cancelBondNative(addressToBytes(device.getAddress()));
+            return service.cancelBondNative(getBytesFromAddress(device.getAddress()));
         }
 
         @Override
@@ -2041,8 +2044,10 @@ public class AdapterService extends Service {
                         "PIN code length mismatch");
                 return false;
             }
-            service.logUserBondResponse(device, accept, BluetoothProtoEnums.BOND_SUB_STATE_LOCAL_PIN_REPLIED);
-            return service.pinReplyNative(addressToBytes(device.getAddress()), accept, len, pinCode);
+            service.logUserBondResponse(device, accept,
+                    BluetoothProtoEnums.BOND_SUB_STATE_LOCAL_PIN_REPLIED);
+            return service.pinReplyNative(
+                    getBytesFromAddress(device.getAddress()), accept, len, pinCode);
         }
 
         @Override
@@ -2066,7 +2071,7 @@ public class AdapterService extends Service {
             }
             service.logUserBondResponse(device, accept, BluetoothProtoEnums.BOND_SUB_STATE_LOCAL_SSP_REPLIED);
             return service.sspReplyNative(
-                    addressToBytes(device.getAddress()),
+                    getBytesFromAddress(device.getAddress()),
                     AbstractionLayer.BT_SSP_VARIANT_PASSKEY_ENTRY,
                     accept,
                     Utils.byteArrayToInt(passkey));
@@ -2090,7 +2095,7 @@ public class AdapterService extends Service {
             }
             service.logUserBondResponse(device, accept, BluetoothProtoEnums.BOND_SUB_STATE_LOCAL_SSP_REPLIED);
             return service.sspReplyNative(
-                    addressToBytes(device.getAddress()),
+                    getBytesFromAddress(device.getAddress()),
                     AbstractionLayer.BT_SSP_VARIANT_PASSKEY_CONFIRMATION,
                     accept,
                     0);
@@ -2447,10 +2452,10 @@ public class AdapterService extends Service {
             HashSet<Class> leAudioUnicastProfiles = Config.geLeAudioUnicastProfiles();
 
             if (supportedProfileServices.containsAll(leAudioUnicastProfiles)) {
-                return BluetoothStatusCodes.SUCCESS;
+                return BluetoothStatusCodes.FEATURE_SUPPORTED;
             }
 
-            return BluetoothStatusCodes.ERROR_FEATURE_NOT_SUPPORTED;
+            return BluetoothStatusCodes.FEATURE_NOT_SUPPORTED;
         }
 
         @Override
@@ -2461,10 +2466,10 @@ public class AdapterService extends Service {
             }
 
             if (service.mAdapterProperties.isLePeriodicAdvertisingSyncTransferSenderSupported()) {
-                return BluetoothStatusCodes.SUCCESS;
+                return BluetoothStatusCodes.FEATURE_SUPPORTED;
             }
 
-            return BluetoothStatusCodes.ERROR_FEATURE_NOT_SUPPORTED;
+            return BluetoothStatusCodes.FEATURE_NOT_SUPPORTED;
         }
 
         @Override
@@ -2918,7 +2923,7 @@ public class AdapterService extends Service {
     }
 
     int getConnectionState(BluetoothDevice device) {
-        return getConnectionStateNative(addressToBytes(device.getAddress()));
+        return getConnectionStateNative(getBytesFromAddress(device.getAddress()));
     }
 
     /**
