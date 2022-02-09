@@ -30,6 +30,7 @@ import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi; //import android.app.PropertyInvalidatedCache;
 import android.bluetooth.BluetoothDevice.Transport;
+import android.bluetooth.BluetoothFrameworkInitializer;
 import android.bluetooth.BluetoothProfile.ConnectionPolicy;
 import android.bluetooth.annotations.RequiresBluetoothAdvertisePermission;
 import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
@@ -806,14 +807,16 @@ public final class BluetoothAdapter {
 
     /** {@hide} */
     public static BluetoothAdapter createAdapter(AttributionSource attributionSource) {
-        IBinder binder = ServiceManager.getService(BLUETOOTH_MANAGER_SERVICE);
-        if (binder != null) {
-            return new BluetoothAdapter(IBluetoothManager.Stub.asInterface(binder),
-                    attributionSource);
-        } else {
-            Log.e(TAG, "Bluetooth binder is null");
-            return null;
-        }
+      IBluetoothManager service = IBluetoothManager.Stub.asInterface(
+          BluetoothFrameworkInitializer.getBluetoothServiceManager()
+              .getBluetoothManagerServiceRegisterer()
+              .get());
+      if (service != null) {
+        return new BluetoothAdapter(service, attributionSource);
+      } else {
+        Log.e(TAG, "Bluetooth service is null");
+        return null;
+      }
     }
 
     /**
@@ -2330,29 +2333,54 @@ public final class BluetoothAdapter {
     }
 
     /**
-     * Returns {@link BluetoothStatusCodes#FEATURE_SUPPORTED} if LE Periodic Advertising Sync
-     * Transfer Sender feature is supported,
-     * {@link BluetoothStatusCodes#FEATURE_NOT_SUPPORTED} if the feature is not supported, or
-     * an error code
+     * Returns {@link BluetoothStatusCodes#FEATURE_SUPPORTED} if the LE audio broadcast source
+     * feature is supported, {@link BluetoothStatusCodes#FEATURE_NOT_SUPPORTED} if the feature
+     * is not supported, or an error code.
      *
-     * @return whether the chipset supports the LE Periodic Advertising Sync Transfer Sender feature
+     * @return whether the LE audio broadcast source is supported
      */
     @RequiresNoPermission
-    public @LeFeatureReturnValues int isLePeriodicAdvertisingSyncTransferSenderSupported() {
-        if (!getLeAccess()) {
-            return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
+    public @LeFeatureReturnValues int isLeAudioBroadcastSourceSupported() {
+      if (!getLeAccess()) {
+        return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
+      }
+      try {
+        mServiceLock.readLock().lock();
+        if (mService != null) {
+          return mService.isLeAudioBroadcastSourceSupported();
         }
-        try {
-            mServiceLock.readLock().lock();
-            if (mService != null) {
-                return mService.isLePeriodicAdvertisingSyncTransferSenderSupported();
-            }
-        } catch (RemoteException e) {
-            e.rethrowFromSystemServer();
-        } finally {
-            mServiceLock.readLock().unlock();
+      } catch (RemoteException e) {
+        e.rethrowFromSystemServer();
+      } finally {
+        mServiceLock.readLock().unlock();
+      }
+
+      return BluetoothStatusCodes.ERROR_UNKNOWN;
+    }
+
+    /**
+     * Returns {@link BluetoothStatusCodes#FEATURE_SUPPORTED} if the LE audio broadcast assistant
+     * feature is supported, {@link BluetoothStatusCodes#FEATURE_NOT_SUPPORTED} if the feature is
+     * not supported, or an error code.
+     *
+     * @return whether the LE audio broadcast assistent is supported
+     */
+    @RequiresNoPermission
+    public @LeFeatureReturnValues int isLeAudioBroadcastAssistantSupported() {
+      if (!getLeAccess()) {
+        return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
+      }
+      try {
+        mServiceLock.readLock().lock();
+        if (mService != null) {
+          return mService.isLeAudioBroadcastAssistantSupported();
         }
-        return BluetoothStatusCodes.ERROR_UNKNOWN;
+      } catch (RemoteException e) {
+        e.rethrowFromSystemServer();
+      } finally {
+        mServiceLock.readLock().unlock();
+      }
+      return BluetoothStatusCodes.ERROR_UNKNOWN;
     }
 
     /**
@@ -2403,10 +2431,10 @@ public final class BluetoothAdapter {
     }
 
     /**
-     * Get the maximum number of connected audio devices.
+     * Get the maximum number of connected devices per audio profile for this device.
      *
-     * @return the maximum number of connected audio devices
-     * @hide
+     * @return the number of allowed simultaneous connected devices for each audio profile
+     *         for this device, or -1 if the Bluetooth service can't be reached
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
@@ -2422,7 +2450,7 @@ public final class BluetoothAdapter {
         } finally {
             mServiceLock.readLock().unlock();
         }
-        return 1;
+        return -1;
     }
 
     /**

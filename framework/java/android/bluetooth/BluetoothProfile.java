@@ -1,4 +1,4 @@
-/*
+ /*
  * Copyright (C) 2010-2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -290,6 +290,12 @@ public interface BluetoothProfile {
      */
     int LE_CALL_CONTROL = 34;
 
+    /*
+     * Hearing Access Profile Client
+     *
+     */
+    int HAP_CLIENT = 28;
+
     /**
      * Max profile ID. This value should be updated whenever a new profile is added to match
      * the largest value assigned to a profile.
@@ -500,6 +506,8 @@ public interface BluetoothProfile {
                 return "BROADCAST";
             case VCP:
                 return "VCP";
+            case HAP_CLIENT:
+                return "HAP_CLIENT";
             default:
                 return "UNKNOWN_PROFILE";
         }

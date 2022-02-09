@@ -38,17 +38,14 @@ import java.util.Objects;
  */
 public final class BluetoothCodecConfig implements Parcelable {
     /** @hide */
-    @IntDef(prefix = "SOURCE_CODEC_TYPE_", value = {
-            SOURCE_CODEC_TYPE_SBC,
-            SOURCE_CODEC_TYPE_AAC,
-            SOURCE_CODEC_TYPE_APTX,
-            SOURCE_CODEC_TYPE_APTX_HD,
-            SOURCE_CODEC_TYPE_LDAC,
+    @IntDef(prefix = "SOURCE_CODEC_TYPE_",
+        value = {SOURCE_CODEC_TYPE_SBC, SOURCE_CODEC_TYPE_AAC, SOURCE_CODEC_TYPE_APTX,
+            SOURCE_CODEC_TYPE_APTX_HD, SOURCE_CODEC_TYPE_LDAC, SOURCE_CODEC_TYPE_LC3,
+            SOURCE_CODEC_TYPE_INVALID,
             SOURCE_CODEC_TYPE_APTX_ADAPTIVE,
             SOURCE_CODEC_TYPE_APTX_TWSP,
-            SOURCE_QVA_CODEC_TYPE_MAX,
-            SOURCE_CODEC_TYPE_INVALID
-    })
+            SOURCE_QVA_CODEC_TYPE_MAX
+        })
     @Retention(RetentionPolicy.SOURCE)
     public @interface SourceCodecType {}
 
@@ -79,6 +76,11 @@ public final class BluetoothCodecConfig implements Parcelable {
     public static final int SOURCE_CODEC_TYPE_LDAC = 4;
 
     /**
+     * Source codec type LC3.
+     */
+    public static final int SOURCE_CODEC_TYPE_LC3 = 5;
+
+    /**
      * Source codec type invalid. This is the default value used for codec
      * type.
      */
@@ -88,7 +90,7 @@ public final class BluetoothCodecConfig implements Parcelable {
      * Represents the count of valid source codec types. Can be accessed via
      * {@link #getMaxCodecType}.
      */
-    public static final int SOURCE_CODEC_TYPE_MAX = 5;
+    public static final int SOURCE_CODEC_TYPE_MAX = 6;
 
     public static final int SOURCE_CODEC_TYPE_APTX_ADAPTIVE = SOURCE_CODEC_TYPE_MAX;
 
@@ -100,8 +102,6 @@ public final class BluetoothCodecConfig implements Parcelable {
     ** format for BA usecase, moving out of a2dp codec value list
     */
     public static final int SOURCE_CODEC_TYPE_CELT = 8;
-
-    public static final int SOURCE_CODEC_TYPE_LC3 = 9;
 
     /** @hide */
     @IntDef(prefix = "CODEC_PRIORITY_", value = {
@@ -485,6 +485,8 @@ public final class BluetoothCodecConfig implements Parcelable {
                 return "aptX HD";
             case SOURCE_CODEC_TYPE_LDAC:
                 return "LDAC";
+            case SOURCE_CODEC_TYPE_LC3:
+              return "LC3";
             case SOURCE_CODEC_TYPE_APTX_ADAPTIVE:
                 return "aptX Adaptive";
             case SOURCE_CODEC_TYPE_APTX_TWSP:
@@ -693,6 +695,7 @@ public final class BluetoothCodecConfig implements Parcelable {
         switch (mCodecType) {
             case SOURCE_CODEC_TYPE_AAC:
             case SOURCE_CODEC_TYPE_LDAC:
+            case SOURCE_CODEC_TYPE_LC3:
                 if (mCodecSpecific1 != other.mCodecSpecific1) {
                     return false;
                 }
