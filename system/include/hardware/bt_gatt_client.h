@@ -130,8 +130,7 @@ typedef void (*read_characteristic_callback)(int conn_id, int status,
 
 /** GATT write characteristic operation callback */
 typedef void (*write_characteristic_callback)(int conn_id, int status,
-                                              uint16_t handle, uint16_t len,
-                                              const uint8_t* value);
+                                              uint16_t handle);
 
 /** GATT execute prepared write callback */
 typedef void (*execute_write_callback)(int conn_id, int status);
@@ -142,8 +141,7 @@ typedef void (*read_descriptor_callback)(int conn_id, int status,
 
 /** Callback invoked in response to write_descriptor */
 typedef void (*write_descriptor_callback)(int conn_id, int status,
-                                          uint16_t handle, uint16_t len,
-                                              const uint8_t* value);
+                                          uint16_t handle);
 
 /** Callback triggered in response to read_remote_rssi */
 typedef void (*read_remote_rssi_callback)(int client_if, const RawAddress& bda,

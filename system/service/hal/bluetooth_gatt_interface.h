@@ -91,13 +91,11 @@ class BluetoothGattInterface {
 
     virtual void WriteCharacteristicCallback(BluetoothGattInterface* gatt_iface,
                                              int conn_id, int status,
-                                             uint16_t handle, uint16_t len,
-                                             const uint8_t* value);
+                                             uint16_t handle);
 
     virtual void WriteDescriptorCallback(BluetoothGattInterface* gatt_iface,
                                          int conn_id, int status,
-                                         uint16_t handle, uint16_t len,
-                                         const uint8_t* value);
+                                         uint16_t handle);
 
     virtual void MtuChangedCallback(BluetoothGattInterface* gatt_iface,
                                     int conn_id, int status, int mtu);
