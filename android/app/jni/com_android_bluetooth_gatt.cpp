@@ -1406,8 +1406,15 @@ static void gattSetScanParametersNative(JNIEnv* env, jobject object,
                                         jint client_if, jint scan_interval_unit,
                                         jint scan_window_unit) {
   if (!sGattIf) return;
+
+  ALOGW("gattSetScanParametersNative");
+  std::vector<uint32_t> scan_interval = {0,0};
+  std::vector<uint32_t> scan_window = {0,0};
+  scan_interval.push_back(scan_interval_unit);
+  scan_window.push_back(scan_window_unit);
+
   sGattIf->scanner->SetScanParameters(
-      client_if, scan_interval_unit, scan_window_unit,
+      client_if, scan_interval, scan_window,
       base::Bind(&set_scan_params_cmpl_cb, client_if));
 }
 

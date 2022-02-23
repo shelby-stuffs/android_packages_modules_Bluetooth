@@ -1123,6 +1123,14 @@ public class GattService extends ProfileService {
             }
             return service.numHwTrackFiltersAvailable(attributionSource);
         }
+
+        @Override
+        public void transferSetInfo(BluetoothDevice bda, int service_data , int adv_handle,
+                IPeriodicAdvertisingCallback callback) { }
+
+        @Override
+        public void transferSync(BluetoothDevice bda, int service_data , int sync_handle) { }
+
     }
 
     ;
