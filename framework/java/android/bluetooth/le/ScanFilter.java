@@ -89,6 +89,12 @@ public final class ScanFilter implements Parcelable {
     @Nullable
     private final byte[] mManufacturerDataMask;
 
+    private int mAdvertisingDataType = -1;
+    @Nullable
+    private final byte[] mAdvertisingData;
+    @Nullable
+    private final byte[] mAdvertisingDataMask;
+
     private final int mOrgId;
     private final int mTDSFlags;
     private final int mTDSFlagsMask;
@@ -101,12 +107,12 @@ public final class ScanFilter implements Parcelable {
     /** @hide */
     public static final ScanFilter EMPTY = new ScanFilter.Builder().build();
 
-    private ScanFilter(String name, String deviceAddress, ParcelUuid uuid,
-            ParcelUuid uuidMask, ParcelUuid solicitationUuid,
-            ParcelUuid solicitationUuidMask, ParcelUuid serviceDataUuid,
-            byte[] serviceData, byte[] serviceDataMask,
+    private ScanFilter(String name, String deviceAddress, ParcelUuid uuid, ParcelUuid uuidMask,
+            ParcelUuid solicitationUuid, ParcelUuid solicitationUuidMask,
+            ParcelUuid serviceDataUuid, byte[] serviceData, byte[] serviceDataMask,
             int manufacturerId, byte[] manufacturerData, byte[] manufacturerDataMask,
-            @AddressType int addressType, @Nullable byte[] irk,
+            @AddressType int addressType, @Nullable byte[] irk, int advertisingDataType,
+            @Nullable byte[] advertisingData, @Nullable byte[] advertisingDataMask,
             int orgId, int TDSFlags, int TDSFlagsMask, byte[] wifiNANHash,
             boolean groupBasedFiltering) {
         mDeviceName = name;
@@ -123,6 +129,9 @@ public final class ScanFilter implements Parcelable {
         mManufacturerDataMask = manufacturerDataMask;
         mAddressType = addressType;
         mIrk = irk;
+        mAdvertisingDataType = advertisingDataType;
+        mAdvertisingData = advertisingData;
+        mAdvertisingDataMask = advertisingDataMask;
         mOrgId = orgId;
         mTDSFlags = TDSFlags;
         mTDSFlagsMask = TDSFlagsMask;
@@ -197,6 +206,21 @@ public final class ScanFilter implements Parcelable {
                 dest.writeByteArray(mIrk);
             }
         }
+
+        // Advertising data type filter
+        dest.writeInt(mAdvertisingDataType);
+        dest.writeInt(mAdvertisingData == null ? 0 : 1);
+        if (mAdvertisingData != null) {
+            dest.writeInt(mAdvertisingData.length);
+            dest.writeByteArray(mAdvertisingData);
+
+            dest.writeInt(mAdvertisingDataMask == null ? 0 : 1);
+            if (mAdvertisingDataMask != null) {
+                dest.writeInt(mAdvertisingDataMask.length);
+                dest.writeByteArray(mAdvertisingDataMask);
+            }
+        }
+
         dest.writeInt(mOrgId);
         dest.writeInt(mOrgId < 0 ? 0 : 1);
         if(mOrgId >= 0) {
@@ -298,6 +322,24 @@ public final class ScanFilter implements Parcelable {
                 } else {
                     builder.setDeviceAddress(address, addressType);
                 }
+            }
+
+            // Advertising data type
+            int advertisingDataType = in.readInt();
+            if (in.readInt() == 1) {
+                byte[] advertisingData = null;
+                byte[] advertisingDataMask = null;
+
+                int advertisingDataLength = in.readInt();
+                advertisingData = new byte[advertisingDataLength];
+                in.readByteArray(advertisingData);
+                if (in.readInt() == 1) {
+                    int advertisingDataMaskLength = in.readInt();
+                    advertisingDataMask = new byte[advertisingDataMaskLength];
+                    in.readByteArray(advertisingDataMask);
+                }
+                builder.setAdvertisingDataWithType(advertisingDataType, advertisingData,
+                        advertisingDataMask);
             }
 
             int orgId = in.readInt();
@@ -453,6 +495,21 @@ public final class ScanFilter implements Parcelable {
     }
 
     /**
+     * Returns the advertising data type. -1 if the type is not set.
+     */
+    public int getAdvertisingDataType() {
+        return mAdvertisingDataType;
+    }
+
+    public @Nullable byte[] getAdvertisingData() {
+        return mAdvertisingData;
+    }
+
+    public @Nullable byte[] getAdvertisingDataMask() {
+        return mAdvertisingDataMask;
+    }
+
+    /**
      * Check if the scan filter matches a {@code scanResult}. A scan result is considered as a match
      * if it matches all the field filters.
      */
@@ -472,7 +529,8 @@ public final class ScanFilter implements Parcelable {
         // Scan record is null but there exist filters on it.
         if (scanRecord == null
                 && (mDeviceName != null || mServiceUuid != null || mManufacturerData != null
-                || mServiceData != null || mServiceSolicitationUuid != null)) {
+                || mServiceData != null || mServiceSolicitationUuid != null
+                || mAdvertisingData != null)) {
             return false;
         }
 
@@ -506,6 +564,15 @@ public final class ScanFilter implements Parcelable {
         if (mManufacturerId >= 0) {
             if (!matchesPartialData(mManufacturerData, mManufacturerDataMask,
                     scanRecord.getManufacturerSpecificData(mManufacturerId))) {
+                return false;
+            }
+        }
+
+        // Advertising data type match
+        if (mAdvertisingDataType >= 0) {
+            byte[] advertisingData = scanRecord.getAdvertisingDataMap().get(mAdvertisingDataType);
+            if (advertisingData == null || !matchesPartialData(mAdvertisingData,
+                    mAdvertisingDataMask, advertisingData)) {
                 return false;
             }
         }
@@ -615,16 +682,18 @@ public final class ScanFilter implements Parcelable {
     @Override
     public String toString() {
         return "BluetoothLeScanFilter [mDeviceName=" + mDeviceName + ", mDeviceAddress="
-                + mDeviceAddress
-                + ", mUuid=" + mServiceUuid + ", mUuidMask=" + mServiceUuidMask
+                + mDeviceAddress + ", mUuid=" + mServiceUuid + ", mUuidMask=" + mServiceUuidMask
                 + ", mServiceSolicitationUuid=" + mServiceSolicitationUuid
                 + ", mServiceSolicitationUuidMask=" + mServiceSolicitationUuidMask
-                + ", mServiceDataUuid=" + Objects.toString(mServiceDataUuid) + ", mServiceData="
-                + Arrays.toString(mServiceData) + ", mServiceDataMask="
+                + ", mServiceDataUuid=" + Objects.toString(mServiceDataUuid)
+                + ", mServiceData=" + Arrays.toString(mServiceData) + ", mServiceDataMask="
                 + Arrays.toString(mServiceDataMask) + ", mManufacturerId=" + mManufacturerId
                 + ", mManufacturerData=" + Arrays.toString(mManufacturerData)
                 + ", mManufacturerDataMask=" + Arrays.toString(mManufacturerDataMask)
-                + ", mOrganizationId=" + mOrgId + ", mTDSFlags=" + mTDSFlags
+                + ", mAdvertisingDataType=" + mAdvertisingDataType + ", mAdvertisingData="
+                + Arrays.toString(mAdvertisingData) + ", mAdvertisingDataMask="
+                + Arrays.toString(mAdvertisingDataMask) +
+                ", mOrganizationId=" + mOrgId + ", mTDSFlags=" + mTDSFlags
                 + ", mTDSFlagsMask=" + mTDSFlagsMask
                 + ", mWifiNANHash=" + Arrays.toString(mWifiNANHash) +"]"
                 + ", mGroupBasedFiltering=" + mGroupBasedFiltering;
@@ -639,6 +708,10 @@ public final class ScanFilter implements Parcelable {
                 Arrays.hashCode(mServiceData),
                 Arrays.hashCode(mServiceDataMask),
                 mServiceUuid, mServiceUuidMask,
+                mServiceSolicitationUuid, mServiceSolicitationUuidMask,
+                mAdvertisingDataType,
+                Arrays.hashCode(mAdvertisingData),
+                Arrays.hashCode(mAdvertisingDataMask),
                 mServiceSolicitationUuid, mServiceSolicitationUuidMask,
                 mOrgId, mTDSFlags, mTDSFlagsMask, Arrays.hashCode(mWifiNANHash),
                 mGroupBasedFiltering);
@@ -666,6 +739,9 @@ public final class ScanFilter implements Parcelable {
                 && Objects.equals(mServiceSolicitationUuid, other.mServiceSolicitationUuid)
                 && Objects.equals(mServiceSolicitationUuidMask,
                         other.mServiceSolicitationUuidMask)
+                && mAdvertisingDataType == other.mAdvertisingDataType
+                && Objects.deepEquals(mAdvertisingData, other.mAdvertisingData)
+                && Objects.deepEquals(mAdvertisingDataMask, other.mAdvertisingDataMask)
                 && mOrgId == other.mOrgId
                 && mTDSFlags == other.mTDSFlags
                 && mTDSFlagsMask == other.mTDSFlagsMask
@@ -712,13 +788,17 @@ public final class ScanFilter implements Parcelable {
         private byte[] mManufacturerData;
         private byte[] mManufacturerDataMask;
 
+        private int mAdvertisingDataType = -1;
+        private byte[] mAdvertisingData;
+        private byte[] mAdvertisingDataMask;
+
         private int mOrgId = -1;
         private int mTDSFlags = -1;
         private int mTDSFlagsMask = -1;
         private byte[] mWifiNANHash;
 
         private boolean mGroupBasedFiltering;
-
+        
         /**
          * Set filter on device name.
          */
@@ -1056,17 +1136,50 @@ public final class ScanFilter implements Parcelable {
         }
 
         /**
+         * Set filter on advertising data with specific advertising data type.
+         * For any bit in the mask, set it the 1 if it needs to match the one in
+         * advertising data, otherwise set it to 0.
+         * <p>
+         * The {@code advertisingDataMask} must have the same length of {@code advertisingData}.
+         *
+         * @throws IllegalArgumentException If the {@code advertisingDataType} is invalid, {@code
+         * advertisingData} is null while {@code advertisingDataMask} is not, or {@code
+         * advertisingData} and {@code advertisingDataMask} have different length.
+         */
+        public @NonNull Builder setAdvertisingDataWithType(int advertisingDataType,
+                @Nullable byte[] advertisingData, @Nullable byte[] advertisingDataMask) {
+            if (advertisingDataType < -1) {
+                throw new IllegalArgumentException("invalid advertising data type");
+            }
+            if (mAdvertisingDataMask != null) {
+                if (mAdvertisingData == null) {
+                    throw new IllegalArgumentException(
+                            "mAdvertisingData is null while mAdvertisingDataMask is not null");
+                }
+                // Since the mAdvertisingDataMask is a bit mask for mAdvertisingData, the lengths
+                // of the two byte array need to be the same.
+                if (mAdvertisingData.length != mAdvertisingDataMask.length) {
+                    throw new IllegalArgumentException(
+                            "size mismatch for mAdvertisingData and mAdvertisingDataMask");
+                }
+            }
+            mAdvertisingDataType = advertisingDataType;
+            mAdvertisingData = advertisingData;
+            mAdvertisingDataMask = advertisingDataMask;
+            return this;
+        }
+
+        /**
          * Build {@link ScanFilter}.
          *
          * @throws IllegalArgumentException If the filter cannot be built.
          */
         public ScanFilter build() {
-            return new ScanFilter(mDeviceName, mDeviceAddress,
-                    mServiceUuid, mUuidMask, mServiceSolicitationUuid,
-                    mServiceSolicitationUuidMask,
-                    mServiceDataUuid, mServiceData, mServiceDataMask,
-                    mManufacturerId, mManufacturerData, mManufacturerDataMask,
-                    mAddressType, mIrk,
+            return new ScanFilter(mDeviceName, mDeviceAddress, mServiceUuid, mUuidMask,
+                    mServiceSolicitationUuid, mServiceSolicitationUuidMask, mServiceDataUuid,
+                    mServiceData, mServiceDataMask, mManufacturerId, mManufacturerData,
+                    mManufacturerDataMask, mAddressType, mIrk, mAdvertisingDataType,
+                    mAdvertisingData, mAdvertisingDataMask,
                     mOrgId, mTDSFlags, mTDSFlagsMask, mWifiNANHash,
                     mGroupBasedFiltering);
         }

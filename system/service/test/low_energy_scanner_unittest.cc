@@ -76,19 +76,16 @@ class MockScannerHandler : public BleScannerInterface {
 
   MOCK_METHOD1(RegisterCallbacks, void(ScanningCallbacks* callbacks));
 
-  MOCK_METHOD2(CancelCreateSync, void(uint8_t sid, RawAddress address));
+  MOCK_METHOD2(CancelCreateSync, void(uint8_t, RawAddress));
 
-  using SyncTransferCb =
-       base::Callback<void(uint8_t /*status*/, RawAddress /*addr*/)>;
+  MOCK_METHOD4(TransferSync,
+               void(RawAddress, uint16_t, uint16_t, SyncTransferCb));
 
-  MOCK_METHOD4(TransferSync, void(RawAddress address, uint16_t service_data,
-                                  uint16_t sync_handle, SyncTransferCb cb));
+  MOCK_METHOD4(TransferSetInfo,
+               void(RawAddress, uint16_t, uint8_t, SyncTransferCb));
 
-  MOCK_METHOD4(TransferSetInfo, void(RawAddress address, uint16_t service_data,
-                                     uint8_t adv_handle, SyncTransferCb cb));
-
-  MOCK_METHOD5(SyncTxParameters, void(RawAddress addr, uint8_t mode, uint16_t skip,
-                                      uint16_t timeout, StartSyncCb start_cb));
+  MOCK_METHOD5(SyncTxParameters,
+               void(RawAddress, uint8_t, uint16_t, uint16_t, StartSyncCb));
 
   void ScanFilterAdd(int filter_index, std::vector<ApcfCommand> filters,
                      FilterConfigCallback cb) override{};

@@ -21,10 +21,8 @@
 #include "btif/include/stack_manager.h"
 
 #include <hardware/bluetooth.h>
-#if defined(STATIC_LIBBLUETOOTH)
 #include <cstdlib>
 #include <cstring>
-#endif
 
 #include "btcore/include/module.h"
 #include "btcore/include/osi_module.h"
@@ -61,15 +59,16 @@
 #if (HID_HOST_INCLUDED == TRUE)
 #include "stack/include/hidh_api.h"
 #endif
-#include "stack/include/smp_api.h"
-#include "bta_ar_api.h"
 #include "bta/sys/bta_sys_int.h"
+#include "bta_ar_api.h"
 #include "bta_dm_int.h"
 #include "btif/include/btif_pan.h"
 #include "btif/include/btif_sock.h"
+#include "btm_ble_int.h"
 #include "device/include/interop.h"
 #include "internal_include/stack_config.h"
 #include "main/shim/controller.h"
+#include "stack/include/smp_api.h"
 
 #ifndef BT_STACK_CLEANUP_WAIT_MS
 #define BT_STACK_CLEANUP_WAIT_MS 1000
@@ -193,7 +192,6 @@ static bool get_stack_is_running() { return stack_is_running; }
 
 // Internal functions
 
-#ifdef STATIC_LIBBLUETOOTH
 extern const module_t bt_utils_module;
 extern const module_t bte_logmsg_module;
 extern const module_t btif_config_module;
@@ -237,11 +235,6 @@ inline const module_t* get_local_module(const char* name) {
   LOG_ALWAYS_FATAL("Cannot find module %s, aborting", name);
   return nullptr;
 }
-#else
-inline const module_t* get_local_module(const char* name) {
-  return get_module(name);
-}
-#endif
 
 // Synchronous function to initialize the stack
 static void event_init_stack(void* context) {
@@ -363,6 +356,8 @@ static void event_shut_down_stack(UNUSED_ATTR void* context) {
   stack_is_running = false;
 
   do_in_main_thread(FROM_HERE, base::Bind(&btm_ble_multi_adv_cleanup));
+
+  do_in_main_thread(FROM_HERE, base::Bind(&btm_ble_scanner_cleanup));
 
   btif_dm_on_disable();
   btif_sock_cleanup();

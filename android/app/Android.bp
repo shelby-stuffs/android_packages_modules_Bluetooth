@@ -87,6 +87,7 @@ android_app {
     srcs: [
         "src/**/*.java",
         ":statslog-bluetooth-java-gen",
+        ":bluetooth-proto-enums-java-gen",
     ],
     platform_apis: true,
     certificate: "platform",

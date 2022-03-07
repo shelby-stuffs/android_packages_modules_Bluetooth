@@ -17,7 +17,9 @@
 package android.bluetooth;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.RequiresNoPermission;
+import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.compat.annotation.UnsupportedAppUsage;
@@ -100,6 +102,7 @@ public interface BluetoothProfile {
      *
      * @hide
      */
+    @SystemApi
     int HID_HOST = 4;
 
     /**
@@ -115,6 +118,7 @@ public interface BluetoothProfile {
      *
      * @hide
      */
+    @SystemApi
     int PBAP = 6;
 
     /**
@@ -132,6 +136,7 @@ public interface BluetoothProfile {
      *
      * @hide
      */
+    @SystemApi
     int MAP = 9;
 
     /*
@@ -197,6 +202,7 @@ public interface BluetoothProfile {
      *
      * @hide
      */
+    @SystemApi
     int OPP = 20;
 
     /**
@@ -234,7 +240,7 @@ public interface BluetoothProfile {
      * VCP
      * @hide
      */
-    public static final int VCP = 26;
+    public static final int VCP = 33;
 
    /**
      * BC_PROFILE
@@ -281,7 +287,8 @@ public interface BluetoothProfile {
      *
      * @hide
      */
-    int LE_AUDIO_BROADCAST = 33;
+    @SystemApi
+    int LE_AUDIO_BROADCAST = 26;
 
     /**
      * @hide
@@ -295,6 +302,14 @@ public interface BluetoothProfile {
      *
      */
     int HAP_CLIENT = 28;
+
+    /**
+     * LE Audio Broadcast Assistant
+     *
+     * @hide
+     */
+    @SystemApi
+    int LE_AUDIO_BROADCAST_ASSISTANT = 29;
 
     /**
      * Max profile ID. This value should be updated whenever a new profile is added to match
@@ -440,6 +455,9 @@ public interface BluetoothProfile {
      * is not defined
      * @hide
      */
+    @SystemApi
+    @NonNull
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     static String getConnectionStateName(int connectionState) {
         switch (connectionState) {
             case STATE_DISCONNECTED:
@@ -462,6 +480,9 @@ public interface BluetoothProfile {
      * @return profile name as String, UNKOWN_PROFILE if the profile ID is not defined.
      * @hide
      */
+    @SystemApi
+    @NonNull
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     static String getProfileName(int profile) {
         switch(profile) {
             case HEADSET:
