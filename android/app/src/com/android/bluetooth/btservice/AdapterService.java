@@ -824,15 +824,21 @@ public class AdapterService extends Service {
         }
     }
 
-    void switchBufferSizeCallback(byte[] address, boolean isLowLatencyBufferSize) {
-        BluetoothDevice device = getDeviceFromByte(address);
+    void switchBufferSizeCallback(boolean isLowLatencyBufferSize) {
+        List<BluetoothDevice> activeDevices = getActiveDevices(BluetoothProfile.A2DP);
+        if (activeDevices.size() != 1) {
+            errorLog(
+                    "Cannot switch buffer size. The number of A2DP active devices is "
+                            + activeDevices.size());
+        }
+
         // Send intent to fastpair
         Intent switchBufferSizeIntent = new Intent(BluetoothDevice.ACTION_SWITCH_BUFFER_SIZE);
         switchBufferSizeIntent.setClassName(
                 getString(com.android.bluetooth.R.string.peripheral_link_package),
                 getString(com.android.bluetooth.R.string.peripheral_link_package)
                         + getString(com.android.bluetooth.R.string.peripheral_link_service));
-        switchBufferSizeIntent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
+        switchBufferSizeIntent.putExtra(BluetoothDevice.EXTRA_DEVICE, activeDevices.get(0));
         switchBufferSizeIntent.putExtra(
                 BluetoothDevice.EXTRA_LOW_LATENCY_BUFFER_SIZE, isLowLatencyBufferSize);
         sendBroadcast(switchBufferSizeIntent);
@@ -1084,7 +1090,7 @@ public class AdapterService extends Service {
      * @return true if any profile is enabled, false otherwise
      */
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
-    private boolean isAnyProfileEnabled(BluetoothDevice device) {
+    boolean isAnyProfileEnabled(BluetoothDevice device) {
 
         if (mA2dpService != null && mA2dpService.getConnectionPolicy(device)
                 > BluetoothProfile.CONNECTION_POLICY_FORBIDDEN) {
@@ -4556,8 +4562,8 @@ public class AdapterService extends Service {
      * @return true, if the LE audio broadcast source is supported
      */
     public boolean isLeAudioBroadcastSourceSupported() {
-        //TODO: check the profile support status as well after we have the implementation
-        return mAdapterProperties.isLePeriodicAdvertisingSupported()
+        return  getResources().getBoolean(R.bool.profile_supported_le_audio_broadcast)
+                && mAdapterProperties.isLePeriodicAdvertisingSupported()
                 && mAdapterProperties.isLeExtendedAdvertisingSupported()
                 && mAdapterProperties.isLeIsochronousBroadcasterSupported();
     }

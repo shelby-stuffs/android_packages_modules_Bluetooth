@@ -18,7 +18,6 @@
 
 #include "hci/address.h"
 #include "hci/hci_packets.h"
-#include "include/inquiry.h"
 #include "include/phy.h"
 #include "model/controller/acl_connection_handler.h"
 #include "model/controller/le_advertiser.h"
@@ -97,6 +96,9 @@ class LinkLayerController {
  private:
   void SendDisconnectionCompleteEvent(uint16_t handle, uint8_t reason);
 
+  void IncomingPacketWithRssi(model::packets::LinkLayerPacketView incoming,
+                              uint8_t rssi);
+
  public:
   void IncomingPacket(model::packets::LinkLayerPacketView incoming);
 
@@ -156,7 +158,7 @@ class LinkLayerController {
       bluetooth::hci::LegacyAdvertisingProperties type,
       bluetooth::hci::OwnAddressType own_address_type,
       bluetooth::hci::PeerAddressType peer_address_type, Address peer,
-      bluetooth::hci::AdvertisingFilterPolicy filter_policy);
+      bluetooth::hci::AdvertisingFilterPolicy filter_policy, uint8_t tx_power);
   ErrorCode LeRemoveAdvertisingSet(uint8_t set);
   ErrorCode LeClearAdvertisingSets();
   void LeConnectionUpdateComplete(uint16_t handle, uint16_t interval_min,
@@ -376,6 +378,9 @@ class LinkLayerController {
   void HandleIso(bluetooth::hci::IsoView iso);
 
  protected:
+  void SendLeLinkLayerPacketWithRssi(
+      Address source, Address dest, uint8_t rssi,
+      std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet);
   void SendLeLinkLayerPacket(
       std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet);
   void SendLinkLayerPacket(
@@ -386,7 +391,8 @@ class LinkLayerController {
   void IncomingEncryptConnection(model::packets::LinkLayerPacketView packet);
   void IncomingEncryptConnectionResponse(
       model::packets::LinkLayerPacketView packet);
-  void IncomingInquiryPacket(model::packets::LinkLayerPacketView packet);
+  void IncomingInquiryPacket(model::packets::LinkLayerPacketView packet,
+                             uint8_t rssi);
   void IncomingInquiryResponsePacket(
       model::packets::LinkLayerPacketView packet);
   void IncomingIoCapabilityRequestPacket(
@@ -402,8 +408,8 @@ class LinkLayerController {
       model::packets::LinkLayerPacketView packet);
   void IncomingKeypressNotificationPacket(
       model::packets::LinkLayerPacketView packet);
-  void IncomingLeAdvertisementPacket(
-      model::packets::LinkLayerPacketView packet);
+  void IncomingLeAdvertisementPacket(model::packets::LinkLayerPacketView packet,
+                                     uint8_t rssi);
   void IncomingLeConnectPacket(model::packets::LinkLayerPacketView packet);
   void IncomingLeConnectCompletePacket(
       model::packets::LinkLayerPacketView packet);
@@ -418,7 +424,8 @@ class LinkLayerController {
   void IncomingLeReadRemoteFeaturesResponse(
       model::packets::LinkLayerPacketView packet);
   void IncomingLeScanPacket(model::packets::LinkLayerPacketView packet);
-  void IncomingLeScanResponsePacket(model::packets::LinkLayerPacketView packet);
+  void IncomingLeScanResponsePacket(model::packets::LinkLayerPacketView packet,
+                                    uint8_t rssi);
   void IncomingPagePacket(model::packets::LinkLayerPacketView packet);
   void IncomingPageRejectPacket(model::packets::LinkLayerPacketView packet);
   void IncomingPageResponsePacket(model::packets::LinkLayerPacketView packet);

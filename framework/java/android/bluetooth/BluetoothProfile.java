@@ -19,7 +19,6 @@ package android.bluetooth;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.RequiresNoPermission;
-import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.compat.annotation.UnsupportedAppUsage;
@@ -457,7 +456,7 @@ public interface BluetoothProfile {
      */
     @SystemApi
     @NonNull
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresNoPermission
     static String getConnectionStateName(int connectionState) {
         switch (connectionState) {
             case STATE_DISCONNECTED:
@@ -482,7 +481,7 @@ public interface BluetoothProfile {
      */
     @SystemApi
     @NonNull
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresNoPermission
     static String getProfileName(int profile) {
         switch(profile) {
             case HEADSET:

@@ -14,7 +14,6 @@
 //  limitations under the License.
 //
 
-#include <base/macros.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -43,6 +42,9 @@ namespace {
 class MockAdvertiserHandler : public BleAdvertiserInterface {
  public:
   MockAdvertiserHandler() {}
+  MockAdvertiserHandler(const MockAdvertiserHandler&) = delete;
+  MockAdvertiserHandler& operator=(const MockAdvertiserHandler&) = delete;
+
   ~MockAdvertiserHandler() override = default;
 
   MOCK_METHOD1(RegisterAdvertiser, void(IdStatusCallback));
@@ -78,14 +80,14 @@ class MockAdvertiserHandler : public BleAdvertiserInterface {
                                   int big_handle,
                                   int reason,
                                   TerminateBIGCallback cb));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockAdvertiserHandler);
 };
 
 class LowEnergyAdvertiserTest : public ::testing::Test {
  public:
   LowEnergyAdvertiserTest() = default;
+  LowEnergyAdvertiserTest(const LowEnergyAdvertiserTest&) = delete;
+  LowEnergyAdvertiserTest& operator=(const LowEnergyAdvertiserTest&) = delete;
+
   ~LowEnergyAdvertiserTest() override = default;
 
   void SetUp() override {
@@ -106,15 +108,17 @@ class LowEnergyAdvertiserTest : public ::testing::Test {
  protected:
   std::shared_ptr<MockAdvertiserHandler> mock_handler_;
   std::unique_ptr<LowEnergyAdvertiserFactory> ble_advertiser_factory_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(LowEnergyAdvertiserTest);
 };
 
 // Used for tests that operate on a pre-registered advertiser.
 class LowEnergyAdvertiserPostRegisterTest : public LowEnergyAdvertiserTest {
  public:
   LowEnergyAdvertiserPostRegisterTest() : next_client_id_(0) {}
+  LowEnergyAdvertiserPostRegisterTest(
+      const LowEnergyAdvertiserPostRegisterTest&) = delete;
+  LowEnergyAdvertiserPostRegisterTest& operator=(
+      const LowEnergyAdvertiserPostRegisterTest&) = delete;
+
   ~LowEnergyAdvertiserPostRegisterTest() override = default;
 
   void SetUp() override {
@@ -208,8 +212,6 @@ class LowEnergyAdvertiserPostRegisterTest : public LowEnergyAdvertiserTest {
 
  private:
   int next_client_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(LowEnergyAdvertiserPostRegisterTest);
 };
 
 TEST_F(LowEnergyAdvertiserTest, RegisterInstance) {
