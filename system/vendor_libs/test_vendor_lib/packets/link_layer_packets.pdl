@@ -56,6 +56,7 @@ enum PacketType : 8 {
     SCO_CONNECTION_REQUEST = 0x30,
     SCO_CONNECTION_RESPONSE = 0x31,
     SCO_DISCONNECT = 0x32,
+    RSSI_WRAPPER = 0x33,
 }
 
 packet LinkLayerPacket {
@@ -141,11 +142,11 @@ enum AddressType : 8 {
 }
 
 enum AdvertisementType : 8 {
-    ADV_IND = 0,          // Connectable and scannable
-    ADV_DIRECT_IND = 1,   // Connectable directed
-    ADV_SCAN_IND = 2,     // Scannable undirected
-    ADV_NONCONN_IND = 3,  // Non connectable undirected
-    SCAN_RESPONSE = 4,
+  ADV_IND = 0,          // Connectable and scannable
+  ADV_DIRECT_IND = 1,   // Connectable directed, high duty cycle
+  ADV_SCAN_IND = 2,     // Scannable undirected
+  ADV_NONCONN_IND = 3,  // Non connectable undirected
+  SCAN_RESPONSE = 4,    // Aliased with connectable directed, low duty cycle
 }
 
 packet LeAdvertisement : LinkLayerPacket (type = LE_ADVERTISEMENT) {
@@ -405,4 +406,9 @@ packet ScoConnectionResponse : LinkLayerPacket (type = SCO_CONNECTION_RESPONSE) 
 
 packet ScoDisconnect : LinkLayerPacket (type = SCO_DISCONNECT) {
   reason : 8,
+}
+
+packet RssiWrapper : LinkLayerPacket (type = RSSI_WRAPPER) {
+  rssi : 8,
+  _payload_,
 }

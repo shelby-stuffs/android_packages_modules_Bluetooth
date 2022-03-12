@@ -251,6 +251,8 @@ public final class BluetoothAdapter {
      *
      * @hide
      */
+    @SystemApi
+    @SuppressLint("ActionValue")
     public static final String EXTRA_RFCOMM_LISTENER_ID =
             "android.bluetooth.adapter.extra.RFCOMM_LISTENER_ID";
 
@@ -1137,9 +1139,7 @@ public final class BluetoothAdapter {
                     try {
                         final SynchronousResultReceiver<Integer> recv =
                                 new SynchronousResultReceiver();
-                        if (mService != null) {
-                            mService.getState(recv);
-                        }
+                        mService.getState(recv);
                         return recv.awaitResultNoInterrupt(getSyncTimeout())
                             .getValue(BluetoothAdapter.STATE_OFF);
                     } catch (TimeoutException e) {
@@ -1183,11 +1183,8 @@ public final class BluetoothAdapter {
                 mService.getState(recv);
                 return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(state);
             }
-        } catch (TimeoutException e) {
+        } catch (RemoteException | TimeoutException e) {
             Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-        } catch (RemoteException e) {
-            Log.e(TAG, "", e);
-            e.rethrowFromSystemServer();
         } finally {
             mServiceLock.readLock().unlock();
         }
@@ -1289,7 +1286,20 @@ public final class BluetoothAdapter {
      * such as Airplane mode, or the adapter is already turned on.
      *
      * @return true to indicate adapter startup has begun, or false on immediate error
+     *
+     * @deprecated Starting with {@link android.os.Build.VERSION_CODES#TIRAMISU}, applications
+     * are not allowed to enable/disable Bluetooth.
+     * <b>Compatibility Note:</b> For applications targeting
+     * {@link android.os.Build.VERSION_CODES#TIRAMISU} or above, this API will always fail and return
+     * {@code false}. If apps are targeting an older SDK ({@link android.os.Build.VERSION_CODES#S}
+     * or below), they can continue to use this API.
+     * <p>
+     * Deprecation Exemptions:
+     * <ul>
+     * <li>Device Owner (DO), Profile Owner (PO) and system apps.
+     * </ul>
      */
+    @Deprecated
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
@@ -1329,7 +1339,20 @@ public final class BluetoothAdapter {
      * such as the adapter already being turned off.
      *
      * @return true to indicate adapter shutdown has begun, or false on immediate error
+     *
+     * @deprecated Starting with {@link android.os.Build.VERSION_CODES#TIRAMISU}, applications
+     * are not allowed to enable/disable Bluetooth.
+     * <b>Compatibility Note:</b> For applications targeting
+     * {@link android.os.Build.VERSION_CODES#TIRAMISU} or above, this API will always fail and return
+     * {@code false}. If apps are targeting an older SDK ({@link android.os.Build.VERSION_CODES#S}
+     * or below), they can continue to use this API.
+     * <p>
+     * Deprecation Exemptions:
+     * <ul>
+     * <li>Device Owner (DO), Profile Owner (PO) and system apps.
+     * </ul>
      */
+    @Deprecated
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
@@ -3139,7 +3162,7 @@ public final class BluetoothAdapter {
             android.Manifest.permission.BLUETOOTH_PRIVILEGED,
     })
     @RfcommListenerResult
-    public int closeRfcommServer(@NonNull UUID uuid) {
+    public int stopRfcommServer(@NonNull UUID uuid) {
         try {
             final SynchronousResultReceiver<Integer> recv = new SynchronousResultReceiver();
             mService.stopRfcommListener(new ParcelUuid(uuid), mAttributionSource, recv);

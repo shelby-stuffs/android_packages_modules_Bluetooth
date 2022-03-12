@@ -19,7 +19,6 @@
 #include <hci/hci_packets.h>
 
 #include "crypto_toolbox/crypto_toolbox.h"
-#include "include/le_advertisement.h"
 #include "os/log.h"
 #include "packet/raw_builder.h"
 
@@ -32,6 +31,7 @@ using bluetooth::hci::EventCode;
 
 using namespace model::packets;
 using model::packets::PacketType;
+using namespace std::literals;
 
 namespace test_vendor_lib {
 
@@ -49,6 +49,17 @@ static uint8_t GetRssi() {
     rssi = rssi % 7;
   }
   return -(rssi);
+}
+
+void LinkLayerController::SendLeLinkLayerPacketWithRssi(
+    Address source, Address dest, uint8_t rssi,
+    std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet) {
+  std::shared_ptr<model::packets::RssiWrapperBuilder> shared_packet =
+      model::packets::RssiWrapperBuilder::Create(source, dest, rssi,
+                                                 std::move(packet));
+  ScheduleTask(kNoDelayMs, [this, shared_packet]() {
+    send_to_remote_(shared_packet, Phy::Type::LOW_ENERGY);
+  });
 }
 
 void LinkLayerController::SendLeLinkLayerPacket(
@@ -218,6 +229,20 @@ ErrorCode LinkLayerController::SendScoToRemote(
 void LinkLayerController::IncomingPacket(
     model::packets::LinkLayerPacketView incoming) {
   ASSERT(incoming.IsValid());
+  if (incoming.GetType() == PacketType::RSSI_WRAPPER) {
+    auto rssi_wrapper = model::packets::RssiWrapperView::Create(incoming);
+    ASSERT(rssi_wrapper.IsValid());
+    auto wrapped =
+        model::packets::LinkLayerPacketView::Create(rssi_wrapper.GetPayload());
+    IncomingPacketWithRssi(wrapped, rssi_wrapper.GetRssi());
+  } else {
+    IncomingPacketWithRssi(incoming, GetRssi());
+  }
+}
+
+void LinkLayerController::IncomingPacketWithRssi(
+    model::packets::LinkLayerPacketView incoming, uint8_t rssi) {
+  ASSERT(incoming.IsValid());
   auto destination_address = incoming.GetDestinationAddress();
 
   // Match broadcasts
@@ -278,7 +303,7 @@ void LinkLayerController::IncomingPacket(
       break;
     case model::packets::PacketType::INQUIRY:
       if (inquiry_scans_enabled_) {
-        IncomingInquiryPacket(incoming);
+        IncomingInquiryPacket(incoming, rssi);
       }
       break;
     case model::packets::PacketType::INQUIRY_RESPONSE:
@@ -307,7 +332,7 @@ void LinkLayerController::IncomingPacket(
       break;
     case model::packets::PacketType::LE_ADVERTISEMENT:
       if (le_scan_enable_ != bluetooth::hci::OpCode::NONE || le_connect_) {
-        IncomingLeAdvertisementPacket(incoming);
+        IncomingLeAdvertisementPacket(incoming, rssi);
       }
       break;
     case model::packets::PacketType::LE_CONNECT:
@@ -341,7 +366,7 @@ void LinkLayerController::IncomingPacket(
     case model::packets::PacketType::LE_SCAN_RESPONSE:
       if (le_scan_enable_ != bluetooth::hci::OpCode::NONE &&
           le_scan_type_ == 1) {
-        IncomingLeScanResponsePacket(incoming);
+        IncomingLeScanResponsePacket(incoming, rssi);
       }
       break;
     case model::packets::PacketType::PAGE:
@@ -402,6 +427,9 @@ void LinkLayerController::IncomingPacket(
       break;
     case (model::packets::PacketType::READ_CLOCK_OFFSET_RESPONSE):
       IncomingReadClockOffsetResponse(incoming);
+      break;
+    case (model::packets::PacketType::RSSI_WRAPPER):
+      LOG_ERROR("Dropping double-wrapped RSSI packet");
       break;
     case model::packets::PacketType::SCO_CONNECTION_REQUEST:
       IncomingScoConnectionRequest(incoming);
@@ -722,7 +750,7 @@ void LinkLayerController::IncomingEncryptConnectionResponse(
 }
 
 void LinkLayerController::IncomingInquiryPacket(
-    model::packets::LinkLayerPacketView incoming) {
+    model::packets::LinkLayerPacketView incoming, uint8_t rssi) {
   auto inquiry = model::packets::InquiryView::Create(incoming);
   ASSERT(inquiry.IsValid());
 
@@ -741,7 +769,7 @@ void LinkLayerController::IncomingInquiryPacket(
               properties_.GetAddress(), peer,
               properties_.GetPageScanRepetitionMode(),
               properties_.GetClassOfDevice(), properties_.GetClockOffset(),
-              GetRssi()));
+              rssi));
     } break;
     case (model::packets::InquiryType::EXTENDED): {
       SendLinkLayerPacket(
@@ -749,7 +777,7 @@ void LinkLayerController::IncomingInquiryPacket(
               properties_.GetAddress(), peer,
               properties_.GetPageScanRepetitionMode(),
               properties_.GetClassOfDevice(), properties_.GetClockOffset(),
-              GetRssi(), properties_.GetExtendedInquiryData()));
+              rssi, properties_.GetExtendedInquiryData()));
 
     } break;
     default:
@@ -1251,7 +1279,7 @@ static Address generate_rpa(
 }
 
 void LinkLayerController::IncomingLeAdvertisementPacket(
-    model::packets::LinkLayerPacketView incoming) {
+    model::packets::LinkLayerPacketView incoming, uint8_t rssi) {
   // TODO: Handle multiple advertisements per packet.
 
   Address address = incoming.GetSourceAddress();
@@ -1273,7 +1301,7 @@ void LinkLayerController::IncomingLeAdvertisementPacket(
     raw_builder_ptr->AddAddress(address);
     raw_builder_ptr->AddOctets1(ad.size());
     raw_builder_ptr->AddOctets(ad);
-    raw_builder_ptr->AddOctets1(GetRssi());
+    raw_builder_ptr->AddOctets1(rssi);
     if (properties_.IsUnmasked(EventCode::LE_META_EVENT)) {
       send_event_(bluetooth::hci::EventBuilder::Create(
           bluetooth::hci::EventCode::LE_META_EVENT,
@@ -1313,7 +1341,7 @@ void LinkLayerController::IncomingLeAdvertisementPacket(
     raw_builder_ptr->AddOctets1(0);     // Secondary_PHY
     raw_builder_ptr->AddOctets1(0xFF);  // Advertising_SID - not provided
     raw_builder_ptr->AddOctets1(0x7F);  // Tx_Power - Not available
-    raw_builder_ptr->AddOctets1(GetRssi());
+    raw_builder_ptr->AddOctets1(rssi);
     raw_builder_ptr->AddOctets2(0);  // Periodic_Advertising_Interval - None
     raw_builder_ptr->AddOctets1(0);  // Direct_Address_Type - PUBLIC
     raw_builder_ptr->AddAddress(Address::kEmpty);  // Direct_Address
@@ -1801,13 +1829,12 @@ void LinkLayerController::IncomingLeScanPacket(
 }
 
 void LinkLayerController::IncomingLeScanResponsePacket(
-    model::packets::LinkLayerPacketView incoming) {
+    model::packets::LinkLayerPacketView incoming, uint8_t rssi) {
   auto scan_response = model::packets::LeScanResponseView::Create(incoming);
   ASSERT(scan_response.IsValid());
   vector<uint8_t> ad = scan_response.GetData();
   auto adv_type = scan_response.GetAdvertisementType();
-  auto address_type =
-      static_cast<LeAdvertisement::AddressType>(scan_response.GetAddressType());
+  auto address_type = scan_response.GetAddressType();
   if (le_scan_enable_ == bluetooth::hci::OpCode::LE_SET_SCAN_ENABLE) {
     if (adv_type != model::packets::AdvertisementType::SCAN_RESPONSE) {
       return;
@@ -1818,7 +1845,7 @@ void LinkLayerController::IncomingLeScanResponsePacket(
     report.address_type_ =
         static_cast<bluetooth::hci::AddressType>(address_type);
     report.advertising_data_ = scan_response.GetData();
-    report.rssi_ = GetRssi();
+    report.rssi_ = rssi;
 
     if (properties_.IsUnmasked(EventCode::LE_META_EVENT) &&
         properties_.GetLeEventSupported(
@@ -1844,7 +1871,7 @@ void LinkLayerController::IncomingLeScanResponsePacket(
     report.advertising_sid_ = 0xFF;
     report.tx_power_ = 0x7F;
     report.advertising_data_ = ad;
-    report.rssi_ = GetRssi();
+    report.rssi_ = rssi;
     send_event_(
         bluetooth::hci::LeExtendedAdvertisingReportBuilder::Create({report}));
   }
@@ -2060,11 +2087,16 @@ void LinkLayerController::Close() {
 void LinkLayerController::LeAdvertising() {
   steady_clock::time_point now = steady_clock::now();
   for (auto& advertiser : advertisers_) {
-    auto ad = advertiser.GetAdvertisement(now);
-    if (ad == nullptr) {
-      continue;
+
+    auto event = advertiser.GetEvent(now);
+    if (event != nullptr) {
+      send_event_(std::move(event));
     }
-    SendLeLinkLayerPacket(std::move(ad));
+
+    auto advertisement = advertiser.GetAdvertisement(now);
+    if (advertisement != nullptr) {
+      SendLeLinkLayerPacket(std::move(advertisement));
+    }
   }
 }
 
@@ -2979,7 +3011,7 @@ ErrorCode LinkLayerController::SetLeExtendedAdvertisingParameters(
     bluetooth::hci::LegacyAdvertisingProperties type,
     bluetooth::hci::OwnAddressType own_address_type,
     bluetooth::hci::PeerAddressType peer_address_type, Address peer,
-    bluetooth::hci::AdvertisingFilterPolicy filter_policy) {
+    bluetooth::hci::AdvertisingFilterPolicy filter_policy, uint8_t tx_power) {
   model::packets::AdvertisementType ad_type;
   switch (type) {
     case bluetooth::hci::LegacyAdvertisingProperties::ADV_IND:
@@ -2995,8 +3027,10 @@ ErrorCode LinkLayerController::SetLeExtendedAdvertisingParameters(
       peer = Address::kEmpty;
       break;
     case bluetooth::hci::LegacyAdvertisingProperties::ADV_DIRECT_IND_HIGH:
-    case bluetooth::hci::LegacyAdvertisingProperties::ADV_DIRECT_IND_LOW:
       ad_type = model::packets::AdvertisementType::ADV_DIRECT_IND;
+      break;
+    case bluetooth::hci::LegacyAdvertisingProperties::ADV_DIRECT_IND_LOW:
+      ad_type = model::packets::AdvertisementType::SCAN_RESPONSE;
       break;
   }
   auto interval_ms =
@@ -3054,10 +3088,13 @@ ErrorCode LinkLayerController::SetLeExtendedAdvertisingParameters(
       break;
   }
 
-  advertisers_[set].InitializeExtended(own_address_address_type, peer_address,
-                                       scanning_filter_policy, ad_type,
-                                       std::chrono::milliseconds(interval_ms));
-
+  advertisers_[set].InitializeExtended(set,
+                                       own_address_address_type,
+                                       peer_address,
+                                       scanning_filter_policy,
+                                       ad_type,
+                                       std::chrono::milliseconds(interval_ms),
+                                       tx_power);
   return ErrorCode::SUCCESS;
 }
 
@@ -3518,6 +3555,7 @@ uint8_t LinkLayerController::LeReadNumberOfSupportedAdvertisingSets() {
 ErrorCode LinkLayerController::SetLeExtendedAdvertisingEnable(
     bluetooth::hci::Enable enable,
     const std::vector<bluetooth::hci::EnabledSet>& enabled_sets) {
+
   for (const auto& set : enabled_sets) {
     if (set.advertising_handle_ > advertisers_.size()) {
       return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
@@ -3526,8 +3564,7 @@ ErrorCode LinkLayerController::SetLeExtendedAdvertisingEnable(
   for (const auto& set : enabled_sets) {
     auto handle = set.advertising_handle_;
     if (enable == bluetooth::hci::Enable::ENABLED) {
-      advertisers_[handle].EnableExtended(
-          std::chrono::milliseconds(10 * set.duration_));
+      advertisers_[handle].EnableExtended(10ms * set.duration_);
     } else {
       advertisers_[handle].Disable();
     }

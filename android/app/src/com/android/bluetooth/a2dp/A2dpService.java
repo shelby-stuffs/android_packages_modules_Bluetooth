@@ -88,6 +88,9 @@ public class A2dpService extends ProfileService {
     // Protect setActiveDevice() so all invoked is handled squentially
     private final Object mActiveSwitchingGuard = new Object();
 
+    // Timeout for state machine thread join, to prevent potential ANR.
+    private static final int SM_THREAD_JOIN_TIMEOUT_MS = 1000;
+
     // Upper limit of all A2DP devices: Bonded or Connected
     private static final int MAX_A2DP_STATE_MACHINES = 50;
     // Upper limit of all A2DP devices that are Connected or Connecting
@@ -216,8 +219,13 @@ public class A2dpService extends ProfileService {
         }
 
         if (mStateMachinesThread != null) {
-            mStateMachinesThread.quitSafely();
-            mStateMachinesThread = null;
+            try {
+                mStateMachinesThread.quitSafely();
+                mStateMachinesThread.join(SM_THREAD_JOIN_TIMEOUT_MS);
+                mStateMachinesThread = null;
+            } catch (InterruptedException e) {
+                // Do not rethrow as we are shutting down anyway
+            }
         }
         // Step 2: Reset maximum number of connected audio devices
         mMaxConnectedAudioDevices = 1;

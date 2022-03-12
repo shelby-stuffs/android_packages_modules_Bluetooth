@@ -43,6 +43,7 @@ using ::aidl::android::hardware::bluetooth::audio::IBluetoothAudioPort;
 using ::aidl::android::hardware::bluetooth::audio::IBluetoothAudioProvider;
 using ::aidl::android::hardware::bluetooth::audio::
     IBluetoothAudioProviderFactory;
+using ::aidl::android::hardware::bluetooth::audio::LatencyMode;
 using ::aidl::android::hardware::bluetooth::audio::PcmConfiguration;
 
 using ::aidl::android::hardware::common::fmq::MQDescriptor;
@@ -84,6 +85,8 @@ class BluetoothAudioClientInterface {
 
   bool UpdateAudioConfig(const AudioConfiguration& audioConfig);
 
+  bool SetLowLatencyModeAllowed(bool allowed);
+
   void FlushAudioData();
 
   static constexpr PcmConfiguration kInvalidPcmConfiguration = {};
@@ -117,6 +120,7 @@ class BluetoothAudioClientInterface {
   static inline bool aidl_available = true;
   IBluetoothTransportInstance* transport_;
   std::vector<AudioCapabilities> capabilities_;
+  bool is_low_latency_allowed_{false};
 };
 
 /***
