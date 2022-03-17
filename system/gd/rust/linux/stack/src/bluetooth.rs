@@ -2,8 +2,8 @@
 
 use bt_topshim::btif::{
     BaseCallbacks, BaseCallbacksDispatcher, BluetoothInterface, BluetoothProperty, BtAclState,
-    BtBondState, BtDiscoveryState, BtHciErrorCode, BtLocalLeFeatures, BtPinCode, BtPropertyType,
-    BtScanMode, BtSspVariant, BtState, BtStatus, BtTransport, RawAddress, Uuid, Uuid128Bit,
+    BtBondState, BtDiscoveryState, BtHciErrorCode, BtPinCode, BtPropertyType, BtScanMode,
+    BtSspVariant, BtState, BtStatus, BtTransport, RawAddress, Uuid, Uuid128Bit,
 };
 use bt_topshim::{
     profiles::hid_host::{HHCallbacksDispatcher, HidHost},
@@ -73,6 +73,9 @@ pub trait IBluetooth {
     /// Returns whether the adapter is discoverable.
     fn get_discoverable(&self) -> bool;
 
+    /// Returns the adapter discoverable timeout.
+    fn get_discoverable_timeout(&self) -> u32;
+
     /// Sets discoverability. If discoverable, limits the duration with given value.
     fn set_discoverable(&self, mode: bool, duration: u32) -> bool;
 
@@ -121,6 +124,9 @@ pub trait IBluetooth {
 
     /// Gets the connection state of a single device.
     fn get_connection_state(&self, device: BluetoothDevice) -> u32;
+
+    /// Gets the connection state of a specific profile.
+    fn get_profile_connection_state(&self, profile: Profile) -> u32;
 
     /// Returns the cached UUIDs of a remote device.
     fn get_remote_uuids(&self, device: BluetoothDevice) -> Vec<Uuid128Bit>;
@@ -340,7 +346,7 @@ impl Bluetooth {
         }
     }
 
-    fn get_connectable(&self) -> bool {
+    pub fn get_connectable(&self) -> bool {
         match self.properties.get(&BtPropertyType::AdapterScanMode) {
             Some(prop) => match prop {
                 BluetoothProperty::AdapterScanMode(mode) => match *mode {
@@ -353,7 +359,7 @@ impl Bluetooth {
         }
     }
 
-    fn set_connectable(&mut self, mode: bool) -> bool {
+    pub fn set_connectable(&mut self, mode: bool) -> bool {
         self.is_connectable = mode;
         if mode && self.get_discoverable() {
             return true;
@@ -372,6 +378,22 @@ impl Bluetooth {
                 self.connection_callbacks.remove(&id);
             }
         };
+    }
+
+    fn get_remote_device_if_found(
+        &self,
+        device: &BluetoothDevice,
+    ) -> Option<&BluetoothDeviceContext> {
+        self.bonded_devices.get(&device.address).or_else(|| self.found_devices.get(&device.address))
+    }
+
+    fn get_remote_device_property(
+        &self,
+        device: &BluetoothDevice,
+        property_type: &BtPropertyType,
+    ) -> Option<BluetoothProperty> {
+        self.get_remote_device_if_found(&device)
+            .and_then(|d| d.properties.get(property_type).and_then(|p| Some(p.clone())))
     }
 }
 
@@ -479,6 +501,9 @@ impl BtifBluetoothCallbacks for Bluetooth {
 
             // Also need to manually request some properties
             self.intf.lock().unwrap().get_adapter_property(BtPropertyType::ClassOfDevice);
+
+            // Ensure device is connectable so that disconnected device can reconnect
+            self.set_connectable(true);
         }
     }
 
@@ -840,6 +865,16 @@ impl IBluetooth for Bluetooth {
         }
     }
 
+    fn get_discoverable_timeout(&self) -> u32 {
+        match self.properties.get(&BtPropertyType::AdapterDiscoverableTimeout) {
+            Some(prop) => match prop {
+                BluetoothProperty::AdapterDiscoverableTimeout(timeout) => timeout.clone(),
+                _ => 0,
+            },
+            _ => 0,
+        }
+    }
+
     fn set_discoverable(&self, mode: bool, duration: u32) -> bool {
         self.intf
             .lock()
@@ -914,6 +949,10 @@ impl IBluetooth for Bluetooth {
         }
 
         let address = addr.unwrap();
+
+        // BREDR connection won't work when Inquiry is in progress.
+        self.cancel_discovery();
+
         self.intf.lock().unwrap().create_bond(&address, transport) == 0
     }
 
@@ -1054,36 +1093,30 @@ impl IBluetooth for Bluetooth {
         self.intf.lock().unwrap().get_connection_state(&addr.unwrap())
     }
 
+    fn get_profile_connection_state(&self, profile: Profile) -> u32 {
+        match profile {
+            Profile::A2dpSink | Profile::A2dpSource => {
+                self.bluetooth_media.lock().unwrap().get_a2dp_connection_state()
+            }
+            Profile::Hfp | Profile::HfpAg => {
+                self.bluetooth_media.lock().unwrap().get_hfp_connection_state()
+            }
+            // TODO: (b/223431229) Profile::Hid and Profile::Hogp
+            _ => 0,
+        }
+    }
+
     fn get_remote_uuids(&self, device: BluetoothDevice) -> Vec<Uuid128Bit> {
-        // Device must exist in either bonded or found list
-        let found = self
-            .bonded_devices
-            .get(&device.address)
-            .or_else(|| self.found_devices.get(&device.address));
-
-        // Extract property from the device
-        return found
-            .and_then(|d| {
-                if let Some(u) = d.properties.get(&BtPropertyType::Uuids) {
-                    match u {
-                        BluetoothProperty::Uuids(uuids) => {
-                            return Some(
-                                uuids.iter().map(|&x| x.uu.clone()).collect::<Vec<Uuid128Bit>>(),
-                            );
-                        }
-                        _ => (),
-                    }
-                }
-
-                None
-            })
-            .unwrap_or(vec![]);
+        match self.get_remote_device_property(&device, &BtPropertyType::Uuids) {
+            Some(BluetoothProperty::Uuids(uuids)) => {
+                return uuids.iter().map(|&x| x.uu.clone()).collect::<Vec<Uuid128Bit>>()
+            }
+            _ => return vec![],
+        }
     }
 
     fn fetch_remote_uuids(&self, device: BluetoothDevice) -> bool {
-        if !self.bonded_devices.contains_key(&device.address)
-            && !self.found_devices.contains_key(&device.address)
-        {
+        if self.get_remote_device_if_found(&device).is_none() {
             warn!("Won't fetch UUIDs on unknown device {}", device.address);
             return false;
         }
@@ -1123,6 +1156,9 @@ impl IBluetooth for Bluetooth {
             warn!("Can't connect profiles on invalid address [{}]", &device.address);
             return false;
         }
+
+        // BREDR connection won't work when Inquiry is in progress.
+        self.cancel_discovery();
 
         // Check all remote uuids to see if they match enabled profiles and connect them.
         let uuids = self.get_remote_uuids(device.clone());

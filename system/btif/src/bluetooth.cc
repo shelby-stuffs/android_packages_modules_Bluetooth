@@ -56,6 +56,7 @@
 #include "bta/include/bta_hf_client_api.h"
 #include "bta/include/bta_le_audio_api.h"
 #include "bta/include/bta_le_audio_broadcaster_api.h"
+#include "bta/include/bta_vc_api.h"
 #include "btif/avrcp/avrcp_service.h"
 #include "btif/include/stack_manager.h"
 #include "btif_a2dp.h"
@@ -441,6 +442,7 @@ static void dump(int fd, const char** arguments) {
 #ifndef TARGET_FLOSS
   LeAudioClient::DebugDump(fd);
   LeAudioBroadcaster::DebugDump(fd);
+  VolumeControl::DebugDump(fd);
 #endif
   connection_manager::dump(fd);
   bluetooth::bqr::DebugDump(fd);
@@ -943,4 +945,13 @@ void invoke_switch_buffer_size_cb(bool is_low_latency_buffer_size) {
                       is_low_latency_buffer_size);
           },
           is_low_latency_buffer_size));
+}
+
+void invoke_switch_codec_cb(bool is_low_latency_buffer_size) {
+  do_in_jni_thread(FROM_HERE, base::BindOnce(
+                                  [](bool is_low_latency_buffer_size) {
+                                    HAL_CBACK(bt_hal_cbacks, switch_codec_cb,
+                                              is_low_latency_buffer_size);
+                                  },
+                                  is_low_latency_buffer_size));
 }

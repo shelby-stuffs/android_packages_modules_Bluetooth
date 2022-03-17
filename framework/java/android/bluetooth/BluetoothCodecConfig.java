@@ -19,7 +19,6 @@ package android.bluetooth;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.SystemApi;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -88,8 +87,7 @@ public final class BluetoothCodecConfig implements Parcelable {
     public static final int SOURCE_CODEC_TYPE_INVALID = 1000 * 1000;
 
     /**
-     * Represents the count of valid source codec types. Can be accessed via
-     * {@link #getMaxCodecType}.
+     * Represents the count of valid source codec types.
      */
     public static final int SOURCE_CODEC_TYPE_MAX = 6;
 
@@ -297,6 +295,7 @@ public final class BluetoothCodecConfig implements Parcelable {
      * values to 0.
      *
      * @param codecType the source codec type
+     * @hide
      */
     public BluetoothCodecConfig(@SourceCodecType int codecType) {
         this(codecType, BluetoothCodecConfig.CODEC_PRIORITY_DEFAULT,
@@ -414,7 +413,7 @@ public final class BluetoothCodecConfig implements Parcelable {
             channelModeStr = appendCapabilityToString(channelModeStr, "STEREO");
         }
 
-        return "{codecName:" + getCodecName()
+        return "{codecName:" + getCodecName(mCodecType)
                 + ",mCodecType:" + mCodecType
                 + ",mCodecPriority:" + mCodecPriority
                 + ",mSampleRate:" + String.format("0x%x", mSampleRate)
@@ -474,8 +473,8 @@ public final class BluetoothCodecConfig implements Parcelable {
      * Returns the codec name converted to {@link String}.
      * @hide
      */
-    public @NonNull String getCodecName() {
-        switch (mCodecType) {
+    public static @NonNull String getCodecName(@SourceCodecType int codecType) {
+        switch (codecType) {
             case SOURCE_CODEC_TYPE_SBC:
                 return "SBC";
             case SOURCE_CODEC_TYPE_AAC:
@@ -497,7 +496,7 @@ public final class BluetoothCodecConfig implements Parcelable {
             default:
                 break;
         }
-        return "UNKNOWN CODEC(" + mCodecType + ")";
+        return "UNKNOWN CODEC(" + codecType + ")";
     }
 
     /**
@@ -508,21 +507,12 @@ public final class BluetoothCodecConfig implements Parcelable {
     }
 
     /**
-     * Returns the valid codec types count.
-     */
-    public static int getMaxCodecType() {
-        return SOURCE_CODEC_TYPE_MAX;
-    }
-
-    /**
      * Checks whether the codec is mandatory.
      * <p> The actual mandatory codec type for Android Bluetooth audio is SBC.
      * See {@link #SOURCE_CODEC_TYPE_SBC}.
      *
      * @return {@code true} if the codec is mandatory, {@code false} otherwise
-     * @hide
      */
-    @SystemApi
     public boolean isMandatoryCodec() {
         return mCodecType == SOURCE_CODEC_TYPE_SBC;
     }

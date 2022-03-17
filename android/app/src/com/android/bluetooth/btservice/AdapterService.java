@@ -45,6 +45,8 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothAdapter.ActiveDeviceProfile;
 import android.bluetooth.BluetoothAdapter.ActiveDeviceUse;
 import android.bluetooth.BluetoothClass;
+import android.bluetooth.BluetoothCodecConfig;
+import android.bluetooth.BluetoothCodecStatus;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothFrameworkInitializer;
 import android.bluetooth.BluetoothProfile;
@@ -103,6 +105,7 @@ import com.android.bluetooth.R;
 import com.android.bluetooth.Utils;
 import com.android.bluetooth.a2dp.A2dpService;
 import com.android.bluetooth.a2dpsink.A2dpSinkService;
+import com.android.bluetooth.bass_client.BassClientService;
 import com.android.bluetooth.btservice.RemoteDevices.DeviceProperties;
 import com.android.bluetooth.btservice.activityattribution.ActivityAttributionService;
 import com.android.bluetooth.btservice.bluetoothkeystore.BluetoothKeystoreService;
@@ -324,6 +327,7 @@ public class AdapterService extends Service {
     private VolumeControlService mVolumeControlService;
     private CsipSetCoordinatorService mCsipSetCoordinatorService;
     private LeAudioService mLeAudioService;
+    private BassClientService mBassClientService;
 
     private volatile boolean mTestModeEnabled = false;
 
@@ -513,9 +517,16 @@ public class AdapterService extends Service {
         mDatabaseManager = new DatabaseManager(this);
         mDatabaseManager.start(MetadataDatabase.createDatabase(this));
 
-        // Phone policy is specific to phone implementations and hence if a device wants to exclude
-        // it out then it can be disabled by using the flag below.
-        if (getResources().getBoolean(R.bool.enable_phone_policy)) {
+        boolean isAutomotiveDevice = getApplicationContext().getPackageManager().hasSystemFeature(
+                PackageManager.FEATURE_AUTOMOTIVE);
+
+        /*
+         * Phone policy is specific to phone implementations and hence if a device wants to exclude
+         * it out then it can be disabled by using the flag below. Phone policy is never used on
+         * Android Automotive OS builds, in favor of a policy currently located in
+         * CarBluetoothService.
+         */
+        if (!isAutomotiveDevice && getResources().getBoolean(R.bool.enable_phone_policy)) {
             Log.i(TAG, "Phone policy enabled");
             mPhonePolicy = new PhonePolicy(this, new ServiceFactory());
             mPhonePolicy.start();
@@ -537,7 +548,7 @@ public class AdapterService extends Service {
 
         setAdapterService(this);
 
-        //invalidateBluetoothCaches();
+        invalidateBluetoothCaches();
 
         // First call to getSharedPreferences will result in a file read into
         // memory cache. Call it here asynchronously to avoid potential ANR
@@ -727,11 +738,9 @@ public class AdapterService extends Service {
         setProfileServiceState(GattService.class, BluetoothAdapter.STATE_OFF);
     }
 
-    /*
     private void invalidateBluetoothGetStateCache() {
         BluetoothAdapter.invalidateBluetoothGetStateCache();
     }
-     */
 
     void updateLeAudioProfileServiceState(boolean isCisCentralSupported) {
         if (isCisCentralSupported) {
@@ -752,7 +761,7 @@ public class AdapterService extends Service {
 
     void updateAdapterState(int prevState, int newState) {
         mAdapterProperties.setState(newState);
-        //invalidateBluetoothGetStateCache();
+        invalidateBluetoothGetStateCache();
         if (mCallbacks != null) {
             int n = mCallbacks.beginBroadcast();
             debugLog("updateAdapterState() - Broadcasting state " + BluetoothAdapter.nameForState(
@@ -844,6 +853,17 @@ public class AdapterService extends Service {
         sendBroadcast(switchBufferSizeIntent);
     }
 
+    void switchCodecCallback(boolean isLowLatencyBufferSize) {
+        List<BluetoothDevice> activeDevices = getActiveDevices(BluetoothProfile.A2DP);
+        if (activeDevices.size() != 1) {
+            errorLog(
+                    "Cannot switch buffer size. The number of A2DP active devices is "
+                            + activeDevices.size());
+            return;
+        }
+        mA2dpService.switchCodecByBufferSize(activeDevices.get(0), isLowLatencyBufferSize);
+    }
+
     /**
      * Enable/disable BluetoothInCallService
      *
@@ -870,7 +890,7 @@ public class AdapterService extends Service {
         clearAdapterService(this);
 
         mCleaningUp = true;
-        //invalidateBluetoothCaches();
+        invalidateBluetoothCaches();
 
         unregisterReceiver(mAlarmBroadcastReceiver);
 
@@ -967,7 +987,6 @@ public class AdapterService extends Service {
         }
     }
 
-    /*
     private void invalidateBluetoothCaches() {
         BluetoothAdapter.invalidateGetProfileConnectionStateCache();
         BluetoothAdapter.invalidateIsOffloadedFilteringSupportedCache();
@@ -975,7 +994,6 @@ public class AdapterService extends Service {
         BluetoothAdapter.invalidateBluetoothGetStateCache();
         BluetoothAdapter.invalidateGetAdapterConnectionStateCache();
     }
-     */
 
     private void setProfileServiceState(Class service, int state) {
         if (state == BluetoothAdapter.STATE_ON) {
@@ -1078,6 +1096,9 @@ public class AdapterService extends Service {
         if (profile == BluetoothProfile.HAP_CLIENT) {
             return Utils.arrayContains(remoteDeviceUuids, BluetoothUuid.HAS);
         }
+        if (profile == BluetoothProfile.LE_AUDIO_BROADCAST_ASSISTANT) {
+            return Utils.arrayContains(remoteDeviceUuids, BluetoothUuid.BASS);
+        }
 
         Log.e(TAG, "isSupported: Unexpected profile passed in to function: " + profile);
         return false;
@@ -1143,6 +1164,10 @@ public class AdapterService extends Service {
         }
         if (mLeAudioService != null && mLeAudioService.getConnectionPolicy(device)
                 > BluetoothProfile.CONNECTION_POLICY_FORBIDDEN) {
+            return true;
+        }
+        if (mBassClientService != null && mBassClientService.getConnectionPolicy(device)
+                 > BluetoothProfile.CONNECTION_POLICY_FORBIDDEN) {
             return true;
         }
         return false;
@@ -1250,6 +1275,13 @@ public class AdapterService extends Service {
             Log.i(TAG, "connectEnabledProfiles: Connecting LeAudio profile (BAP)");
             mLeAudioService.connect(device);
         }
+        if (mBassClientService != null && isSupported(localDeviceUuids, remoteDeviceUuids,
+                BluetoothProfile.LE_AUDIO_BROADCAST_ASSISTANT, device)
+                && mBassClientService.getConnectionPolicy(device)
+                > BluetoothProfile.CONNECTION_POLICY_FORBIDDEN) {
+            Log.i(TAG, "connectEnabledProfiles: Connecting LE Broadcast Assistant Profile");
+            mBassClientService.connect(device);
+        }
         return BluetoothStatusCodes.SUCCESS;
     }
 
@@ -1290,6 +1322,7 @@ public class AdapterService extends Service {
         mVolumeControlService = VolumeControlService.getVolumeControlService();
         mCsipSetCoordinatorService = CsipSetCoordinatorService.getCsipSetCoordinatorService();
         mLeAudioService = LeAudioService.getLeAudioService();
+        mBassClientService = BassClientService.getBassClientService();
     }
 
     @BluetoothAdapter.RfcommListenerResult
@@ -1527,8 +1560,8 @@ public class AdapterService extends Service {
 
         AdapterServiceBinder(AdapterService svc) {
             mService = svc;
-            //mService.invalidateBluetoothGetStateCache();
-            //BluetoothAdapter.getDefaultAdapter().disableBluetoothGetStateCache();
+            mService.invalidateBluetoothGetStateCache();
+            BluetoothAdapter.getDefaultAdapter().disableBluetoothGetStateCache();
         }
 
         public void cleanup() {
@@ -4108,16 +4141,22 @@ public class AdapterService extends Service {
                 if (mHeadsetService == null) {
                     Log.e(TAG, "getActiveDevices: HeadsetService is null");
                 } else {
-                    activeDevices.add(mHeadsetService.getActiveDevice());
-                    Log.i(TAG, "getActiveDevices: Headset device: " + activeDevices.get(0));
+                    BluetoothDevice device = mHeadsetService.getActiveDevice();
+                    if (device != null) {
+                        activeDevices.add(device);
+                    }
+                    Log.i(TAG, "getActiveDevices: Headset device: " + device);
                 }
                 break;
             case BluetoothProfile.A2DP:
                 if (mA2dpService == null) {
                     Log.e(TAG, "getActiveDevices: A2dpService is null");
                 } else {
-                    activeDevices.add(mA2dpService.getActiveDevice());
-                    Log.i(TAG, "getActiveDevices: A2dp device: " + activeDevices.get(0));
+                    BluetoothDevice device = mA2dpService.getActiveDevice();
+                    if (device != null) {
+                        activeDevices.add(device);
+                    }
+                    Log.i(TAG, "getActiveDevices: A2dp device: " + device);
                 }
                 break;
             case BluetoothProfile.HEARING_AID:
@@ -4261,6 +4300,13 @@ public class AdapterService extends Service {
                     BluetoothProfile.CONNECTION_POLICY_ALLOWED);
             numProfilesConnected++;
         }
+        if (mBassClientService != null && isSupported(localDeviceUuids, remoteDeviceUuids,
+                BluetoothProfile.LE_AUDIO_BROADCAST_ASSISTANT, device)) {
+            Log.i(TAG, "connectAllEnabledProfiles: Connecting LE Broadcast Assistant Profile");
+            mBassClientService.setConnectionPolicy(device,
+                    BluetoothProfile.CONNECTION_POLICY_ALLOWED);
+            numProfilesConnected++;
+        }
 
         Log.i(TAG, "connectAllEnabledProfiles: Number of Profiles Connected: "
                 + numProfilesConnected);
@@ -4367,6 +4413,12 @@ public class AdapterService extends Service {
                 == BluetoothProfile.STATE_CONNECTED) {
             Log.i(TAG, "disconnectAllEnabledProfiles: Disconnecting LeAudio profile (BAP)");
             mLeAudioService.disconnect(device);
+        }
+        if (mBassClientService != null && mBassClientService.getConnectionState(device)
+                == BluetoothProfile.STATE_CONNECTED) {
+            Log.i(TAG, "disconnectAllEnabledProfiles: Disconnecting "
+                            + "LE Broadcast Assistant Profile");
+            mBassClientService.disconnect(device);
         }
 
         return BluetoothStatusCodes.SUCCESS;

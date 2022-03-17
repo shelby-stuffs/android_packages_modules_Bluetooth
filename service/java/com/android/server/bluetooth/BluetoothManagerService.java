@@ -58,7 +58,6 @@ import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.os.BatteryStatsManager;
 import android.os.Binder;
@@ -68,6 +67,7 @@ import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.ParcelFileDescriptor;
 import android.os.PowerExemptionManager;
 import android.os.Process;
 import android.os.RemoteCallbackList;
@@ -578,23 +578,13 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
 
         int systemUiUid = -1;
         // Check if device is configured with no home screen, which implies no SystemUI.
-        boolean noHome = context.getResources()
-                .getBoolean(Resources.getSystem().getIdentifier(
-                "config_noHomeScreen", "bool", "android"));
-        if (!noHome) {
-            try {
-                systemUiUid = mContext.createContextAsUser(UserHandle.SYSTEM, 0)
-                    .getPackageManager()
-                    .getPackageUid("com.android.systemui",
-                            PackageManager.PackageInfoFlags.of(PackageManager.MATCH_SYSTEM_ONLY));
-            } catch (PackageManager.NameNotFoundException e) {
-                Log.w(TAG, "SystemUi uid not found", e);
-            }
-        }
-        if (systemUiUid >= 0) {
+        try {
+            systemUiUid = mContext.createContextAsUser(UserHandle.SYSTEM, 0)
+                .getPackageManager()
+                .getPackageUid("com.android.systemui",
+                        PackageManager.PackageInfoFlags.of(PackageManager.MATCH_SYSTEM_ONLY));
             Log.d(TAG, "Detected SystemUiUid: " + Integer.toString(systemUiUid));
-        } else {
-            // Some platforms, such as wearables do not have a system ui.
+        } catch (PackageManager.NameNotFoundException e) {
             Log.w(TAG, "Unable to resolve SystemUI's UID.");
         }
         mSystemUiUid = systemUiUid;
@@ -1067,7 +1057,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         // Check if packageName belongs to callingUid
         final int callingUid = Binder.getCallingUid();
         final boolean isCallerSystem = UserHandle.getAppId(callingUid) == Process.SYSTEM_UID;
-        if (!isCallerSystem) {
+        if (!isCallerSystem && callingUid != Process.SHELL_UID) {
             checkPackage(callingUid, attributionSource.getPackageName());
 
             if (requireForeground && !checkIfCallerIsForegroundUser()) {
@@ -1293,9 +1283,11 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
 
         final int callingUid = Binder.getCallingUid();
         final int callingPid = Binder.getCallingPid();
-        if (!isPrivileged(callingPid, callingUid) && !isDeviceOwner(callingUid, packageName)
-                && CompatChanges.isChangeEnabled(RESTRICT_ENABLE_DISABLE, callingUid)
-                && !isSystem(packageName, callingUid)) {
+        if (CompatChanges.isChangeEnabled(RESTRICT_ENABLE_DISABLE, callingUid)
+                && !isPrivileged(callingPid, callingUid)
+                && !isSystem(packageName, callingUid)
+                && !isDeviceOwner(callingUid, packageName)
+                && !isProfileOwner(callingUid, packageName)) {
             return false;
         }
 
@@ -1335,9 +1327,11 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
 
         final int callingUid = Binder.getCallingUid();
         final int callingPid = Binder.getCallingPid();
-        if (!isPrivileged(callingPid, callingUid) && !isDeviceOwner(callingUid, packageName)
-                && CompatChanges.isChangeEnabled(RESTRICT_ENABLE_DISABLE, callingUid)
-                && !isSystem(packageName, callingUid)) {
+        if (CompatChanges.isChangeEnabled(RESTRICT_ENABLE_DISABLE, callingUid)
+                && !isPrivileged(callingPid, callingUid)
+                && !isSystem(packageName, callingUid)
+                && !isDeviceOwner(callingUid, packageName)
+                && !isProfileOwner(callingUid, packageName)) {
             return false;
         }
 
@@ -3475,6 +3469,14 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 attributionSource, message);
     }
 
+    @Override
+    public int handleShellCommand(@NonNull ParcelFileDescriptor in,
+            @NonNull ParcelFileDescriptor out, @NonNull ParcelFileDescriptor err,
+            @NonNull String[] args) {
+        return new BluetoothShellCommand(this, mContext).exec(this, in.getFileDescriptor(),
+                out.getFileDescriptor(), err.getFileDescriptor(), args);
+    }
+
     static @NonNull Bundle getTempAllowlistBroadcastOptions() {
         final long duration = 10_000;
         final BroadcastOptions bOptions = BroadcastOptions.makeBasic();
@@ -3541,6 +3543,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
             Log.e(TAG, "isDeviceOwner: packageName is null, returning false");
             return false;
         }
+
         Pair<UserHandle, ComponentName> deviceOwner = getDeviceOwner();
 
         // no device owner
@@ -3548,6 +3551,28 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
 
         return deviceOwner.first.equals(UserHandle.getUserHandleForUid(uid))
                 && deviceOwner.second.getPackageName().equals(packageName);
+    }
+
+    private boolean isProfileOwner(int uid, String packageName) {
+        Context userContext;
+        try {
+            userContext = mContext.createPackageContextAsUser(mContext.getPackageName(), 0,
+                    UserHandle.getUserHandleForUid(uid));
+        } catch (PackageManager.NameNotFoundException e) {
+            Log.e(TAG, "Unknown package name");
+            return false;
+        }
+        if (userContext == null) {
+            Log.e(TAG, "Unable to retrieve user context for " + uid);
+            return false;
+        }
+        DevicePolicyManager devicePolicyManager =
+                userContext.getSystemService(DevicePolicyManager.class);
+        if (devicePolicyManager == null) {
+            Log.w(TAG, "Error retrieving DPM service");
+            return false;
+        }
+        return devicePolicyManager.isProfileOwnerApp(packageName);
     }
 
     public boolean isSystem(String packageName, int uid) {
