@@ -2603,9 +2603,14 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                     }
 
                     // Make sure BT process exit completely
-                    //int[] pids = Process.getPidsForCommands(
-                    //                 new String[]{ "com.android.bluetooth" });
                     int[] pids = null;
+                    try {
+                        pids = (int[]) Class.forName("android.os.Process")
+                            .getMethod("getPidsForCommands", String[].class)
+                            .invoke(new String[]{ "com.android.bluetooth" });
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error to call getPidsForCommands");
+                    }
                     if (pids != null && pids.length > 0) {
                         for(int pid : pids) {
                             Log.e(TAG, "Killing BT process with PID = " + pid);
