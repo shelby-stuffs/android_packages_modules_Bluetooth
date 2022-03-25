@@ -8,6 +8,7 @@ package {
 }
 
 apex {
+    // TODO(b/224561763): Qualcomm to refactor BT modifications into APEX.
     name: "com.android.bluetooth",
     enabled: false,
 

@@ -51,6 +51,7 @@ cc_library_static {
         },
     },
     host_supported: true,
+    min_sdk_version: "Tiramisu"
 }
 
 // HCI unit tests for target
@@ -75,12 +76,14 @@ cc_test {
         "test/packet_fragmenter_test.cc",
     ],
     shared_libs: [
+        "android.hardware.bluetooth.audio@2.0",
+        "android.hardware.bluetooth.audio@2.1",
         "libdl",
     ],
     static_libs: [
-        "libbt-hci",
-        "libbtcore",
         "libbluetooth-for-tests",
+        "libbtcore",
+        "libbt-hci",
     ],
 }
 

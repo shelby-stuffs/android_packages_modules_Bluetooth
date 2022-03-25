@@ -95,6 +95,7 @@ cc_library_static {
             ],
         },
     },
+    min_sdk_version: "Tiramisu"
 }
 
 // libosi unit tests for target and host
@@ -124,6 +125,8 @@ cc_test {
         "test/wakelock_test.cc",
     ],
     shared_libs: [
+        "android.hardware.bluetooth@1.0",
+        "android.hardware.bluetooth@1.1",
         "liblog",
         "libprotobuf-cpp-lite",
         "libcutils",

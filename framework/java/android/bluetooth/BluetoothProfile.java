@@ -311,6 +311,13 @@ public interface BluetoothProfile {
     int LE_AUDIO_BROADCAST_ASSISTANT = 29;
 
     /**
+     * Battery Service
+     *
+     * @hide
+     */
+    int BATTERY = 30;
+
+    /**
      * Max profile ID. This value should be updated whenever a new profile is added to match
      * the largest value assigned to a profile.
      *

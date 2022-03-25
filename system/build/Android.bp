@@ -51,6 +51,23 @@ fluoride_defaults {
     },
 }
 
+// default to be used only on platform libs that can rely on shared libchrome
+fluoride_defaults {
+    name: "libchrome_shared_support_defaults",
+    shared_libs: ["libchrome"],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    target: {
+        darwin: {
+            enabled: false,
+        },
+    },
+}
+
+
 // Fuzzable defaults are the subset of defaults that are used in fuzzing, which
 // requires no shared libraries, and no explicit sanitization.
 fluoride_defaults {
@@ -170,6 +187,7 @@ fluoride_defaults {
         "libnativehelper",
     ],
     static_libs: [
+        "android.hardware.bluetooth.a2dp@1.0",
         "libflatbuffers-cpp",
         "libbt-sbc-decoder",
         "libbt-sbc-encoder",
@@ -187,17 +205,16 @@ fluoride_defaults {
         "libbt_callbacks_cxx",
         "libbt_shim_bridge",
         "libbt_shim_ffi",
+        "libstatslog_bt",
     ],
     target: {
         android: {
             shared_libs: [
-                "android.hardware.bluetooth.a2dp@1.0",
                 "android.hardware.bluetooth.audio@2.0",
                 "android.hardware.bluetooth.audio@2.1",
                 "android.hardware.bluetooth.audio-V1-ndk",
                 "android.hardware.bluetooth@1.0",
                 "android.hardware.bluetooth@1.1",
-                "android.system.suspend.control-V1-ndk",
                 "android.system.suspend-V1-ndk",
                 "libaaudio",
                 "libbinder_ndk",
@@ -208,7 +225,9 @@ fluoride_defaults {
                 "libtinyxml2",
                 "libutils",
                 "libz",
-                "libstatslog_bt",
+            ],
+            static_libs: [
+                "android.system.suspend.control-V1-ndk",
             ],
             required: [
                 "libldacBT_enc",
@@ -217,7 +236,6 @@ fluoride_defaults {
         },
         linux_glibc: {
             shared_libs: [
-                "android.hardware.bluetooth.a2dp@1.0",
                 "android.hardware.bluetooth.audio@2.0",
                 "android.hardware.bluetooth.audio@2.1",
                 "android.hardware.bluetooth@1.0",
@@ -230,11 +248,6 @@ fluoride_defaults {
                 "libtinyxml2",
                 "libutils",
                 "libz",
-                "libstatslog_bt",
-            ],
-            required: [
-                // "libldacBT_enc",
-                // "libldacBT_abr",
             ],
         },
     },
@@ -273,6 +286,7 @@ fluoride_defaults {
         "libbt_callbacks_cxx",
         "libbt_shim_bridge",
         "libbt_shim_ffi",
+        "libstatslog_bt",
     ],
     target: {
         darwin: {
@@ -295,7 +309,7 @@ fluoride_defaults {
                 "android.hardware.bluetooth@1.1",
                 "libcutils",
                 "libhidlbase",
-                "libstatslog_bt",
+                "libstatssocket",
                 "libutils",
             ],
             cflags: [

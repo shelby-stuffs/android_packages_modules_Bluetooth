@@ -80,6 +80,7 @@ cc_library_static {
         "gatt/bta_gatts_act.cc",
         "gatt/bta_gatts_api.cc",
         "gatt/bta_gatts_main.cc",
+        "gatt/bta_gatts_queue.cc",
         "gatt/bta_gatts_utils.cc",
         "gatt/database.cc",
         "gatt/database_builder.cc",
@@ -145,6 +146,7 @@ cc_library_static {
         "LeAudioSetConfigSchemas_h",
     ],
     host_supported: true,
+    min_sdk_version: "Tiramisu"
 }
 
 // bta unit tests for target
@@ -163,6 +165,8 @@ cc_test {
         "test/gatt/database_test.cc",
     ],
     shared_libs: [
+        "android.hardware.bluetooth.audio@2.0",
+        "android.hardware.bluetooth.audio@2.1",
         "libcrypto",
         "liblog",
         "libprotobuf-cpp-lite",

@@ -51,6 +51,7 @@
 package android.bluetooth;
 
 import android.app.PendingIntent;
+import android.bluetooth.IBluetoothActivityEnergyInfoListener;
 import android.bluetooth.IBluetoothCallback;
 import android.bluetooth.IBluetoothConnectionCallback;
 import android.bluetooth.IBluetoothMetadataListener;
@@ -265,7 +266,7 @@ interface IBluetooth
      * The result code is ignored.
      */
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT,android.Manifest.permission.BLUETOOTH_PRIVILEGED})")
-    oneway void requestActivityInfo(in ResultReceiver result, in AttributionSource attributionSource);
+    oneway void requestActivityInfo(in IBluetoothActivityEnergyInfoListener listener, in AttributionSource attributionSource);
 
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT,android.Manifest.permission.BLUETOOTH_PRIVILEGED})")
     oneway void onLeServiceUp(in AttributionSource attributionSource, in SynchronousResultReceiver receiver);

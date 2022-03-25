@@ -124,7 +124,19 @@ android_app {
     optimize: {
         enabled: false,
     },
-    required: ["libbluetooth"],
+    required: [
+        "android.hardware.bluetooth@1.0",
+        "android.hardware.bluetooth@1.1",
+        "android.hardware.bluetooth.audio@2.0",
+        "android.hardware.bluetooth.audio@2.1",
+        "android.hardware.bluetooth.audio-V1-ndk",
+        "audio_set_configurations_bfbs",
+        "audio_set_configurations_json",
+        "audio_set_scenarios_bfbs",
+        "audio_set_scenarios_json",
+        "bt_did.conf",
+        "bt_stack.conf",
+    ],
     apex_available: [
         "//apex_available:platform",
         "com.android.bluetooth",

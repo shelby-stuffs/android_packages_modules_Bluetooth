@@ -35,6 +35,7 @@ cc_defaults {
 cc_library_static {
     name: "libbtcore",
     defaults: ["libbtcore_defaults"],
+    min_sdk_version: "Tiramisu"
 }
 
 cc_library_headers {
@@ -64,12 +65,14 @@ cc_test {
         "test/property_test.cc",
     ],
     shared_libs: [
+        "android.hardware.bluetooth@1.0",
+        "android.hardware.bluetooth@1.1",
         "liblog",
     ],
     static_libs: [
-        "libbtcore",
-        "libosi-AllocationTestHarness",
         "libosi",
+        "libosi-AllocationTestHarness",
+        "libbtcore",
     ],
     host_supported: true,
     test_options: {
