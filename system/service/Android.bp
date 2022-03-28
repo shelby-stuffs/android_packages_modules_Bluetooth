@@ -168,6 +168,7 @@ cc_test {
         ],
     },
     static_libs: [
+        "android.hardware.bluetooth.a2dp@1.0",
         "avrcp-target-service",
         "libaudio-a2dp-hw-utils",
         "libbluetooth-common",
@@ -203,7 +204,6 @@ cc_test {
     shared_libs: [
         "android.hardware.bluetooth@1.0",
         "android.hardware.bluetooth@1.1",
-        "android.hardware.bluetooth.a2dp@1.0",
         "android.hardware.bluetooth.audio@2.0",
         "android.hardware.bluetooth.audio@2.1",
         "libbinder_ndk",
@@ -226,13 +226,14 @@ cc_test {
                 "test/ParcelableTest.aidl",
             ],
             static_libs: [
+                "android.system.suspend.control-V1-ndk",
                 "libbluetooth-binder-common",
             ],
             shared_libs: [
                 "android.hardware.bluetooth.audio-V1-ndk",
-                "android.system.suspend.control-V1-ndk",
                 "android.system.suspend-V1-ndk",
                 "libbinder",
+                "libvndksupport",
             ],
         },
         host: {

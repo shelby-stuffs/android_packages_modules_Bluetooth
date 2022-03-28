@@ -56,6 +56,7 @@ cc_library_static {
     ],
     header_libs: ["libbt_callbacks_cxx_headers"],
     host_supported: true,
+    min_sdk_version: "Tiramisu"
 }
 
 cc_library {
@@ -91,19 +92,11 @@ cc_library {
     // that might link statically with some of the code in the library, and
     // also dlopen(3) the shared library.
     ldflags: ["-Wl,-Bsymbolic,-Bsymbolic-functions"],
-    required: [
-        "bt_did.conf",
-        "bt_stack.conf",
-        "audio_set_scenarios_bfbs",
-        "audio_set_scenarios_json",
-        "audio_set_configurations_bfbs",
-        "audio_set_configurations_json",
-    ],
     cflags: [
         "-DBUILDCFG",
     ],
     sanitize: {
-        never: true,
+        scs: true,
     },
     host_supported: true,
     min_sdk_version: "30",
@@ -166,6 +159,7 @@ cc_test {
         ":TestMockLegacyHciInterface",
         ":TestMockMainShimEntry",
         ":TestMockStack",
+        ":BluetoothOsSources_host",
         "shim/acl_api.cc",
         "shim/acl.cc",
         "shim/acl_legacy_interface.cc",
@@ -184,6 +178,7 @@ cc_test {
         "shim/shim.cc",
         "shim/stack.cc",
         "test/common_stack_test.cc",
+        "test/main_shim_dumpsys_test.cc",
         "test/main_shim_test.cc",
     ],
     static_libs: [
@@ -215,4 +210,5 @@ cc_test {
         "BluetoothGeneratedDumpsysDataSchema_h",
         "BluetoothGeneratedPackets_h",
     ],
+    min_sdk_version: "Tiramisu"
 }
