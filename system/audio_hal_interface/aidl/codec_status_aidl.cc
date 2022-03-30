@@ -489,7 +489,7 @@ bool UpdateOffloadingCapabilities(
       default:
         LOG(ERROR) << __func__
                    << ": Unknown codec_type=" << preference.codec_type;
-        return false;
+        break;
     }
   }
   offloading_preference.clear();
