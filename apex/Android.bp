@@ -22,8 +22,17 @@ apex {
 
     compile_multilib: "both",
 
+    prebuilts: [
+        "bluetooth-linker-config",
+    ],
     key: "com.android.bluetooth.key",
     certificate: ":com.android.bluetooth.certificate",
+}
+
+linker_config {
+    name: "bluetooth-linker-config",
+    src: "linker.config.json",
+    installable: false,
 }
 
 apex_key {
