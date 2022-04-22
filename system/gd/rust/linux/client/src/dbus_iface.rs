@@ -174,6 +174,12 @@ impl IBluetoothCallback for IBluetoothCallbackDBus {
     #[dbus_method("OnAddressChanged")]
     fn on_address_changed(&self, addr: String) {}
 
+    #[dbus_method("OnNameChanged")]
+    fn on_name_changed(&self, name: String) {}
+
+    #[dbus_method("OnDiscoverableChanged")]
+    fn on_discoverable_changed(&self, discoverable: bool) {}
+
     #[dbus_method("OnDeviceFound")]
     fn on_device_found(&self, remote_device: BluetoothDevice) {}
 
@@ -397,6 +403,11 @@ impl IBluetooth for BluetoothDBus {
 
     #[dbus_method("GetRemoteAlias")]
     fn get_remote_alias(&self, device: BluetoothDevice) -> String {
+        dbus_generated!()
+    }
+
+    #[dbus_method("SetRemoteAlias")]
+    fn set_remote_alias(&mut self, device: BluetoothDevice, new_alias: String) {
         dbus_generated!()
     }
 

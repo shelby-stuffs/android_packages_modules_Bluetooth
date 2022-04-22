@@ -131,6 +131,9 @@ pub trait IBluetooth {
     /// Gets the alias of the remote device.
     fn get_remote_alias(&self, device: BluetoothDevice) -> String;
 
+    /// Sets the alias of the remote device.
+    fn set_remote_alias(&mut self, device: BluetoothDevice, new_alias: String);
+
     /// Gets the class of the remote device.
     fn get_remote_class(&self, device: BluetoothDevice) -> u32;
 
@@ -230,6 +233,12 @@ impl BluetoothDeviceContext {
 pub trait IBluetoothCallback: RPCProxy {
     /// When any of the adapter local address is changed.
     fn on_address_changed(&self, addr: String);
+
+    /// When the adapter name is changed.
+    fn on_name_changed(&self, name: String);
+
+    /// When the adapter's discoverable mode is changed.
+    fn on_discoverable_changed(&self, discoverable: bool);
 
     /// When a device is found via discovery.
     fn on_device_found(&self, remote_device: BluetoothDevice);
@@ -399,6 +408,16 @@ impl Bluetooth {
         self.bonded_devices.get(&device.address).or_else(|| self.found_devices.get(&device.address))
     }
 
+    fn get_remote_device_if_found_mut(
+        &mut self,
+        device: &BluetoothDevice,
+    ) -> Option<&mut BluetoothDeviceContext> {
+        match self.bonded_devices.get_mut(&device.address) {
+            None => self.found_devices.get_mut(&device.address),
+            some => some,
+        }
+    }
+
     fn get_remote_device_property(
         &self,
         device: &BluetoothDevice,
@@ -406,6 +425,31 @@ impl Bluetooth {
     ) -> Option<BluetoothProperty> {
         self.get_remote_device_if_found(&device)
             .and_then(|d| d.properties.get(property_type).and_then(|p| Some(p.clone())))
+    }
+
+    fn set_remote_device_property(
+        &mut self,
+        device: &BluetoothDevice,
+        property_type: BtPropertyType,
+        property: BluetoothProperty,
+    ) -> Result<(), ()> {
+        let mut remote_device = match self.get_remote_device_if_found_mut(&device) {
+            Some(d) => d,
+            None => {
+                return Err(());
+            }
+        };
+
+        let mut addr = RawAddress::from_string(device.address.clone());
+        if addr.is_none() {
+            return Err(());
+        }
+        let addr = addr.as_mut().unwrap();
+
+        // TODO: Determine why a callback isn't invoked to do this.
+        remote_device.properties.insert(property_type, property.clone());
+        self.intf.lock().unwrap().set_remote_device_property(addr, property);
+        Ok(())
     }
 }
 
@@ -552,6 +596,17 @@ impl BtifBluetoothCallbacks for Bluetooth {
                                 vec![],
                             ));
                     }
+                }
+                BluetoothProperty::BdName(bdname) => {
+                    self.for_all_callbacks(|callback| {
+                        callback.on_name_changed(bdname.clone());
+                    });
+                }
+                BluetoothProperty::AdapterScanMode(mode) => {
+                    self.for_all_callbacks(|callback| {
+                        callback
+                            .on_discoverable_changed(*mode == BtScanMode::ConnectableDiscoverable);
+                    });
                 }
                 _ => {}
             }
@@ -1113,6 +1168,14 @@ impl IBluetooth for Bluetooth {
             Some(BluetoothProperty::RemoteFriendlyName(name)) => return name.clone(),
             _ => "".to_string(),
         }
+    }
+
+    fn set_remote_alias(&mut self, device: BluetoothDevice, new_alias: String) {
+        let _ = self.set_remote_device_property(
+            &device,
+            BtPropertyType::RemoteFriendlyName,
+            BluetoothProperty::RemoteFriendlyName(new_alias),
+        );
     }
 
     fn get_remote_class(&self, device: BluetoothDevice) -> u32 {

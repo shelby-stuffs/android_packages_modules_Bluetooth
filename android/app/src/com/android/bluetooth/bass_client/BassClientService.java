@@ -39,6 +39,7 @@ import android.os.Message;
 import android.os.ParcelUuid;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
+import android.sysprop.BluetoothProperties;
 import android.util.Log;
 
 import com.android.bluetooth.Utils;
@@ -64,6 +65,7 @@ public class BassClientService extends ProfileService {
     private static BassClientService sService;
 
     private final Map<BluetoothDevice, BassClientStateMachine> mStateMachines = new HashMap<>();
+    private final Object mSearchScanCallbackLock = new Object();
 
     private HandlerThread mStateMachinesThread;
     private HandlerThread mCallbackHandlerThread;
@@ -84,6 +86,10 @@ public class BassClientService extends ProfileService {
     private Map<BluetoothDevice, PeriodicAdvertisementResult> mPeriodicAdvertisementResultMap;
     private ScanCallback mSearchScanCallback;
     private Callbacks mCallbacks;
+
+    public static boolean isEnabled() {
+        return BluetoothProperties.isProfileBapBroadcastAssistEnabled().orElse(false);
+    }
 
     void updatePeriodicAdvertisementResultMap(
             BluetoothDevice device,
@@ -619,7 +625,7 @@ public class BassClientService extends ProfileService {
             Log.e(TAG, "startLeScan: cannot get BluetoothLeScanner");
             return;
         }
-        synchronized (mSearchScanCallback) {
+        synchronized (mSearchScanCallbackLock) {
             if (mSearchScanCallback != null) {
                 Log.e(TAG, "LE Scan has already started");
                 mCallbacks.notifySearchStartFailed(BluetoothStatusCodes.ERROR_UNKNOWN);
@@ -685,7 +691,7 @@ public class BassClientService extends ProfileService {
             Log.e(TAG, "startLeScan: cannot get BluetoothLeScanner");
             return;
         }
-        synchronized (mSearchScanCallback) {
+        synchronized (mSearchScanCallbackLock) {
             if (mSearchScanCallback == null) {
                 Log.e(TAG, "Scan not started yet");
                 mCallbacks.notifySearchStopFailed(BluetoothStatusCodes.ERROR_UNKNOWN);
@@ -702,7 +708,7 @@ public class BassClientService extends ProfileService {
      * @return true if a search has been started by this application
      */
     public boolean isSearchInProgress() {
-        synchronized (mSearchScanCallback) {
+        synchronized (mSearchScanCallbackLock) {
             return mSearchScanCallback != null;
         }
     }
@@ -1047,7 +1053,7 @@ public class BassClientService extends ProfileService {
                 }
                 return service.getConnectionState(sink);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
                 return BluetoothProfile.STATE_DISCONNECTED;
             }
         }
@@ -1062,7 +1068,7 @@ public class BassClientService extends ProfileService {
                 }
                 return service.getDevicesMatchingConnectionStates(states);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
                 return Collections.emptyList();
             }
         }
@@ -1077,7 +1083,7 @@ public class BassClientService extends ProfileService {
                 }
                 return service.getConnectedDevices();
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
                 return Collections.emptyList();
             }
         }
@@ -1092,7 +1098,7 @@ public class BassClientService extends ProfileService {
                 }
                 return service.setConnectionPolicy(device, connectionPolicy);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
                 return false;
             }
         }
@@ -1107,7 +1113,7 @@ public class BassClientService extends ProfileService {
                 }
                 return service.getConnectionPolicy(device);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
                 return BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
             }
         }
@@ -1122,7 +1128,7 @@ public class BassClientService extends ProfileService {
                 }
                 service.registerCallback(cb);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
             }
         }
 
@@ -1136,7 +1142,7 @@ public class BassClientService extends ProfileService {
                 }
                 service.unregisterCallback(cb);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
             }
         }
 
@@ -1150,7 +1156,7 @@ public class BassClientService extends ProfileService {
                 }
                 service.startSearchingForSources(filters);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
             }
         }
 
@@ -1164,7 +1170,7 @@ public class BassClientService extends ProfileService {
                 }
                 service.stopSearchingForSources();
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
             }
         }
 
@@ -1178,7 +1184,7 @@ public class BassClientService extends ProfileService {
                 }
                 return service.isSearchInProgress();
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
                 return false;
             }
         }
@@ -1195,7 +1201,7 @@ public class BassClientService extends ProfileService {
                 }
                 service.addSource(sink, sourceMetadata, isGroupOp);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
             }
         }
 
@@ -1210,7 +1216,7 @@ public class BassClientService extends ProfileService {
                 }
                 service.modifySource(sink, sourceId, updatedMetadata);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
             }
         }
 
@@ -1224,7 +1230,7 @@ public class BassClientService extends ProfileService {
                 }
                 service.removeSource(sink, sourceId);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
             }
         }
 
@@ -1238,7 +1244,7 @@ public class BassClientService extends ProfileService {
                 }
                 return service.getAllSources(sink);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
                 return Collections.emptyList();
             }
         }
@@ -1253,7 +1259,7 @@ public class BassClientService extends ProfileService {
                 }
                 return service.getMaximumSourceCapacity(sink);
             } catch (RuntimeException e) {
-                Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+                Log.e(TAG, "Exception happened", e);
                 return 0;
             }
         }
