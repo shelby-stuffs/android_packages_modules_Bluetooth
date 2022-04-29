@@ -62,8 +62,8 @@ import java.util.concurrent.TimeoutException;
  */
 public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     private static final String TAG = "BluetoothLeAudio";
-    private static final boolean DBG = false;
-    private static final boolean VDBG = false;
+    private static final boolean DBG = true;
+    private static final boolean VDBG = true;
 
     private final Map<Callback, Executor> mCallbackExecutorMap = new HashMap<>();
 
