@@ -177,6 +177,19 @@ class BleScannerInterface {
   /* Read out batchscan reports */
   virtual void BatchscanReadReports(int client_if, int scan_mode) = 0;
 
+  using StartSyncCb =
+      base::Callback<void(uint8_t status, uint16_t sync_handle,
+                          uint8_t advertising_sid, uint8_t address_type,
+                          RawAddress address, uint8_t phy, uint16_t interval)>;
+  using SyncReportCb =
+      base::Callback<void(uint16_t sync_handle, int8_t tx_power, int8_t rssi,
+                          uint8_t status, std::vector<uint8_t> data)>;
+  using SyncLostCb = base::Callback<void(uint16_t sync_handle)>;
+
+  virtual void StartSync(uint8_t sid, RawAddress address, uint16_t skip,
+                         uint16_t timeout, StartSyncCb start_cb,
+                         SyncReportCb report_cb, SyncLostCb lost_cb) = 0;
+
   virtual void StartSync(uint8_t sid, RawAddress address, uint16_t skip,
                          uint16_t timeout, int reg_id) = 0;
   virtual void StopSync(uint16_t handle) = 0;
@@ -184,6 +197,16 @@ class BleScannerInterface {
   virtual void RegisterCallbacks(ScanningCallbacks* callbacks) = 0;
 
   virtual void CancelCreateSync(uint8_t sid, RawAddress address) = 0;
+
+  using SyncTransferCb =
+      base::Callback<void(uint8_t /*status*/, RawAddress /*addr*/)>;
+
+  virtual void TransferSync(RawAddress address, uint16_t service_data,
+                            uint16_t sync_handle, SyncTransferCb cb) = 0;
+  virtual void TransferSetInfo(RawAddress address, uint16_t service_data,
+                               uint8_t adv_handle, SyncTransferCb cb) = 0;
+  virtual void SyncTxParameters(RawAddress addr, uint8_t mode, uint16_t skip,
+                                uint16_t timeout, StartSyncCb start_cb) = 0;
 
   virtual void TransferSync(RawAddress address, uint16_t service_data,
                             uint16_t sync_handle, int pa_source) = 0;

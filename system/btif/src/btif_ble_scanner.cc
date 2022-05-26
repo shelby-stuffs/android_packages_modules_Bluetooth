@@ -352,6 +352,12 @@ class BleScannerInterfaceImpl : public BleScannerInterface {
                    jni_thread_wrapper(FROM_HERE, std::move(sync_lost_cb))));
   }
 
+  void StartSync(uint8_t sid, RawAddress address, uint16_t skip,
+                 uint16_t timeout, StartSyncCb start_cb, SyncReportCb report_cb,
+                 SyncLostCb lost_cb) override {
+    BTIF_TRACE_DEBUG("%s :", __func__);
+  }
+
   void StopSync(uint16_t handle) override {
     LOG_DEBUG("handle: %d", handle);
     const controller_t* controller = controller_get_interface();
@@ -397,6 +403,12 @@ class BleScannerInterfaceImpl : public BleScannerInterface {
                    jni_thread_wrapper(FROM_HERE, std::move(sync_transfer_cb))));
   }
 
+  void TransferSync(RawAddress address, uint16_t service_data,
+                    uint16_t sync_handle, SyncTransferCb cb) override {
+    BTIF_TRACE_DEBUG("%s :", __func__);
+  }
+
+
   void TransferSetInfo(RawAddress address, uint16_t service_data,
                        uint8_t adv_handle, int pa_source) override {
     LOG_DEBUG("address: %s", address.ToString().c_str());
@@ -418,6 +430,11 @@ class BleScannerInterfaceImpl : public BleScannerInterface {
                    jni_thread_wrapper(FROM_HERE, std::move(sync_transfer_cb))));
   }
 
+  void TransferSetInfo(RawAddress address, uint16_t service_data,
+                       uint8_t adv_handle, SyncTransferCb cb) override {
+    BTIF_TRACE_DEBUG("%s :", __func__);
+  }
+
   void SyncTxParameters(RawAddress addr, uint8_t mode, uint16_t skip,
                         uint16_t timeout, int reg_id) override {
     LOG_DEBUG("address: %s", addr.ToString().c_str());
@@ -436,6 +453,11 @@ class BleScannerInterfaceImpl : public BleScannerInterface {
         FROM_HERE,
         base::Bind(&BTM_BlePeriodicSyncTxParameters, addr, mode, skip, timeout,
                    jni_thread_wrapper(FROM_HERE, std::move(start_sync_cb))));
+  }
+
+  void SyncTxParameters(RawAddress addr, uint8_t mode,
+                        uint16_t skip, uint16_t timeout,StartSyncCb cb) {
+    BTIF_TRACE_DEBUG("%s :", __func__);
   }
 
   ScanningCallbacks* callbacks_ = nullptr;
