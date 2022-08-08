@@ -317,6 +317,11 @@ public interface BluetoothProfile {
      */
     int BATTERY = 30;
 
+   /**
+     * CS_PROFILE
+     * @hide
+     */
+    int CS_PROFILE = 31;
     /**
      * Max profile ID. This value should be updated whenever a new profile is added to match
      * the largest value assigned to a profile.
