@@ -216,7 +216,7 @@ fluoride_defaults {
             shared_libs: [
                 "android.hardware.bluetooth.audio@2.0",
                 "android.hardware.bluetooth.audio@2.1",
-                "android.hardware.bluetooth.audio-V1-ndk",
+                "android.hardware.bluetooth.audio-V2-ndk",
                 "android.hardware.bluetooth@1.0",
                 "android.hardware.bluetooth@1.1",
                 "android.system.suspend-V1-ndk",
@@ -328,7 +328,7 @@ fluoride_defaults {
 cc_defaults {
     name: "clang_file_coverage",
     target: {
-        host: {
+        glibc: {
             clang_cflags: [
                 "-fprofile-instr-generate",
                 "-fcoverage-mapping",
@@ -346,7 +346,7 @@ cc_defaults {
 cc_defaults {
     name: "clang_coverage_bin",
     target: {
-        host: {
+        glibc: {
             ldflags: [
                 "-fprofile-instr-generate",
                 "-fcoverage-mapping",
