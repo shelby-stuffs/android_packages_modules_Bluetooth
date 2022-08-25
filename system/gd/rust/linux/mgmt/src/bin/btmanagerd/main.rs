@@ -1,32 +1,34 @@
-mod bluetooth_manager;
-mod bluetooth_manager_dbus;
-mod config_util;
-mod dbus_arg;
-mod dbus_iface;
-mod powerd_suspend_manager;
-mod service_watcher;
-mod state_machine;
+// The manager binary (btmanagerd) is a fairly barebone bin file that depends on the manager_service
+// library which implements most of the logic. The code is separated in this way so that we can
+// apply certain linker flags (which is applied to the library but not the binary).
+// Please keep main.rs logic light and write the heavy logic in the manager_service library instead.
 
-use crate::bluetooth_manager::BluetoothManager;
-use crate::powerd_suspend_manager::PowerdSuspendManager;
+extern crate clap;
+
+use clap::{App, Arg};
 use dbus::channel::MatchingReceiver;
 use dbus::message::MatchRule;
 use dbus_crossroads::Crossroads;
 use dbus_projection::DisconnectWatcher;
 use dbus_tokio::connection;
 use log::LevelFilter;
+use manager_service::bluetooth_manager::{BluetoothManager, ManagerContext};
+use manager_service::powerd_suspend_manager::PowerdSuspendManager;
+use manager_service::{bluetooth_manager_dbus, config_util, state_machine};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use syslog::{BasicLogger, Facility, Formatter3164};
 
-#[derive(Clone)]
-struct ManagerContext {
-    proxy: state_machine::StateMachineProxy,
-    floss_enabled: Arc<AtomicBool>,
-}
-
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let matches = App::new("Bluetooth Manager")
+        .arg(Arg::with_name("systemd").long("systemd").help("If btadapterd uses systemd init"))
+        .arg(Arg::with_name("debug").long("debug").short("d").help("Enables debug level logs"))
+        .get_matches();
+
+    let is_debug = matches.is_present("debug");
+    let is_systemd = matches.is_present("systemd");
+
     let formatter = Formatter3164 {
         facility: Facility::LOG_USER,
         hostname: None,
@@ -35,8 +37,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let logger = syslog::unix(formatter).expect("could not connect to syslog");
-    let _ = log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
-        .map(|()| log::set_max_level(config_util::get_log_level().unwrap_or(LevelFilter::Info)));
+    let _ = log::set_boxed_logger(Box::new(BasicLogger::new(logger))).map(|()| {
+        log::set_max_level(config_util::get_log_level().unwrap_or(if is_debug {
+            LevelFilter::Debug
+        } else {
+            LevelFilter::Info
+        }))
+    });
 
     // Initialize config util
     config_util::fix_config_file_format();
@@ -50,22 +57,16 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     conn.set_signal_match_mode(true);
 
     // Determine whether to use upstart or systemd
-    let args: Vec<String> = std::env::args().collect();
-    let invoker = if args.len() > 1 {
-        match &args[1][0..] {
-            "--systemd" | "-s" => state_machine::Invoker::SystemdInvoker,
-            _ => state_machine::Invoker::UpstartInvoker,
-        }
+    let invoker = if is_systemd {
+        state_machine::Invoker::SystemdInvoker
     } else {
         state_machine::Invoker::UpstartInvoker
     };
 
     let context = state_machine::start_new_state_machine_context(invoker);
     let proxy = context.get_proxy();
-    let manager_context = ManagerContext {
-        proxy: proxy,
-        floss_enabled: Arc::new(AtomicBool::new(config_util::is_floss_enabled())),
-    };
+    let manager_context =
+        ManagerContext::new(proxy, Arc::new(AtomicBool::new(config_util::is_floss_enabled())));
 
     // The resource is a task that should be spawned onto a tokio compatible
     // reactor ASAP. If the resource ever finishes, you lost connection to D-Bus.
