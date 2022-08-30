@@ -12,10 +12,9 @@ use dbus_crossroads::Crossroads;
 use dbus_projection::DisconnectWatcher;
 use dbus_tokio::connection;
 use log::LevelFilter;
-use manager_service::bluetooth_manager::{BluetoothManager, ManagerContext};
+use manager_service::bluetooth_manager::BluetoothManager;
 use manager_service::powerd_suspend_manager::PowerdSuspendManager;
 use manager_service::{bluetooth_manager_dbus, config_util, state_machine};
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use syslog::{BasicLogger, Facility, Formatter3164};
 
@@ -24,26 +23,38 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("Bluetooth Manager")
         .arg(Arg::with_name("systemd").long("systemd").help("If btadapterd uses systemd init"))
         .arg(Arg::with_name("debug").long("debug").short("d").help("Enables debug level logs"))
+        .arg(
+            Arg::with_name("log-output")
+                .long("log-output")
+                .takes_value(true)
+                .possible_values(&["syslog", "stderr"])
+                .default_value("syslog")
+                .help("Select log output"),
+        )
         .get_matches();
 
     let is_debug = matches.is_present("debug");
     let is_systemd = matches.is_present("systemd");
 
-    let formatter = Formatter3164 {
-        facility: Facility::LOG_USER,
-        hostname: None,
-        process: "btmanagerd".into(),
-        pid: 0,
-    };
+    let level_filter = if is_debug { LevelFilter::Debug } else { LevelFilter::Info };
 
-    let logger = syslog::unix(formatter).expect("could not connect to syslog");
-    let _ = log::set_boxed_logger(Box::new(BasicLogger::new(logger))).map(|()| {
-        log::set_max_level(config_util::get_log_level().unwrap_or(if is_debug {
-            LevelFilter::Debug
-        } else {
-            LevelFilter::Info
-        }))
-    });
+    let log_output = matches.value_of("log-output").unwrap_or("syslog");
+
+    if log_output == "stderr" {
+        env_logger::Builder::new().filter(None, level_filter).init();
+    } else {
+        // syslog is the default log output.
+        let formatter = Formatter3164 {
+            facility: Facility::LOG_USER,
+            hostname: None,
+            process: "btmanagerd".into(),
+            pid: 0,
+        };
+
+        let logger = syslog::unix(formatter).expect("could not connect to syslog");
+        let _ = log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
+            .map(|()| log::set_max_level(config_util::get_log_level().unwrap_or(level_filter)));
+    }
 
     // Initialize config util
     config_util::fix_config_file_format();
@@ -63,10 +74,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state_machine::Invoker::UpstartInvoker
     };
 
-    let context = state_machine::start_new_state_machine_context(invoker);
+    let context =
+        state_machine::create_new_state_machine_context(invoker, config_util::is_floss_enabled());
     let proxy = context.get_proxy();
-    let manager_context =
-        ManagerContext::new(proxy, Arc::new(AtomicBool::new(config_util::is_floss_enabled())));
 
     // The resource is a task that should be spawned onto a tokio compatible
     // reactor ASAP. If the resource ever finishes, you lost connection to D-Bus.
@@ -99,7 +109,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let om = cr.lock().unwrap().object_manager();
     cr.lock().unwrap().insert("/", &[om], {});
 
-    let bluetooth_manager = Arc::new(Mutex::new(Box::new(BluetoothManager::new(manager_context))));
+    let bluetooth_manager = Arc::new(Mutex::new(Box::new(BluetoothManager::new(proxy))));
 
     // Set up the disconnect watcher to monitor client disconnects.
     let disconnect_watcher = Arc::new(Mutex::new(DisconnectWatcher::new()));
