@@ -579,6 +579,7 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     if ((group->GetState() == AseState::BTA_LE_AUDIO_ASE_STATE_IDLE) &&
         (group->GetTargetState() == AseState::BTA_LE_AUDIO_ASE_STATE_IDLE)) {
       LOG(INFO) << __func__ << " group: " << group->group_id_ << " is in IDLE";
+      group->UpdateActiveContextsMap();
       return;
     }
 
@@ -609,10 +610,10 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     /* mark ASEs as not used. */
     leAudioDevice->DeactivateAllAses();
 
-    DLOG(INFO) << __func__ << " device: " << leAudioDevice->address_
-               << " group connected: " << group->IsAnyDeviceConnected()
-               << " all active ase disconnected: "
-               << group->HaveAllActiveDevicesCisDisc();
+    LOG_DEBUG(
+        " device: %s, group connected: %d, all active ase disconnected:: %d",
+        leAudioDevice->address_.ToString().c_str(),
+        group->IsAnyDeviceConnected(), group->HaveAllActiveDevicesCisDisc());
 
     /* Group has changed. Lets update available contexts */
     group->UpdateActiveContextsMap();
@@ -953,23 +954,21 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
         /* CIS configuration already on list */
         if (iter != cis_cfgs.end()) continue;
 
-        auto ases_pair = leAudioDevice->GetAsesByCisId(cis);
         EXT_CIS_CFG cis_cfg = {0, 0, 0, 0, 0, 0, 0};
 
         cis_cfg.cis_id = ase->cis_id;
+        cis_cfg.max_sdu_size_mtos = group->GetMaxSduSize(
+            le_audio::types::kLeAudioDirectionSink, ase->cis_id);
+        cis_cfg.max_sdu_size_stom = group->GetMaxSduSize(
+            le_audio::types::kLeAudioDirectionSource, ase->cis_id);
         cis_cfg.phy_mtos =
             group->GetPhyBitmask(le_audio::types::kLeAudioDirectionSink);
         cis_cfg.phy_stom =
             group->GetPhyBitmask(le_audio::types::kLeAudioDirectionSource);
-
-        if (ases_pair.sink) {
-          cis_cfg.max_sdu_size_mtos = ases_pair.sink->max_sdu_size;
-          cis_cfg.rtn_mtos = ases_pair.sink->retrans_nb;
-        }
-        if (ases_pair.source) {
-          cis_cfg.max_sdu_size_stom = ases_pair.source->max_sdu_size;
-          cis_cfg.rtn_stom = ases_pair.source->retrans_nb;
-        }
+        cis_cfg.rtn_mtos =
+            group->GetRtn(le_audio::types::kLeAudioDirectionSink, ase->cis_id);
+        cis_cfg.rtn_stom = group->GetRtn(
+            le_audio::types::kLeAudioDirectionSource, ase->cis_id);
 
         cis_cfgs.push_back(cis_cfg);
       } while ((ase = leAudioDevice->GetNextActiveAse(ase)));

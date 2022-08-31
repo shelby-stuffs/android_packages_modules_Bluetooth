@@ -6,6 +6,27 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use tempfile::NamedTempFile;
 
+/// Search for a binary in `$PATH` or as a sibling to the current
+/// executable (typically the test binary).
+fn find_binary(name: &str) -> Result<std::path::PathBuf, String> {
+    let mut current_exe = std::env::current_exe().unwrap();
+    current_exe.pop();
+    let paths = std::env::var_os("PATH").unwrap();
+    for mut path in std::iter::once(current_exe.clone()).chain(std::env::split_paths(&paths)) {
+        path.push(name);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    Err(format!(
+        "could not find '{}' in the directory of the binary ({}) or in $PATH ({})",
+        name,
+        current_exe.to_string_lossy(),
+        paths.to_string_lossy(),
+    ))
+}
+
 /// Parse a string fragment as a PDL file.
 ///
 /// # Panics
@@ -23,8 +44,7 @@ pub fn parse_str(text: &str) -> ast::Grammar {
 /// Panics if `rustfmt` cannot be found in the same directory as the
 /// test executable or if it returns a non-zero exit code.
 pub fn rustfmt(input: &str) -> String {
-    let mut rustfmt_path = std::env::current_exe().unwrap();
-    rustfmt_path.set_file_name("rustfmt");
+    let rustfmt_path = find_binary("rustfmt").expect("cannot find rustfmt");
     let mut rustfmt = Command::new(&rustfmt_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -43,7 +63,7 @@ pub fn rustfmt(input: &str) -> String {
     String::from_utf8(output.stdout).expect("rustfmt output was not UTF-8")
 }
 
-/// Compare two strings using `diff`
+/// Find the unified diff between two strings using `diff`.
 ///
 /// # Panics
 ///
@@ -58,6 +78,7 @@ pub fn diff(left: &str, right: &str) -> String {
     // We expect `diff` to be available on PATH.
     let output = Command::new("diff")
         .arg("--unified")
+        .arg("--color=always")
         .arg("--label")
         .arg("left")
         .arg("--label")

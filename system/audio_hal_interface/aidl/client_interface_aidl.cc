@@ -46,6 +46,7 @@ std::ostream& operator<<(std::ostream& os, const BluetoothAudioCtrlAck& ack) {
 BluetoothAudioClientInterface::BluetoothAudioClientInterface(
     IBluetoothTransportInstance* instance)
     : provider_(nullptr),
+      provider_factory_(nullptr),
       session_started_(false),
       data_mq_(nullptr),
       transport_(instance) {
@@ -154,7 +155,7 @@ BluetoothAudioSinkClientInterface::BluetoothAudioSinkClientInterface(
 }
 
 BluetoothAudioSinkClientInterface::~BluetoothAudioSinkClientInterface() {
-  if (provider_ != nullptr) {
+  if (provider_factory_ != nullptr) {
     AIBinder_unlinkToDeath(provider_factory_->asBinder().get(), death_recipient_.get(),
                            nullptr);
   }
@@ -168,7 +169,7 @@ BluetoothAudioSourceClientInterface::BluetoothAudioSourceClientInterface(
 }
 
 BluetoothAudioSourceClientInterface::~BluetoothAudioSourceClientInterface() {
-  if (provider_ != nullptr) {
+  if (provider_factory_ != nullptr) {
     AIBinder_unlinkToDeath(provider_factory_->asBinder().get(), death_recipient_.get(),
                            nullptr);
   }
@@ -278,8 +279,14 @@ int BluetoothAudioClientInterface::StartSession() {
   auto aidl_retval = provider_->startSession(
       stack_if, transport_->GetAudioConfiguration(), latency_modes, &mq_desc);
   if (!aidl_retval.isOk()) {
-    LOG(FATAL) << __func__ << ": BluetoothAudioHal failure: "
-               << aidl_retval.getDescription();
+    if (aidl_retval.getExceptionCode() == EX_ILLEGAL_ARGUMENT) {
+      LOG(ERROR) << __func__ << ": BluetoothAudioHal Error: "
+                 << aidl_retval.getDescription() << ", audioConfig="
+                 << transport_->GetAudioConfiguration().toString();
+    } else {
+      LOG(FATAL) << __func__ << ": BluetoothAudioHal failure: "
+                 << aidl_retval.getDescription();
+    }
     return -EPROTO;
   }
   data_mq.reset(new DataMQ(mq_desc));
