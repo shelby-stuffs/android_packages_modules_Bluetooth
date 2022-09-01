@@ -1,5 +1,5 @@
 #
-#  Copyright 2021 Google, Inc.
+#  Copyright 2022 Google, Inc.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -12,23 +12,16 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
 [package]
-name = "bt_common"
+name = "bt_socket"
 version = "0.0.1"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-cxx = "*"
-env_logger = "*"
-grpcio = "*"
-lazy_static = "*"
-log = "*"
-nix = "*"
-tokio = { version = "*", features = ['bytes', 'macros', 'net', 'rt-multi-thread', 'time'] }
-
-# Proc Macro dependency
-paste = "*"
+libc = "0.2"
+log = "0.4.14"
+num-derive = "0.3"
+num-traits = "0.2"
 
 [lib]
 crate-type = ["rlib"]
