@@ -47,6 +47,7 @@ import com.android.bluetooth.btservice.AdapterService;
 import com.android.bluetooth.btservice.storage.DatabaseManager;
 
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -147,6 +148,21 @@ public class BassClientServiceTest {
     }
 
     /**
+     * Test if getProfileConnectionPolicy works after the service is stopped.
+     */
+    @Test
+    public void testGetPolicyAfterStopped() {
+        mBassClientService.stop();
+        when(mDatabaseManager
+                .getProfileConnectionPolicy(mCurrentDevice,
+                        BluetoothProfile.LE_AUDIO_BROADCAST_ASSISTANT))
+                .thenReturn(BluetoothProfile.CONNECTION_POLICY_UNKNOWN);
+        Assert.assertEquals("Initial device policy",
+                BluetoothProfile.CONNECTION_POLICY_UNKNOWN,
+                mBassClientService.getConnectionPolicy(mCurrentDevice));
+    }
+
+    /**
      * Test connecting to a test device.
      *  - service.connect() should return false
      *  - bassClientStateMachine.sendMessage(CONNECT) should be called.
@@ -181,14 +197,14 @@ public class BassClientServiceTest {
     }
 
     /**
-     * Test connecting to a device when the connection policy is unknown.
+     * Test connecting to a device when the connection policy is forbidden.
      *  - service.connect() should return false.
      */
     @Test
-    public void testConnect_whenConnectionPolicyIsUnknown() {
+    public void testConnect_whenConnectionPolicyIsForbidden() {
         when(mDatabaseManager.getProfileConnectionPolicy(any(BluetoothDevice.class),
                 eq(BluetoothProfile.LE_AUDIO_BROADCAST_ASSISTANT)))
-                .thenReturn(BluetoothProfile.CONNECTION_POLICY_UNKNOWN);
+                .thenReturn(BluetoothProfile.CONNECTION_POLICY_FORBIDDEN);
         mCurrentDevice = TestUtils.getTestDevice(mBluetoothAdapter, 0);
         assertThat(mCurrentDevice).isNotNull();
 

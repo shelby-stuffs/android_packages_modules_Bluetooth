@@ -43,5 +43,6 @@ android_test {
     ],
 
     instrumentation_for: "Bluetooth",
+    enabled: false,
 
 }

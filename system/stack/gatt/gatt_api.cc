@@ -468,8 +468,10 @@ tGATT_STATUS GATTS_HandleValueIndication(uint16_t conn_id, uint16_t attr_handle,
 
   tGATT_SR_MSG gatt_sr_msg;
   gatt_sr_msg.attr_value = indication;
-  BT_HDR* p_msg =
-      attp_build_sr_msg(*p_tcb, GATT_HANDLE_VALUE_IND, &gatt_sr_msg);
+
+  uint16_t payload_size = gatt_tcb_get_payload_size_tx(*p_tcb, cid);
+  BT_HDR* p_msg = attp_build_sr_msg(*p_tcb, GATT_HANDLE_VALUE_IND, &gatt_sr_msg,
+                                    payload_size);
   if (!p_msg) return GATT_NO_RESOURCES;
 
   tGATT_STATUS cmd_status = attp_send_sr_msg(*p_tcb, cid, p_msg);
@@ -526,9 +528,9 @@ tGATT_STATUS GATTS_HandleValueNotification(uint16_t conn_id,
   gatt_sr_msg.attr_value = notif;
 
   uint16_t cid = gatt_tcb_get_att_cid(*p_tcb, p_reg->eatt_support);
-
-  BT_HDR* p_buf =
-      attp_build_sr_msg(*p_tcb, GATT_HANDLE_VALUE_NOTIF, &gatt_sr_msg);
+  uint16_t payload_size = gatt_tcb_get_payload_size_tx(*p_tcb, cid);
+  BT_HDR* p_buf = attp_build_sr_msg(*p_tcb, GATT_HANDLE_VALUE_NOTIF,
+                                    &gatt_sr_msg, payload_size);
   if (p_buf != NULL) {
     cmd_sent = attp_send_sr_msg(*p_tcb, cid, p_buf);
   } else
@@ -998,8 +1000,8 @@ tGATT_IF GATT_Register(const Uuid& app_uuid128, std::string name,
   for (i_gatt_if = 0, p_reg = gatt_cb.cl_rcb; i_gatt_if < GATT_MAX_APPS;
        i_gatt_if++, p_reg++) {
     if (p_reg->in_use && p_reg->app_uuid128 == app_uuid128) {
-      LOG(ERROR) << __func__ << ": Application already registered "
-                 << app_uuid128;
+      LOG_ERROR("Application already registered, uuid=%s",
+                app_uuid128.ToString().c_str());
       return 0;
     }
   }
@@ -1022,9 +1024,8 @@ tGATT_IF GATT_Register(const Uuid& app_uuid128, std::string name,
     }
   }
 
-  LOG(ERROR) << __func__
-             << ": Unable to register GATT client, MAX client reached: "
-             << GATT_MAX_APPS;
+  LOG_ERROR("Unable to register GATT client, MAX client reached: %d",
+            GATT_MAX_APPS);
   return 0;
 }
 
@@ -1111,7 +1112,7 @@ void GATT_Deregister(tGATT_IF gatt_if) {
 void GATT_StartIf(tGATT_IF gatt_if) {
   tGATT_REG* p_reg;
   tGATT_TCB* p_tcb;
-  RawAddress bda;
+  RawAddress bda = {};
   uint8_t start_idx, found_idx;
   uint16_t conn_id;
   tBT_TRANSPORT transport;
@@ -1124,10 +1125,15 @@ void GATT_StartIf(tGATT_IF gatt_if) {
     while (
         gatt_find_the_connected_bda(start_idx, bda, &found_idx, &transport)) {
       p_tcb = gatt_find_tcb_by_addr(bda, transport);
+      LOG_INFO("GATT interface %d already has connected device %s", +gatt_if,
+               bda.ToString().c_str());
       if (p_reg->app_cb.p_conn_cb && p_tcb) {
         conn_id = GATT_CREATE_CONN_ID(p_tcb->tcb_idx, gatt_if);
+        LOG_INFO("Invoking callback with connection id %d", conn_id);
         (*p_reg->app_cb.p_conn_cb)(gatt_if, bda, conn_id, true, GATT_CONN_OK,
                                    transport);
+      } else {
+        LOG_INFO("Skipping callback as none is registered");
       }
       start_idx = ++found_idx;
     }

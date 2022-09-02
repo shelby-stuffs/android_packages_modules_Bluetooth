@@ -232,6 +232,20 @@ public class VolumeControlServiceTest {
     }
 
     /**
+     * Test if getProfileConnectionPolicy works after the service is stopped.
+     */
+    @Test
+    public void testGetPolicyAfterStopped() {
+        mService.stop();
+        when(mDatabaseManager
+                .getProfileConnectionPolicy(mDevice, BluetoothProfile.VOLUME_CONTROL))
+                .thenReturn(BluetoothProfile.CONNECTION_POLICY_UNKNOWN);
+        Assert.assertEquals("Initial device policy",
+                BluetoothProfile.CONNECTION_POLICY_UNKNOWN,
+                mService.getConnectionPolicy(mDevice));
+    }
+
+    /**
      *  Test okToConnect method using various test cases
      */
     @Test
@@ -494,6 +508,33 @@ public class VolumeControlServiceTest {
         stackEvent.valueInt2 = volume;
         stackEvent.valueBool1 = mute;
         mService.messageFromNative(stackEvent);
+    }
+
+    /**
+     * Test Volume Control cache.
+     */
+    @Test
+    public void testVolumeCache() {
+        int groupId = 1;
+        int volume = 6;
+
+        Assert.assertEquals(-1, mService.getGroupVolume(groupId));
+        mService.setGroupVolume(groupId, volume);
+        Assert.assertEquals(volume, mService.getGroupVolume(groupId));
+
+        volume = 10;
+
+        // Send autonomus volume change.
+        VolumeControlStackEvent stackEvent = new VolumeControlStackEvent(
+                VolumeControlStackEvent.EVENT_TYPE_VOLUME_STATE_CHANGED);
+        stackEvent.device = null;
+        stackEvent.valueInt1 = groupId;
+        stackEvent.valueInt2 = volume;
+        stackEvent.valueBool1 = false;
+        stackEvent.valueBool2 = true; /* autonomus */
+        mService.messageFromNative(stackEvent);
+
+        Assert.assertEquals(volume, mService.getGroupVolume(groupId));
     }
 
     private void connectDevice(BluetoothDevice device) {

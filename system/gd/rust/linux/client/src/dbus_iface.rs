@@ -1,6 +1,6 @@
 //! D-Bus proxy implementations of the APIs.
 
-use bt_topshim::btif::{BtDeviceType, BtSspVariant, BtTransport, Uuid128Bit};
+use bt_topshim::btif::{BtDeviceType, BtPropertyType, BtSspVariant, BtTransport, Uuid128Bit};
 use bt_topshim::profiles::gatt::GattStatus;
 
 use btstack::bluetooth::{
@@ -41,6 +41,7 @@ fn make_object_path(idx: i32, name: &str) -> dbus::Path {
 }
 
 impl_dbus_arg_enum!(BtDeviceType);
+impl_dbus_arg_enum!(BtPropertyType);
 impl_dbus_arg_enum!(BtSspVariant);
 impl_dbus_arg_enum!(BtTransport);
 impl_dbus_arg_enum!(GattStatus);
@@ -119,10 +120,13 @@ impl RPCProxy for IBluetoothCallbackDBus {
 }
 
 #[generate_dbus_exporter(
-    export_bluetooth_callback_dbus_obj,
+    export_bluetooth_callback_dbus_intf,
     "org.chromium.bluetooth.BluetoothCallback"
 )]
 impl IBluetoothCallback for IBluetoothCallbackDBus {
+    #[dbus_method("OnAdapterPropertyChanged")]
+    fn on_adapter_property_changed(&self, prop: BtPropertyType) {}
+
     #[dbus_method("OnAddressChanged")]
     fn on_address_changed(&self, addr: String) {}
 
@@ -173,7 +177,7 @@ impl RPCProxy for IBluetoothConnectionCallbackDBus {
 }
 
 #[generate_dbus_exporter(
-    export_bluetooth_connection_callback_dbus_obj,
+    export_bluetooth_connection_callback_dbus_intf,
     "org.chromium.bluetooth.BluetoothConnectionCallback"
 )]
 impl IBluetoothConnectionCallback for IBluetoothConnectionCallbackDBus {
@@ -515,7 +519,7 @@ impl RPCProxy for IBluetoothManagerCallbackDBus {
 }
 
 #[generate_dbus_exporter(
-    export_bluetooth_manager_callback_dbus_obj,
+    export_bluetooth_manager_callback_dbus_intf,
     "org.chromium.bluetooth.ManagerCallback"
 )]
 impl IBluetoothManagerCallback for IBluetoothManagerCallbackDBus {
@@ -733,7 +737,7 @@ impl RPCProxy for IBluetoothGattCallbackDBus {
 }
 
 #[generate_dbus_exporter(
-    export_bluetooth_gatt_callback_dbus_obj,
+    export_bluetooth_gatt_callback_dbus_intf,
     "org.chromium.bluetooth.BluetoothGattCallback"
 )]
 impl IBluetoothGattCallback for IBluetoothGattCallbackDBus {
@@ -808,7 +812,7 @@ impl SuspendDBus {
             client_proxy: ClientDBusProxy::new(
                 conn.clone(),
                 String::from("org.chromium.bluetooth"),
-                make_object_path(index, "suspend"),
+                make_object_path(index, "adapter"),
                 String::from("org.chromium.bluetooth.Suspend"),
             ),
         }
@@ -856,7 +860,7 @@ impl RPCProxy for ISuspendCallbackDBus {
 }
 
 #[generate_dbus_exporter(
-    export_suspend_callback_dbus_obj,
+    export_suspend_callback_dbus_intf,
     "org.chromium.bluetooth.SuspendCallback"
 )]
 impl ISuspendCallback for ISuspendCallbackDBus {

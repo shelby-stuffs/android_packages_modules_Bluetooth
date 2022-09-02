@@ -907,4 +907,8 @@ public final class BluetoothSocket implements Closeable {
         return ret;
     }
 
+    @Override
+    public String toString() {
+        return BluetoothUtils.toAnonymizedAddress(mAddress);
+    }
 }
