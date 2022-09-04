@@ -134,3 +134,10 @@ java_library {
     min_sdk_version: "33",
     sdk_version: "module_current",
 }
+
+// TODO(b/244748540) re-enable
+// platform_compat_config
+// {
+//    name: "bluetooth-compat-config",
+//    src: ":service-bluetooth-pre-jarjar",
+// }

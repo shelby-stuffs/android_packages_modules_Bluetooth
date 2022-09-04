@@ -56,6 +56,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.ContentObserver;
@@ -94,6 +95,7 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -220,6 +222,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private int mBindingUserID;
     private boolean mUnbinding;
     private boolean mTryBindOnBindTimeout = false;
+    private List<Integer> mSupportedProfileList = new ArrayList<>();
 
     private BluetoothModeChangeHelper mBluetoothModeChangeHelper;
 
@@ -876,6 +879,25 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
         mBluetooth.unregisterCallback(callback, attributionSource, recv);
         recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+    }
+
+    @GuardedBy("mBluetoothLock")
+    private List<Integer> synchronousGetSupportedProfiles(AttributionSource attributionSource)
+            throws RemoteException, TimeoutException {
+        final ArrayList<Integer> supportedProfiles = new ArrayList<Integer>();
+        if (mBluetooth == null) return supportedProfiles;
+        final SynchronousResultReceiver<Long> recv = SynchronousResultReceiver.get();
+        mBluetooth.getSupportedProfiles(attributionSource, recv);
+        final long supportedProfilesBitMask =
+                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue((long) 0);
+
+        for (int i = 0; i <= BluetoothProfile.MAX_PROFILE_ID; i++) {
+            if ((supportedProfilesBitMask & (1 << i)) != 0) {
+                supportedProfiles.add(i);
+            }
+        }
+
+        return supportedProfiles;
     }
 
     /**
@@ -1541,10 +1563,10 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
             ProfileServiceConnections psc = mProfileServices.get(new Integer(bluetoothProfile));
             Intent intent;
             if (bluetoothProfile == BluetoothProfile.HEADSET
-                    && BluetoothProperties.isProfileHfpAgEnabled().orElse(false)) {
+                    && mSupportedProfileList.contains(BluetoothProfile.HEADSET)) {
                 intent = new Intent(IBluetoothHeadset.class.getName());
             } else if (bluetoothProfile == BluetoothProfile.LE_CALL_CONTROL
-                    && BluetoothProperties.isProfileCcpServerEnabled().orElse(false)) {
+                    && mSupportedProfileList.contains(BluetoothProfile.LE_CALL_CONTROL)) {
                 intent = new Intent(IBluetoothLeCallControl.class.getName());
             } else {
                 return false;
@@ -2510,8 +2532,12 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                         break;
                     }
                     if (msg.arg1 > 0) {
-                        mContext.unbindService(psc);
-                        Log.w(TAG, "Calling psc.bindService from MESSAGE_BIND_PROFILE_SERVICE");
+                        try {
+                            mContext.unbindService(psc);
+                            Log.w(TAG, "Calling psc.bindService from MESSAGE_BIND_PROFILE_SERVICE");
+                        } catch (IllegalArgumentException e) {
+                            Log.e(TAG, "Unable to unbind service with intent: " + psc.mIntent, e);
+                        }
                         psc.bindService(msg.arg1 - 1);
                     }
                     break;
@@ -2557,6 +2583,14 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                         Message informMsg =
                                     mHandler.obtainMessage(MESSAGE_INFORM_ADAPTER_SERVICE_UP);
                         mHandler.sendMessage(informMsg);
+
+                        // Get the supported profiles list
+                        try {
+                            mSupportedProfileList = synchronousGetSupportedProfiles(
+                                    mContext.getAttributionSource());
+                        } catch (RemoteException | TimeoutException e) {
+                            Log.e(TAG, "Unable to get the supported profiles list", e);
+                        }
 
                         //Do enable request
                         try {
@@ -2657,6 +2691,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                                 break;
                             }
                             mBluetooth = null;
+                            mSupportedProfileList.clear();
                         } else if (msg.arg1 == SERVICE_IBLUETOOTHGATT) {
                             mBluetoothGatt = null;
                             break;
@@ -3339,24 +3374,56 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
      */
     private void updateOppLauncherComponentState(UserHandle userHandle,
             boolean bluetoothSharingDisallowed) {
-        final ComponentName oppLauncherComponent = new ComponentName(
-                mContext.getPackageManager().getPackagesForUid(Process.BLUETOOTH_UID)[0],
-                "com.android.bluetooth.opp.BluetoothOppLauncherActivity");
-        int newState;
-        if (bluetoothSharingDisallowed) {
-            newState = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
-        } else if (BluetoothProperties.isProfileOppEnabled().orElse(false)) {
-            newState = PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
-        } else {
-            newState = PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
-        }
         try {
-            mContext.createContextAsUser(userHandle, 0)
-                .getPackageManager()
-                .setComponentEnabledSetting(oppLauncherComponent, newState,
-                        PackageManager.DONT_KILL_APP);
+            int newState;
+            if (bluetoothSharingDisallowed) {
+                newState = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+            } else if (BluetoothProperties.isProfileOppEnabled().orElse(false)) {
+                newState = PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+            } else {
+                newState = PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
+            }
+
+            String launcherActivity = "com.android.bluetooth.opp.BluetoothOppLauncherActivity";
+
+            PackageManager packageManager = mContext.createContextAsUser(userHandle, 0)
+                                                        .getPackageManager();
+            var allPackages = packageManager.getPackagesForUid(Process.BLUETOOTH_UID);
+            for (String candidatePackage : allPackages) {
+                PackageInfo packageInfo;
+                try {
+                    // note: we need the package manager for the SYSTEM user, not our userHandle
+                    packageInfo = mContext.getPackageManager().getPackageInfo(
+                        candidatePackage,
+                        PackageManager.PackageInfoFlags.of(PackageManager.GET_ACTIVITIES));
+                } catch (PackageManager.NameNotFoundException e) {
+                    // ignore, try next package
+                    Log.e(TAG, "Could not find package " + candidatePackage);
+                    continue;
+                } catch (Exception e) {
+                    Log.e(TAG, "Error while loading package" + e);
+                    continue;
+                }
+                if (packageInfo.activities == null) {
+                    continue;
+                }
+                for (var activity : packageInfo.activities) {
+                    if (launcherActivity.equals(activity.name)) {
+                        final ComponentName oppLauncherComponent = new ComponentName(
+                                candidatePackage, launcherActivity
+                        );
+                        packageManager.setComponentEnabledSetting(
+                                oppLauncherComponent, newState, PackageManager.DONT_KILL_APP
+                        );
+                        return;
+                    }
+                }
+            }
+
+            Log.e(TAG,
+                    "Cannot toggle BluetoothOppLauncherActivity, could not find it in any package");
         } catch (Exception e) {
-            // The component was not found, do nothing.
+            Log.e(TAG, "updateOppLauncherComponentState failed: " + e);
         }
     }
 

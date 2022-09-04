@@ -1593,7 +1593,7 @@ void BTIF_dm_enable() {
   pairing_cb.bond_type = tBTM_SEC_DEV_REC::BOND_TYPE_PERSISTENT;
   if (enable_address_consolidate) {
     LOG_INFO("enable address consolidate");
-    btif_storage_load_consolidate_devices();
+    btif_storage_load_le_devices();
   }
 
   /* This function will also trigger the adapter_properties_cb
@@ -1851,6 +1851,12 @@ static void btif_dm_upstreams_evt(uint16_t event, char* p_param) {
                                    pairing_cb.fail_reason);
       btif_dm_remove_bond(bd_addr);
       break;
+
+    case BTA_DM_LE_ADDR_ASSOC_EVT:
+      invoke_le_address_associate_cb(p_data->proc_id_addr.pairing_bda,
+                                     p_data->proc_id_addr.id_addr);
+      break;
+
     default:
       BTIF_TRACE_WARNING("%s: unhandled event (%d)", __func__, event);
       break;
@@ -1918,6 +1924,13 @@ static void bta_energy_info_cb(tBTM_BLE_TX_TIME_MS tx_time,
  ******************************************************************************/
 void btif_dm_start_discovery(void) {
   BTIF_TRACE_EVENT("%s", __func__);
+
+  /* no race here because we're guaranteed to be in the main thread */
+  if (bta_dm_is_search_request_queued()) {
+    LOG_INFO("%s skipping start discovery because a request is queued",
+             __func__);
+    return;
+  }
 
   /* Will be enabled to true once inquiry busy level has been received */
   btif_dm_inquiry_in_progress = false;
@@ -2843,20 +2856,20 @@ static void btif_dm_ble_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
     status = BT_STATUS_SUCCESS;
     state = BT_BOND_STATE_BONDED;
     tBLE_ADDR_TYPE addr_type;
-    RawAddress bdaddr = p_auth_cmpl->bd_addr;
-    if (btif_storage_get_remote_addr_type(&bdaddr, &addr_type) !=
+
+    if (btif_storage_get_remote_addr_type(&bd_addr, &addr_type) !=
         BT_STATUS_SUCCESS)
-      btif_storage_set_remote_addr_type(&bdaddr, p_auth_cmpl->addr_type);
+      btif_storage_set_remote_addr_type(&bd_addr, p_auth_cmpl->addr_type);
 
     /* Test for temporary bonding */
-    if (btm_get_bond_type_dev(p_auth_cmpl->bd_addr) ==
+    if (btm_get_bond_type_dev(bd_addr) ==
         tBTM_SEC_DEV_REC::BOND_TYPE_TEMPORARY) {
       BTIF_TRACE_DEBUG("%s: sending BT_BOND_STATE_NONE for Temp pairing",
                        __func__);
-      btif_storage_remove_bonded_device(&bdaddr);
+      btif_storage_remove_bonded_device(&bd_addr);
       state = BT_BOND_STATE_NONE;
     } else {
-      btif_dm_save_ble_bonding_keys(bdaddr);
+      btif_dm_save_ble_bonding_keys(bd_addr);
       btif_dm_get_remote_services(bd_addr, BT_TRANSPORT_LE);
     }
   } else {
