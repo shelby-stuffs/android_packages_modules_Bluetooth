@@ -61,7 +61,7 @@ rust_ffi_static {
     defaults: ["libbt_shim_defaults"],
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     min_sdk_version: "30",
 }
@@ -100,7 +100,7 @@ cc_library_static {
     host_supported: true,
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     min_sdk_version: "30",
 }
@@ -118,7 +118,7 @@ cc_library_static {
     host_supported: true,
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     min_sdk_version: "30",
 }
@@ -135,7 +135,7 @@ cc_library_static {
     host_supported: true,
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     min_sdk_version: "30",
 }
@@ -146,7 +146,7 @@ cc_library_headers {
     host_supported: true,
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     min_sdk_version: "30",
 }

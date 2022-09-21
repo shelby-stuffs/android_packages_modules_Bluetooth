@@ -182,7 +182,7 @@ fluoride_defaults {
     defaults: ["fluoride_test_prod_shared_defaults", "libchrome_support_defaults"],
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     shared_libs: [
         "libcrypto",
@@ -207,6 +207,7 @@ fluoride_defaults {
         "libFraunhoferAAC",
         "libg722codec",
         "liblc3",
+        "libopus",
         "libprotobuf-cpp-lite",
         "libstatslog_bt",
         "libudrv-uipc",
@@ -229,6 +230,7 @@ fluoride_defaults {
                 "libtinyxml2",
                 "libutils",
                 "libz",
+                "libPlatformProperties",
             ],
             static_libs: [
                 "android.system.suspend.control-V1-ndk",
@@ -329,7 +331,7 @@ cc_defaults {
     name: "clang_file_coverage",
     target: {
         glibc: {
-            clang_cflags: [
+            cflags: [
                 "-fprofile-instr-generate",
                 "-fcoverage-mapping",
             ],
