@@ -113,7 +113,6 @@ android_app {
         "modules-utils-statemachine",
         "sap-api-java-static",
         "services.net",
-        "PlatformProperties",
         "bluetooth-proto-enums-java-gen",
     ],
 
@@ -139,7 +138,7 @@ android_app {
     ],
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     errorprone: {
         javacflags: [

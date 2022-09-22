@@ -1871,6 +1871,28 @@ tBTM_STATUS BTM_LeRand(LeRandCallback);
 
 /*******************************************************************************
  *
+ * Function        BTM_SetEventFilterConnectionSetupAllDevices
+ *
+ * Description    Tell the controller to allow all devices
+ *
+ * Parameters
+ *
+ *******************************************************************************/
+tBTM_STATUS BTM_SetEventFilterConnectionSetupAllDevices(void);
+
+/*******************************************************************************
+ *
+ * Function        BTM_AllowWakeByHid
+ *
+ * Description    Allow the device to be woken by HID devices
+ *
+ * Parameters
+ *
+ *******************************************************************************/
+tBTM_STATUS BTM_AllowWakeByHid(void);
+
+/*******************************************************************************
+ *
  * Function        BTM_RestoreFilterAcceptList
  *
  * Description    Floss: Restore the state of the for the filter accept list
@@ -1901,6 +1923,15 @@ tBTM_STATUS BTM_SetDefaultEventMask(void);
  *
  *******************************************************************************/
 tBTM_STATUS BTM_SetEventFilterInquiryResultAllDevices(void);
+
+/*******************************************************************************
+ *
+ * Function         BTM_BleResetId
+ *
+ * Description      Resets the local BLE keys
+ *
+ *******************************************************************************/
+tBTM_STATUS BTM_BleResetId(void);
 
 /**
  * Send remote name request to GD shim Name module

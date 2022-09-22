@@ -16,7 +16,7 @@
 
 <resources xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
-    <string name="permlab_bluetoothShareManager" msgid="5297865456717871041">"ଡାଉନଲୋଡ୍‌ ମ୍ୟାନେଜର୍‌କୁ ଆକ୍ସେସ୍‌ କରନ୍ତୁ।"</string>
+    <string name="permlab_bluetoothShareManager" msgid="5297865456717871041">"ଡାଉନଲୋଡ ମ୍ୟାନେଜର୍‌କୁ ଆକ୍ସେସ୍‌ କରନ୍ତୁ।"</string>
     <string name="permdesc_bluetoothShareManager" msgid="1588034776955941477">"BluetoothShare ମ୍ୟାନେଜର୍‌ ଆକ୍ସେସ୍‌ କରି ଫାଇଲ୍‌ଗୁଡ଼ିକ ଟ୍ରାନ୍ସଫର୍‌ କରିବାକୁ ବ୍ୟବହାର କରିବା ପାଇଁ ଆପ୍‌କୁ ଅନୁମତି ଦିଅନ୍ତୁ।"</string>
     <string name="permlab_bluetoothAcceptlist" msgid="5785922051395856524">"ବ୍ଲୁଟୁଥ୍ ଡିଭାଇସର ଆକ୍ସେସକୁ ଗ୍ରହଣ-ସୂଚୀରେ ରଖନ୍ତୁ।"</string>
     <string name="permdesc_bluetoothAcceptlist" msgid="259308920158011885">"ଏକ ବ୍ଲୁଟୁଥ୍ ଡିଭାଇସକୁ ଅସ୍ଥାୟୀ ଭାବେ ଗ୍ରହଣ-ସୂଚୀରେ ରଖିବାକୁ ଆପଟିକୁ ଅନୁମତି ଦେଇଥାଏ, ଯାହା ଦ୍ୱାରା ଉପଯୋଗକର୍ତ୍ତାଙ୍କ ସୁନିଶ୍ଚିତକରଣ ବିନା ଏହି ଡିଭାଇସକୁ ଫାଇଲ୍ ପଠାଇବା ପାଇଁ ସେହି ଡିଭାଇସକୁ ଅନୁମତି ମିଳିଥାଏ।"</string>
@@ -128,4 +128,15 @@
     <string name="a2dp_sink_mbs_label" msgid="6035366346569127155">"ବ୍ଲୁଟୂଥ୍‍‌ ଅଡିଓ"</string>
     <string name="bluetooth_opp_file_limit_exceeded" msgid="6612109860149473930">"4GBରୁ ବଡ଼ ଫାଇଲ୍‌ଗୁଡ଼ିକୁ ଟ୍ରାନ୍ସଫର୍‌ କରାଯାଇପାରିବ ନାହିଁ"</string>
     <string name="bluetooth_connect_action" msgid="2319449093046720209">"ବ୍ଲୁଟୁଥ୍ ସହ ସଂଯୋଗ କରନ୍ତୁ"</string>
+    <!-- no translation found for bluetooth_enabled_apm_title (6914461147844949044) -->
+    <skip />
+    <!-- no translation found for bluetooth_enabled_apm_message (8990667142380927316) -->
+    <skip />
+    <string name="bluetooth_stays_on_title" msgid="39720820955212918">"ବ୍ଲୁଟୁଥ ଚାଲୁ ରହେ"</string>
+    <!-- no translation found for bluetooth_stays_on_message (2770176686603189536) -->
+    <skip />
+    <!-- no translation found for bluetooth_and_wifi_stays_on_title (5821932798860821244) -->
+    <skip />
+    <!-- no translation found for bluetooth_and_wifi_stays_on_message (4120501683284996436) -->
+    <skip />
 </resources>

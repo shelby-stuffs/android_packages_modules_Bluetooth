@@ -93,6 +93,8 @@ void LeAudioTransport::StopRequest() {
   }
 }
 
+void LeAudioTransport::SetLowLatency(bool is_low_latency) {}
+
 bool LeAudioTransport::GetPresentationPosition(uint64_t* remote_delay_report_ns,
                                                uint64_t* total_bytes_processed,
                                                timespec* data_position) {
@@ -168,6 +170,31 @@ void LeAudioTransport::LeAudioSetSelectedHalPcmConfig(uint32_t sample_rate_hz,
   pcm_config_.dataIntervalUs = data_interval;
 }
 
+void LeAudioTransport::LeAudioSetBroadcastConfig(
+    const ::le_audio::broadcast_offload_config& offload_config) {
+  broadcast_config_.streamMap.resize(0);
+  for (auto& [handle, location] : offload_config.stream_map) {
+    Lc3Configuration lc3_config{
+        .pcmBitDepth = static_cast<int8_t>(offload_config.bits_per_sample),
+        .samplingFrequencyHz =
+            static_cast<int32_t>(offload_config.sampling_rate),
+        .frameDurationUs = static_cast<int32_t>(offload_config.frame_duration),
+        .octetsPerFrame = static_cast<int32_t>(offload_config.octets_per_frame),
+        .blocksPerSdu = static_cast<int8_t>(offload_config.blocks_per_sdu),
+    };
+    broadcast_config_.streamMap.push_back({
+        .streamHandle = handle,
+        .audioChannelAllocation = static_cast<int32_t>(location),
+        .leAudioCodecConfig = std::move(lc3_config),
+    });
+  }
+}
+
+const LeAudioBroadcastConfiguration&
+LeAudioTransport::LeAudioGetBroadcastConfig() {
+  return broadcast_config_;
+}
+
 bool LeAudioTransport::IsPendingStartStream(void) {
   return is_pending_start_request_;
 }
@@ -219,6 +246,10 @@ BluetoothAudioCtrlAck LeAudioSinkTransport::SuspendRequest() {
 
 void LeAudioSinkTransport::StopRequest() { transport_->StopRequest(); }
 
+void LeAudioSinkTransport::SetLowLatency(bool is_low_latency) {
+  transport_->SetLowLatency(is_low_latency);
+}
+
 bool LeAudioSinkTransport::GetPresentationPosition(
     uint64_t* remote_delay_report_ns, uint64_t* total_bytes_read,
     timespec* data_position) {
@@ -259,6 +290,16 @@ void LeAudioSinkTransport::LeAudioSetSelectedHalPcmConfig(
                                              channels_count, data_interval);
 }
 
+void LeAudioSinkTransport::LeAudioSetBroadcastConfig(
+    const ::le_audio::broadcast_offload_config& offload_config) {
+  transport_->LeAudioSetBroadcastConfig(offload_config);
+}
+
+const LeAudioBroadcastConfiguration&
+LeAudioSinkTransport::LeAudioGetBroadcastConfig() {
+  return transport_->LeAudioGetBroadcastConfig();
+}
+
 bool LeAudioSinkTransport::IsPendingStartStream(void) {
   return transport_->IsPendingStartStream();
 }
@@ -291,6 +332,10 @@ BluetoothAudioCtrlAck LeAudioSourceTransport::SuspendRequest() {
 }
 
 void LeAudioSourceTransport::StopRequest() { transport_->StopRequest(); }
+
+void LeAudioSourceTransport::SetLowLatency(bool is_low_latency) {
+  transport_->SetLowLatency(is_low_latency);
+}
 
 bool LeAudioSourceTransport::GetPresentationPosition(
     uint64_t* remote_delay_report_ns, uint64_t* total_bytes_written,

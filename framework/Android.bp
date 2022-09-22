@@ -74,11 +74,13 @@ java_sdk_library {
         "//packages/modules/Bluetooth/service",
         "//packages/modules/Connectivity/nearby/tests/multidevices/clients/test_support/fastpair_provider",
         "//packages/services/Car/car-builtin-lib",
+        // TODO(240720385)
+        "//packages/services/Car/tests/carservice_unit_test",
         ":__subpackages__",
     ],
 
     apex_available: [
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
 
     permitted_packages: [

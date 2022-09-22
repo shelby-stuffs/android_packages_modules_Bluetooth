@@ -546,9 +546,13 @@ extern void bta_dm_clear_event_mask(void);
 extern void bta_dm_clear_filter_accept_list(void);
 extern void bta_dm_disconnect_all_acls(void);
 extern void bta_dm_le_rand(LeRandCallback cb);
+extern void bta_dm_set_event_filter_connection_setup_all_devices();
+extern void bta_dm_allow_wake_by_hid();
 extern void bta_dm_restore_filter_accept_list();
 extern void bta_dm_set_default_event_mask();
 extern void bta_dm_set_event_filter_inquiry_result_all_devices();
+
+extern void bta_dm_ble_reset_id(void);
 
 uint8_t bta_dm_search_get_state();
 void bta_dm_search_set_state(uint8_t state);

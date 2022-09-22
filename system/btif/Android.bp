@@ -48,7 +48,7 @@ cc_library {
     ],
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     min_sdk_version: "30",
     target: {
@@ -163,9 +163,6 @@ cc_defaults {
     ],
     target: {
         android: {
-            whole_static_libs: [
-                "PlatformProperties",
-            ],
             srcs: ["src/btif_avrcp_audio_track.cc"],
         },
         host: {
@@ -239,6 +236,7 @@ cc_test {
         "libFraunhoferAAC",
         "libg722codec",
         "liblc3",
+        "libopus",
         "libosi",
         "libudrv-uipc",
    ],
@@ -252,6 +250,7 @@ cc_test {
             shared_libs: [
                 "libbinder_ndk",
                 "android.hardware.bluetooth.audio-V2-ndk",
+                "libPlatformProperties",
             ],
         },
     },

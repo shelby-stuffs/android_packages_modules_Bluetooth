@@ -690,6 +690,18 @@ void BTA_DmLeRand(LeRandCallback cb) {
   do_in_main_thread(FROM_HERE, base::Bind(bta_dm_le_rand, cb));
 }
 
+void BTA_DmSetEventFilterConnectionSetupAllDevices() {
+  APPL_TRACE_API("BTA_DmSetEventFilterConnectionSetupAllDevices");
+  do_in_main_thread(
+      FROM_HERE,
+      base::Bind(bta_dm_set_event_filter_connection_setup_all_devices));
+}
+
+void BTA_DmAllowWakeByHid() {
+  APPL_TRACE_API("BTA_DmAllowWakeByHid");
+  do_in_main_thread(FROM_HERE, base::Bind(bta_dm_allow_wake_by_hid));
+}
+
 void BTA_DmRestoreFilterAcceptList() {
   APPL_TRACE_API("BTA_DmRestoreFilterAcceptList");
   do_in_main_thread(FROM_HERE, base::Bind(bta_dm_restore_filter_accept_list));
@@ -705,4 +717,18 @@ void BTA_DmSetEventFilterInquiryResultAllDevices() {
   do_in_main_thread(
       FROM_HERE,
       base::Bind(bta_dm_set_event_filter_inquiry_result_all_devices));
+}
+
+/*******************************************************************************
+ *
+ * Function         BTA_DmBleResetId
+ *
+ * Description      This function resets the ble keys such as IRK
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+void BTA_DmBleResetId(void) {
+  APPL_TRACE_API("BTA_DmBleResetId");
+  do_in_main_thread(FROM_HERE, base::Bind(bta_dm_ble_reset_id));
 }
