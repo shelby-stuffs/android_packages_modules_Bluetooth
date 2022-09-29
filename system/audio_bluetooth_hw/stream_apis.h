@@ -31,7 +31,7 @@ constexpr audio_format_t kBluetoothDefaultAudioFormatBitsPerSample =
 constexpr unsigned int kBluetoothDefaultInputBufferMs = 20;
 constexpr unsigned int kBluetoothDefaultInputStateTimeoutMs = 20;
 
-constexpr unsigned int kBluetoothDefaultOutputBufferMs = 2;
+constexpr unsigned int kBluetoothDefaultOutputBufferMs = 10;
 constexpr unsigned int kBluetoothSpatializerOutputBufferMs = 10;
 
 constexpr audio_channel_mask_t kBluetoothDefaultOutputChannelModeMask =
@@ -81,6 +81,7 @@ struct BluetoothAudioDevice {
   std::mutex mutex_;
   std::list<BluetoothStreamOut*> opened_stream_outs_ =
       std::list<BluetoothStreamOut*>(0);
+  uint32_t next_unique_id = 1;
 };
 
 struct BluetoothStreamIn {

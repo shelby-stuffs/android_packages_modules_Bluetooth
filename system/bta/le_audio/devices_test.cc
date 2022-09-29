@@ -199,8 +199,15 @@ bool IsLc3SettingSupported(LeAudioContextType context_type, Lc3SettingId id) {
   /* Update those values, on any change of codec linked with content type */
   switch (context_type) {
     case LeAudioContextType::RINGTONE:
+      if (id == Lc3SettingId::LC3_16_2 || id == Lc3SettingId::LC3_16_1 ||
+          id == Lc3SettingId::LC3_32_2)
+        return true;
+
+      break;
+
     case LeAudioContextType::CONVERSATIONAL:
-      if (id == Lc3SettingId::LC3_16_1 || id == Lc3SettingId::LC3_16_2)
+      if (id == Lc3SettingId::LC3_16_1 || id == Lc3SettingId::LC3_16_2 ||
+          id == Lc3SettingId::LC3_24_2 || id == Lc3SettingId::LC3_32_2)
         return true;
 
       break;
@@ -520,6 +527,13 @@ class LeAudioAseConfigurationTest : public Test {
     for (const auto& audio_set_conf : *configurations) {
       // the configuration should fail if there are no active ases expected
       bool success_expected = data_size > 0;
+      bool not_matching_scenario = false;
+      uint8_t snk_ases_cnt = 0;
+      uint8_t src_ases_cnt = 0;
+      PublishedAudioCapabilitiesBuilder snk_pac_builder, src_pac_builder;
+      snk_pac_builder.Reset();
+      src_pac_builder.Reset();
+
       for (int i = 0; i < data_size; i++) {
         success_expected &= (data[i].active_channel_num_snk +
                              data[i].active_channel_num_src) > 0;
@@ -530,18 +544,33 @@ class LeAudioAseConfigurationTest : public Test {
          * DualDev). This is just how the test is created and this limitation
          * should be removed b/230107540
          */
-        PublishedAudioCapabilitiesBuilder snk_pac_builder, src_pac_builder;
         for (const auto& entry : (*audio_set_conf).confs) {
+          /* Configuration requires more devices than are supplied */
+          if (entry.device_cnt > data_size) {
+            not_matching_scenario = true;
+            break;
+          }
           if (entry.direction == kLeAudioDirectionSink) {
+            snk_ases_cnt += entry.ase_cnt;
             snk_pac_builder.Add(entry.codec, data[i].audio_channel_counts_snk);
           } else {
             src_pac_builder.Add(entry.codec, data[i].audio_channel_counts_src);
           }
         }
 
+        /* Scenario requires more ASEs than defined requirement */
+        if (snk_ases_cnt < data[i].audio_channel_counts_snk ||
+            src_ases_cnt < data[i].audio_channel_counts_src) {
+          not_matching_scenario = true;
+        }
+
+        if (not_matching_scenario) break;
+
         data[i].device->snk_pacs_ = snk_pac_builder.Get();
         data[i].device->src_pacs_ = src_pac_builder.Get();
       }
+
+      if (not_matching_scenario) continue;
 
       /* Stimulate update of active context map */
       group_->UpdateActiveContextsMap(static_cast<uint16_t>(context_type));
@@ -558,9 +587,15 @@ class LeAudioAseConfigurationTest : public Test {
 
   void TestAsesActive(LeAudioCodecId codec_id, uint8_t sampling_frequency,
                       uint8_t frame_duration, uint16_t octets_per_frame) {
+    bool active_ase = false;
+
     for (const auto& device : devices_) {
       for (const auto& ase : device->ases_) {
-        ASSERT_TRUE(ase.active);
+        if (!ase.active) continue;
+
+        /* Configure may request only partial ases to be activated */
+        if (!active_ase && ase.active) active_ase = true;
+
         ASSERT_EQ(ase.codec_id, codec_id);
 
         /* FIXME: Validate other codec parameters than LC3 if any */
@@ -572,6 +607,8 @@ class LeAudioAseConfigurationTest : public Test {
         }
       }
     }
+
+    ASSERT_TRUE(active_ase);
   }
 
   void TestActiveAses(void) {
@@ -658,10 +695,10 @@ class LeAudioAseConfigurationTest : public Test {
 };
 
 TEST_F(LeAudioAseConfigurationTest, test_mono_speaker_ringtone) {
-  LeAudioDevice* mono_speaker = AddTestDevice(1, 0);
-  TestGroupAseConfigurationData data({mono_speaker,
-                                      kLeAudioCodecLC3ChannelCountSingleChannel,
-                                      kLeAudioCodecLC3ChannelCountNone, 1, 0});
+  LeAudioDevice* mono_speaker = AddTestDevice(1, 1);
+  TestGroupAseConfigurationData data(
+      {mono_speaker, kLeAudioCodecLC3ChannelCountSingleChannel,
+       kLeAudioCodecLC3ChannelCountSingleChannel, 1, 0});
 
   TestGroupAseConfiguration(LeAudioContextType::RINGTONE, &data, 1);
 }
@@ -685,10 +722,10 @@ TEST_F(LeAudioAseConfigurationTest, test_mono_speaker_media) {
 }
 
 TEST_F(LeAudioAseConfigurationTest, test_bounded_headphones_ringtone) {
-  LeAudioDevice* bounded_headphones = AddTestDevice(2, 0);
-  TestGroupAseConfigurationData data({bounded_headphones,
-                                      kLeAudioCodecLC3ChannelCountTwoChannel,
-                                      kLeAudioCodecLC3ChannelCountNone, 2, 0});
+  LeAudioDevice* bounded_headphones = AddTestDevice(2, 1);
+  TestGroupAseConfigurationData data(
+      {bounded_headphones, kLeAudioCodecLC3ChannelCountTwoChannel,
+       kLeAudioCodecLC3ChannelCountSingleChannel, 2, 0});
 
   TestGroupAseConfiguration(LeAudioContextType::RINGTONE, &data, 1);
 }
@@ -821,7 +858,7 @@ TEST_F(LeAudioAseConfigurationTest, test_handsfree_media) {
 }
 
 TEST_F(LeAudioAseConfigurationTest, test_lc3_config_ringtone) {
-  AddTestDevice(1, 0);
+  AddTestDevice(1, 1);
 
   TestLc3CodecConfig(LeAudioContextType::RINGTONE);
 }

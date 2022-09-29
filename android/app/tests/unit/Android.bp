@@ -37,8 +37,12 @@ android_test {
 
     platform_apis: true,
 
-    test_suites: ["device-tests"],
+    test_suites: [
+        "device-tests",
+        "mts-bluetooth",
+    ],
 
     instrumentation_for: "Bluetooth",
+    enabled: false,
 
 }

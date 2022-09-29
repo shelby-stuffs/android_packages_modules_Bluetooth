@@ -130,6 +130,7 @@ void LeAddressManager::SetPrivacyPolicyForInitiatorAddressForTest(
       minimum_rotation_time_ = minimum_rotation_time;
       maximum_rotation_time_ = maximum_rotation_time;
       address_rotation_alarm_ = std::make_unique<os::Alarm>(handler_);
+      set_random_address();
       break;
     case AddressPolicy::POLICY_NOT_SET:
       LOG_ALWAYS_FATAL("invalid parameters");
@@ -209,9 +210,15 @@ AddressWithType LeAddressManager::GetAnotherAddress() {
 
 void LeAddressManager::pause_registered_clients() {
   for (auto& client : registered_clients_) {
-    if (client.second != ClientState::PAUSED && client.second != ClientState::WAITING_FOR_PAUSE) {
-      client.second = ClientState::WAITING_FOR_PAUSE;
-      client.first->OnPause();
+    switch (client.second) {
+      case ClientState::PAUSED:
+      case ClientState::WAITING_FOR_PAUSE:
+        break;
+      case WAITING_FOR_RESUME:
+      case RESUMED:
+        client.second = ClientState::WAITING_FOR_PAUSE;
+        client.first->OnPause();
+        break;
     }
   }
 }
@@ -227,9 +234,19 @@ void LeAddressManager::ack_pause(LeAddressManagerCallback* callback) {
   }
   registered_clients_.find(callback)->second = ClientState::PAUSED;
   for (auto client : registered_clients_) {
-    if (client.second != ClientState::PAUSED) {
-      // make sure all client paused
-      return;
+    switch (client.second) {
+      case ClientState::PAUSED:
+        break;
+      case ClientState::WAITING_FOR_PAUSE:
+        // make sure all client paused
+        LOG_DEBUG("Wait all clients paused, return");
+        return;
+      case WAITING_FOR_RESUME:
+      case RESUMED:
+        LOG_DEBUG("Trigger OnPause for client that not paused and not waiting for pause");
+        client.second = ClientState::WAITING_FOR_PAUSE;
+        client.first->OnPause();
+        return;
     }
   }
 
@@ -420,9 +437,9 @@ void LeAddressManager::AddDeviceToResolvingList(
   cached_commands_.push(std::move(enable));
 
   if (registered_clients_.empty()) {
-    handle_next_command();
+    handler_->BindOnceOn(this, &LeAddressManager::handle_next_command).Invoke();
   } else {
-    pause_registered_clients();
+    handler_->BindOnceOn(this, &LeAddressManager::pause_registered_clients).Invoke();
   }
 }
 
@@ -451,9 +468,9 @@ void LeAddressManager::RemoveDeviceFromResolvingList(
   cached_commands_.push(std::move(enable));
 
   if (registered_clients_.empty()) {
-    handle_next_command();
+    handler_->BindOnceOn(this, &LeAddressManager::handle_next_command).Invoke();
   } else {
-    pause_registered_clients();
+    handler_->BindOnceOn(this, &LeAddressManager::pause_registered_clients).Invoke();
   }
 }
 
@@ -478,7 +495,7 @@ void LeAddressManager::ClearResolvingList() {
   Command enable = {CommandType::SET_ADDRESS_RESOLUTION_ENABLE, std::move(enable_builder)};
   cached_commands_.push(std::move(enable));
 
-  pause_registered_clients();
+  handler_->BindOnceOn(this, &LeAddressManager::pause_registered_clients).Invoke();
 }
 
 template <class View>

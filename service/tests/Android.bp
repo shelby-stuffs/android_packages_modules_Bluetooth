@@ -108,5 +108,5 @@ cc_library_shared {
     sanitize: {
         scs: true,
     },
-    min_sdk_version: "current",
+    min_sdk_version: "33",
 }

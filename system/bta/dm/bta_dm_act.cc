@@ -873,9 +873,11 @@ void bta_dm_search_start(tBTA_DM_MSG* p_data) {
  ******************************************************************************/
 void bta_dm_search_cancel() {
   if (BTM_IsInquiryActive()) {
-    BTM_CancelInquiry();
-    bta_dm_search_cancel_notify();
-    bta_dm_search_cmpl();
+    LOG_DEBUG("Cancelling search with inquiry active");
+    BTM_CancelInquiryNotifyWhenComplete([]() {
+      bta_dm_search_cancel_notify();
+      bta_dm_search_cmpl();
+    });
   }
   /* If no Service Search going on then issue cancel remote name in case it is
      active */
@@ -1467,11 +1469,6 @@ void bta_dm_queue_disc(tBTA_DM_MSG* p_data) {
  ******************************************************************************/
 void bta_dm_execute_queued_request() {
   if (bta_dm_search_cb.p_pending_search) {
-    // Updated queued event to search event to trigger start search
-    if (bta_dm_search_cb.p_pending_search->hdr.event ==
-        BTA_DM_API_QUEUE_SEARCH_EVT) {
-      bta_dm_search_cb.p_pending_search->hdr.event = BTA_DM_API_SEARCH_EVT;
-    }
     LOG_INFO("%s Start pending search", __func__);
     bta_sys_sendmsg(bta_dm_search_cb.p_pending_search);
     bta_dm_search_cb.p_pending_search = NULL;
@@ -1479,9 +1476,6 @@ void bta_dm_execute_queued_request() {
     tBTA_DM_MSG* p_pending_discovery = (tBTA_DM_MSG*)fixed_queue_try_dequeue(
         bta_dm_search_cb.pending_discovery_queue);
     if (p_pending_discovery) {
-      if (p_pending_discovery->hdr.event == BTA_DM_API_QUEUE_DISCOVER_EVT) {
-        p_pending_discovery->hdr.event = BTA_DM_API_DISCOVER_EVT;
-      }
       LOG_INFO("%s Start pending discovery", __func__);
       bta_sys_sendmsg(p_pending_discovery);
     }
@@ -3640,6 +3634,12 @@ static uint8_t bta_dm_ble_smp_cback(tBTM_LE_EVT event, const RawAddress& bda,
         // bta_dm_cb.p_sec_cback(BTA_DM_AUTH_CMPL_EVT, &sec_event);
         bta_dm_cb.p_sec_cback(BTA_DM_BLE_AUTH_CMPL_EVT, &sec_event);
       }
+      break;
+
+    case BTM_LE_ADDR_ASSOC_EVT:
+      sec_event.proc_id_addr.pairing_bda = bda;
+      sec_event.proc_id_addr.id_addr = p_data->id_addr;
+      bta_dm_cb.p_sec_cback(BTA_DM_LE_ADDR_ASSOC_EVT, &sec_event);
       break;
 
     default:

@@ -27,12 +27,18 @@
 #include <base/strings/stringprintf.h>
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 #include "device/include/controller.h"
+#include "embdrv/sbc/decoder/include/oi_codec_sbc.h"
+#include "embdrv/sbc/decoder/include/oi_status.h"
+#include "hfp_msbc_decoder.h"
+#include "hfp_msbc_encoder.h"
 #include "osi/include/allocator.h"
 #include "osi/include/log.h"
 #include "osi/include/osi.h"
+#include "stack/btm/btm_sco_hfp_hal.h"
 #include "stack/btm/btm_sec.h"
 #include "stack/btm/security_device_record.h"
 #include "stack/include/acl_api.h"
@@ -80,6 +86,29 @@ const bluetooth::legacy::hci::Interface& GetLegacyHciInterface() {
   (ESCO_PKT_TYPES_MASK_NO_2_EV3 | ESCO_PKT_TYPES_MASK_NO_3_EV3 | \
    ESCO_PKT_TYPES_MASK_NO_2_EV5 | ESCO_PKT_TYPES_MASK_NO_3_EV5)
 
+/* Per Bluetooth Core v5.0 and HFP 1.7 specification. */
+#define BTM_MSBC_H2_HEADER_0 0x01
+#define BTM_MSBC_H2_HEADER_LEN 2
+#define BTM_MSBC_PKT_LEN 60
+#define BTM_MSBC_PKT_FRAME_LEN 57 /* Packet length without the header */
+#define BTM_MSBC_CODE_SIZE 240
+
+/* The pre-computed zero input bit stream of mSBC codec, per HFP 1.7 spec.
+ * This mSBC frame will be decoded into all-zero input PCM. */
+static const uint8_t btm_msbc_zero_packet[] = {
+    0xad, 0x00, 0x00, 0xc5, 0x00, 0x00, 0x00, 0x00, 0x77, 0x6d, 0xb6, 0xdd,
+    0xdb, 0x6d, 0xb7, 0x76, 0xdb, 0x6d, 0xdd, 0xb6, 0xdb, 0x77, 0x6d, 0xb6,
+    0xdd, 0xdb, 0x6d, 0xb7, 0x76, 0xdb, 0x6d, 0xdd, 0xb6, 0xdb, 0x77, 0x6d,
+    0xb6, 0xdd, 0xdb, 0x6d, 0xb7, 0x76, 0xdb, 0x6d, 0xdd, 0xb6, 0xdb, 0x77,
+    0x6d, 0xb6, 0xdd, 0xdb, 0x6d, 0xb7, 0x76, 0xdb, 0x6c};
+
+static const uint8_t btm_msbc_zero_frames[BTM_MSBC_CODE_SIZE] = {0};
+
+/* Second octet of H2 header is composed by 4 bits fixed 0x8 and 4 bits
+ * sequence number 0000, 0011, 1100, 1111. */
+static const uint8_t btm_h2_header_frames_count[] = {0x08, 0x38, 0xc8, 0xf8};
+
+static uint8_t btm_msbc_num_out_frames;
 /******************************************************************************/
 /*            L O C A L    F U N C T I O N     P R O T O T Y P E S            */
 /******************************************************************************/
@@ -133,7 +162,8 @@ static void btm_esco_conn_rsp(uint16_t sco_inx, uint8_t hci_status,
       *p_setup = *p_parms;
     } else if (p_sco->esco.data.link_type == BTM_LINK_TYPE_SCO ||
                !sco_peer_supports_esco_ev3(bda)) {
-      *p_setup = esco_parameters_for_codec(SCO_CODEC_CVSD_D1);
+      *p_setup = esco_parameters_for_codec(
+          SCO_CODEC_CVSD_D1, hfp_hal_interface::get_offload_enabled());
     } else {
       /* Use the last setup passed thru BTM_SetEscoMode (or defaults) */
       *p_setup = btm_cb.sco_cb.def_esco_parms;
@@ -141,9 +171,6 @@ static void btm_esco_conn_rsp(uint16_t sco_inx, uint8_t hci_status,
     /* Use Enhanced Synchronous commands if supported */
     if (controller_get_interface()
             ->supports_enhanced_setup_synchronous_connection()) {
-      /* Use the saved SCO routing */
-      p_setup->input_data_path = p_setup->output_data_path = ESCO_DATA_PATH;
-
       BTM_TRACE_DEBUG(
           "%s: txbw 0x%x, rxbw 0x%x, lat 0x%x, retrans 0x%02x, "
           "pkt 0x%04x, path %u",
@@ -174,6 +201,15 @@ static tSCO_CONN* btm_get_active_sco() {
   return nullptr;
 }
 
+static bool verify_h2_header_seq_num(const uint8_t num) {
+  for (int i = 0; i < 4; i++) {
+    if (num == btm_h2_header_frames_count[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /*******************************************************************************
  *
  * Function         btm_route_sco_data
@@ -184,14 +220,17 @@ static tSCO_CONN* btm_get_active_sco() {
  *
  ******************************************************************************/
 void btm_route_sco_data(BT_HDR* p_msg) {
+  uint8_t* payload = p_msg->data;
+  uint16_t handle_with_flags = 0;
+  const uint8_t* out_data;
+  uint8_t length = 0;
+  uint8_t read_buf[BTM_SCO_DATA_SIZE_MAX];
   if (p_msg->len < 3) {
     LOG_ERROR("Received incomplete SCO header");
     osi_free(p_msg);
     return;
   }
-  uint8_t* payload = p_msg->data;
-  uint16_t handle_with_flags = 0;
-  uint8_t length = 0;
+
   STREAM_TO_UINT16(handle_with_flags, payload);
   STREAM_TO_UINT8(length, payload);
   if (p_msg->len != length + 3) {
@@ -201,18 +240,90 @@ void btm_route_sco_data(BT_HDR* p_msg) {
   }
   uint16_t handle = handle_with_flags & 0xFFF;
   ASSERT_LOG(handle <= 0xEFF, "Require handle <= 0xEFF, but is 0x%X", handle);
+
   auto* active_sco = btm_get_active_sco();
-  if (active_sco != nullptr && active_sco->hci_handle == handle) {
-    // TODO: For MSBC, we need to decode here
-    bluetooth::audio::sco::write(payload, length);
+  if (active_sco == nullptr || active_sco->hci_handle != handle) {
+    osi_free(p_msg);
+    return;
   }
+
+  if (active_sco->esco.setup.transmit_coding_format.coding_format ==
+      ESCO_CODING_FORMAT_TRANSPNT /* Inband MSBC */) {
+    // TODO(b/235901463): Support packet size != BTM_MSBC_PKT_LEN
+    if (length != BTM_MSBC_PKT_LEN) {
+      LOG_ERROR("Received invalid mSBC packet with invalid length:%hhu",
+                length);
+      osi_free(p_msg);
+      return;
+    }
+
+    uint8_t h2_header;
+    STREAM_TO_UINT8(h2_header, payload);
+    if (h2_header != BTM_MSBC_H2_HEADER_0) {
+      LOG_ERROR("Received invalid mSBC packet with invalid h2 header:%x",
+                h2_header);
+      osi_free(p_msg);
+      return;
+    }
+
+    uint8_t seq_num;
+    STREAM_TO_UINT8(seq_num, payload);
+    if (!verify_h2_header_seq_num(seq_num)) {
+      LOG_ERROR("Received invalid mSBC packet with invalid sequence number :%x",
+                seq_num);
+      osi_free(p_msg);
+      return;
+    }
+
+    if (!hfp_msbc_decoder_decode_packet(p_msg, &out_data)) {
+      LOG_ERROR("Decode mSBC packet failed");
+      out_data = btm_msbc_zero_frames;
+    }
+
+    length = BTM_MSBC_CODE_SIZE;
+
+  } else {
+    out_data = payload;
+  }
+  bluetooth::audio::sco::write(out_data, length);
   osi_free(p_msg);
+
   // For Chrome OS, we send the outgoing data after receiving an incoming one
-  uint8_t out_buf[BTM_SCO_DATA_SIZE_MAX];
-  auto size_read = bluetooth::audio::sco::read(out_buf, length);
-  auto data = std::vector<uint8_t>(out_buf, out_buf + size_read);
-  // TODO: For MSBC, we need to encode here
-  btm_send_sco_packet(std::move(data));
+  auto size_read = bluetooth::audio::sco::read(read_buf, length);
+
+  if (active_sco->esco.setup.transmit_coding_format.coding_format ==
+      ESCO_CODING_FORMAT_TRANSPNT /* Inband MSBC */) {
+    /* The pre-computed zero input bit stream of mSBC codec, per HFP 1.7 spec.
+     * This mSBC frame will be decoded into all-zero input PCM. */
+    uint8_t encoded[BTM_MSBC_PKT_LEN] = {
+        BTM_MSBC_H2_HEADER_0,
+        btm_h2_header_frames_count[btm_msbc_num_out_frames % 4]};
+
+    if (size_read != BTM_MSBC_CODE_SIZE) {
+      LOG_WARN("Read partial data: %zu", size_read);
+      std::copy(std::begin(btm_msbc_zero_packet),
+                std::end(btm_msbc_zero_packet),
+                &encoded[BTM_MSBC_H2_HEADER_LEN]);
+    } else {
+      uint32_t encoded_size;
+      encoded_size = hfp_msbc_encode_frames((int16_t*)read_buf, encoded + 2);
+      if (encoded_size != BTM_MSBC_PKT_FRAME_LEN) {
+        LOG_WARN("Encode invalid packet size: %lu",
+                 (unsigned long)encoded_size);
+        std::copy(std::begin(btm_msbc_zero_packet),
+                  std::end(btm_msbc_zero_packet),
+                  &encoded[BTM_MSBC_H2_HEADER_LEN]);
+      }
+    }
+
+    auto data = std::vector<uint8_t>(encoded, encoded + BTM_MSBC_PKT_LEN);
+    btm_send_sco_packet(std::move(data));
+
+    btm_msbc_num_out_frames++;
+  } else {
+    auto data = std::vector<uint8_t>(read_buf, read_buf + size_read);
+    btm_send_sco_packet(std::move(data));
+  }
 }
 
 void btm_send_sco_packet(std::vector<uint8_t> data) {
@@ -344,8 +455,6 @@ static tBTM_STATUS btm_send_connect_request(uint16_t acl_handle,
             ->supports_enhanced_setup_synchronous_connection()) {
       LOG_INFO("Sending enhanced SCO connect request over handle:0x%04x",
                acl_handle);
-      /* Use the saved SCO routing */
-      p_setup->input_data_path = p_setup->output_data_path = ESCO_DATA_PATH;
       LOG(INFO) << __func__ << std::hex << ": enhanced parameter list"
                 << " txbw=0x" << unsigned(p_setup->transmit_bandwidth)
                 << ", rxbw=0x" << unsigned(p_setup->receive_bandwidth)
@@ -763,8 +872,21 @@ void btm_sco_connected(const RawAddress& bda, uint16_t hci_handle,
 
       (*p->p_conn_cb)(xx);
 
-      bluetooth::audio::sco::open();
+      hfp_hal_interface::notify_sco_connection_change(
+          bda, /*is_connected=*/true,
+          hfp_hal_interface::esco_coding_to_codec(
+              p->esco.setup.transmit_coding_format.coding_format));
 
+      /* In-band (non-offload) data path */
+      if (p->is_inband()) {
+        if (p->is_wbs()) {
+          btm_msbc_num_out_frames = 0;
+          hfp_msbc_decoder_init();
+          hfp_msbc_encoder_init();
+        }
+
+        bluetooth::audio::sco::open();
+      }
       return;
     }
   }
@@ -917,11 +1039,18 @@ bool btm_sco_removed(uint16_t hci_handle, tHCI_REASON reason) {
   for (xx = 0; xx < BTM_MAX_SCO_LINKS; xx++, p++) {
     if ((p->state != SCO_ST_UNUSED) && (p->state != SCO_ST_LISTENING) &&
         (p->hci_handle == hci_handle)) {
+      RawAddress bda(p->esco.data.bd_addr);
       p->state = SCO_ST_UNUSED;
       p->hci_handle = HCI_INVALID_HANDLE;
       p->rem_bd_known = false;
       p->esco.p_esco_cback = NULL; /* Deregister eSCO callback */
       (*p->p_disc_cb)(xx);
+
+      hfp_hal_interface::notify_sco_connection_change(
+          bda, /*is_connected=*/false,
+          hfp_hal_interface::esco_coding_to_codec(
+              p->esco.setup.transmit_coding_format.coding_format));
+
       LOG_DEBUG("Disconnected SCO link handle:%hu reason:%s", hci_handle,
                 hci_reason_code_text(reason).c_str());
       return true;
@@ -976,7 +1105,19 @@ void btm_sco_on_disconnected(uint16_t hci_handle, tHCI_REASON reason) {
                  base::StringPrintf("handle:0x%04x reason:%s", hci_handle,
                                     hci_reason_code_text(reason).c_str()));
 
-  bluetooth::audio::sco::cleanup();
+  hfp_hal_interface::notify_sco_connection_change(
+      bd_addr, /*is_connected=*/false,
+      hfp_hal_interface::esco_coding_to_codec(
+          p_sco->esco.setup.transmit_coding_format.coding_format));
+
+  if (p_sco->is_inband()) {
+    if (p_sco->is_wbs()) {
+      hfp_msbc_decoder_cleanup();
+      hfp_msbc_encoder_cleanup();
+    }
+
+    bluetooth::audio::sco::cleanup();
+  }
 }
 
 /*******************************************************************************
@@ -1058,7 +1199,8 @@ tBTM_STATUS BTM_SetEScoMode(enh_esco_params_t* p_parms) {
         p_def->retransmission_effort);
   } else {
     /* Load defaults for SCO only */
-    *p_def = esco_parameters_for_codec(SCO_CODEC_CVSD_D1);
+    *p_def = esco_parameters_for_codec(
+        SCO_CODEC_CVSD_D1, hfp_hal_interface::get_offload_enabled());
     LOG_WARN("eSCO not supported so setting SCO parameters instead");
     LOG_DEBUG(
         "Setting SCO mode parameters txbw:0x%08x rxbw:0x%08x max_lat:0x%04x"
@@ -1175,9 +1317,6 @@ static tBTM_STATUS BTM_ChangeEScoLinkParms(uint16_t sco_inx,
     /* Use Enhanced Synchronous commands if supported */
     if (controller_get_interface()
             ->supports_enhanced_setup_synchronous_connection()) {
-      /* Use the saved SCO routing */
-      p_setup->input_data_path = p_setup->output_data_path = ESCO_DATA_PATH;
-
       btsnd_hcic_enhanced_set_up_synchronous_connection(p_sco->hci_handle,
                                                         p_setup);
       p_setup->packet_types = saved_packet_types;
@@ -1385,6 +1524,7 @@ static uint16_t btm_sco_voice_settings_to_legacy(enh_esco_params_t* p_params) {
       voice_settings |= HCI_AIR_CODING_FORMAT_A_LAW;
       break;
 
+    case ESCO_CODING_FORMAT_TRANSPNT:
     case ESCO_CODING_FORMAT_MSBC:
       voice_settings |= HCI_AIR_CODING_FORMAT_TRANSPNT;
       break;

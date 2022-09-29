@@ -34,6 +34,7 @@ namespace hci {
 
 const ModuleFactory LeAdvertisingManager::Factory = ModuleFactory([]() { return new LeAdvertisingManager(); });
 constexpr int kIdLocal = 0xff;  // Id for advertiser not register from Java layer
+constexpr uint16_t kLenOfFlags = 0x03;
 
 enum class AdvertisingApiType {
   LEGACY = 1,
@@ -223,6 +224,7 @@ struct LeAdvertisingManager::impl : public bluetooth::hci::LeAddressManagerCallb
         id++;
       }
       if (id == num_instances_) {
+        LOG_WARN("Number of max instances %d reached", (uint16_t)num_instances_);
         return kInvalidId;
       }
       advertising_sets_[id].in_use = true;
@@ -261,6 +263,15 @@ struct LeAdvertisingManager::impl : public bluetooth::hci::LeAddressManagerCallb
       const common::Callback<void(Address, AddressType)>& scan_callback,
       const common::Callback<void(ErrorCode, uint8_t, uint8_t)>& set_terminated_callback,
       os::Handler* handler) {
+    // check advertising data is valid before start advertising
+    ExtendedAdvertisingConfig extended_config = static_cast<ExtendedAdvertisingConfig>(config);
+    if (!check_advertising_data(config.advertisement, extended_config.connectable) ||
+        !check_advertising_data(config.scan_response, false)) {
+      advertising_callbacks_->OnAdvertisingSetStarted(
+          reg_id, id, le_physical_channel_tx_power_, AdvertisingCallback::AdvertisingStatus::DATA_TOO_LARGE);
+      return;
+    }
+
     id_map_[id] = reg_id;
     advertising_sets_[id].scan_callback = scan_callback;
     advertising_sets_[id].set_terminated_callback = set_terminated_callback;
@@ -354,8 +365,8 @@ struct LeAdvertisingManager::impl : public bluetooth::hci::LeAddressManagerCallb
     }
 
     // check extended advertising data is valid before start advertising
-    if (!check_extended_advertising_data(config.advertisement) ||
-        !check_extended_advertising_data(config.scan_response)) {
+    if (!check_extended_advertising_data(config.advertisement, config.connectable) ||
+        !check_extended_advertising_data(config.scan_response, false)) {
       advertising_callbacks_->OnAdvertisingSetStarted(
           reg_id, id, le_physical_channel_tx_power_, AdvertisingCallback::AdvertisingStatus::DATA_TOO_LARGE);
       return;
@@ -639,7 +650,39 @@ struct LeAdvertisingManager::impl : public bluetooth::hci::LeAddressManagerCallb
     }
   }
 
-  bool check_extended_advertising_data(std::vector<GapData> data) {
+  bool data_has_flags(std::vector<GapData> data) {
+    for (auto& gap_data : data) {
+      if (gap_data.data_type_ == GapDataType::FLAGS) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool check_advertising_data(std::vector<GapData> data, bool include_flag) {
+    uint16_t data_len = 0;
+    // check data size
+    for (size_t i = 0; i < data.size(); i++) {
+      data_len += data[i].size();
+    }
+
+    // The Flags data type shall be included when any of the Flag bits are non-zero and the advertising packet
+    // is connectable. It will be added by set_data() function, we should count it here.
+    if (include_flag && !data_has_flags(data)) {
+      data_len += kLenOfFlags;
+    }
+
+    if (data_len > le_maximum_advertising_data_length_) {
+      LOG_WARN(
+          "advertising data len %d exceeds le_maximum_advertising_data_length_ %d",
+          data_len,
+          le_maximum_advertising_data_length_);
+      return false;
+    }
+    return true;
+  };
+
+  bool check_extended_advertising_data(std::vector<GapData> data, bool include_flag) {
     uint16_t data_len = 0;
     // check data size
     for (size_t i = 0; i < data.size(); i++) {
@@ -650,16 +693,26 @@ struct LeAdvertisingManager::impl : public bluetooth::hci::LeAddressManagerCallb
       data_len += data[i].size();
     }
 
+    // The Flags data type shall be included when any of the Flag bits are non-zero and the advertising packet
+    // is connectable. It will be added by set_data() function, we should count it here.
+    if (include_flag && !data_has_flags(data)) {
+      data_len += kLenOfFlags;
+    }
+
     if (data_len > le_maximum_advertising_data_length_) {
       LOG_WARN(
-          "advertising data len exceeds le_maximum_advertising_data_length_ %d", le_maximum_advertising_data_length_);
+          "advertising data len %d exceeds le_maximum_advertising_data_length_ %d",
+          data_len,
+          le_maximum_advertising_data_length_);
       return false;
     }
     return true;
   };
 
   void set_data(AdvertiserId advertiser_id, bool set_scan_rsp, std::vector<GapData> data) {
-    if (!set_scan_rsp && advertising_sets_[advertiser_id].connectable) {
+    // The Flags data type shall be included when any of the Flag bits are non-zero and the advertising packet
+    // is connectable.
+    if (!set_scan_rsp && advertising_sets_[advertiser_id].connectable && !data_has_flags(data)) {
       GapData gap_data;
       gap_data.data_type_ = GapDataType::FLAGS;
       if (advertising_sets_[advertiser_id].duration == 0) {
@@ -676,6 +729,17 @@ struct LeAdvertisingManager::impl : public bluetooth::hci::LeAddressManagerCallb
         gap_data.data_[0] = advertising_sets_[advertiser_id].tx_power;
         break;
       }
+    }
+
+    if (advertising_api_type_ != AdvertisingApiType::EXTENDED && !check_advertising_data(data, false)) {
+      if (set_scan_rsp) {
+        advertising_callbacks_->OnScanResponseDataSet(
+            advertiser_id, AdvertisingCallback::AdvertisingStatus::DATA_TOO_LARGE);
+      } else {
+        advertising_callbacks_->OnAdvertisingDataSet(
+            advertiser_id, AdvertisingCallback::AdvertisingStatus::DATA_TOO_LARGE);
+      }
+      return;
     }
 
     switch (advertising_api_type_) {
@@ -800,6 +864,11 @@ struct LeAdvertisingManager::impl : public bluetooth::hci::LeAddressManagerCallb
     curr_set.max_extended_advertising_events_ = max_extended_advertising_events;
     std::vector<EnabledSet> enabled_sets = {curr_set};
     Enable enable_value = enable ? Enable::ENABLED : Enable::DISABLED;
+
+    if (!advertising_sets_.count(advertiser_id)) {
+      LOG_WARN("No advertising set with key: %d", advertiser_id);
+      return;
+    }
 
     switch (advertising_api_type_) {
       case (AdvertisingApiType::LEGACY): {
@@ -1259,6 +1328,11 @@ struct LeAdvertisingManager::impl : public bluetooth::hci::LeAddressManagerCallb
           ErrorCodeText(status_view.GetStatus()).c_str());
     }
   }
+
+  void start_advertising_fail(int reg_id, AdvertisingCallback::AdvertisingStatus status) {
+    ASSERT(status != AdvertisingCallback::AdvertisingStatus::SUCCESS);
+    advertising_callbacks_->OnAdvertisingSetStarted(reg_id, kInvalidId, 0, status);
+  }
 };
 
 LeAdvertisingManager::LeAdvertisingManager() {
@@ -1298,16 +1372,26 @@ AdvertiserId LeAdvertisingManager::create_advertiser(
     if (config.own_address_type == hci::OwnAddressType::RESOLVABLE_OR_PUBLIC_ADDRESS ||
         config.own_address_type == hci::OwnAddressType::RESOLVABLE_OR_RANDOM_ADDRESS) {
       LOG_WARN("Peer address can not be empty");
+      CallOn(
+          pimpl_.get(), &impl::start_advertising_fail, reg_id, AdvertisingCallback::AdvertisingStatus::INTERNAL_ERROR);
       return kInvalidId;
     }
     if (config.advertising_type == hci::AdvertisingType::ADV_DIRECT_IND ||
         config.advertising_type == hci::AdvertisingType::ADV_DIRECT_IND_LOW) {
       LOG_WARN("Peer address can not be empty for directed advertising");
+      CallOn(
+          pimpl_.get(), &impl::start_advertising_fail, reg_id, AdvertisingCallback::AdvertisingStatus::INTERNAL_ERROR);
       return kInvalidId;
     }
   }
   AdvertiserId id = pimpl_->allocate_advertiser();
   if (id == kInvalidId) {
+    LOG_WARN("Number of max instances reached");
+    CallOn(
+        pimpl_.get(),
+        &impl::start_advertising_fail,
+        reg_id,
+        AdvertisingCallback::AdvertisingStatus::TOO_MANY_ADVERTISERS);
     return id;
   }
   GetHandler()->Post(common::BindOnce(
@@ -1338,29 +1422,43 @@ AdvertiserId LeAdvertisingManager::ExtendedCreateAdvertiser(
   if (config.directed) {
     if (config.peer_address == Address::kEmpty) {
       LOG_INFO("Peer address can not be empty for directed advertising");
+      CallOn(
+          pimpl_.get(), &impl::start_advertising_fail, reg_id, AdvertisingCallback::AdvertisingStatus::INTERNAL_ERROR);
       return kInvalidId;
     }
   }
   if (config.channel_map == 0) {
     LOG_INFO("At least one channel must be set in the map");
+    CallOn(pimpl_.get(), &impl::start_advertising_fail, reg_id, AdvertisingCallback::AdvertisingStatus::INTERNAL_ERROR);
     return kInvalidId;
   }
   if (!config.legacy_pdus) {
     if (config.connectable && config.scannable) {
       LOG_INFO("Extended advertising PDUs can not be connectable and scannable");
+      CallOn(
+          pimpl_.get(), &impl::start_advertising_fail, reg_id, AdvertisingCallback::AdvertisingStatus::INTERNAL_ERROR);
       return kInvalidId;
     }
     if (config.high_duty_directed_connectable) {
       LOG_INFO("Extended advertising PDUs can not be high duty cycle");
+      CallOn(
+          pimpl_.get(), &impl::start_advertising_fail, reg_id, AdvertisingCallback::AdvertisingStatus::INTERNAL_ERROR);
       return kInvalidId;
     }
   }
   if (config.interval_min > config.interval_max) {
     LOG_INFO("Advertising interval: min (%hu) > max (%hu)", config.interval_min, config.interval_max);
+    CallOn(pimpl_.get(), &impl::start_advertising_fail, reg_id, AdvertisingCallback::AdvertisingStatus::INTERNAL_ERROR);
     return kInvalidId;
   }
   AdvertiserId id = pimpl_->allocate_advertiser();
   if (id == kInvalidId) {
+    LOG_WARN("Number of max instances reached");
+    CallOn(
+        pimpl_.get(),
+        &impl::start_advertising_fail,
+        reg_id,
+        AdvertisingCallback::AdvertisingStatus::TOO_MANY_ADVERTISERS);
     return id;
   }
   CallOn(

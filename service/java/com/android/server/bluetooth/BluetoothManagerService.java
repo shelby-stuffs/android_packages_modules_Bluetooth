@@ -56,6 +56,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.ContentObserver;
@@ -94,6 +95,7 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -115,6 +117,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private static final int ACTIVE_LOG_MAX_SIZE = 20;
     private static final int CRASH_LOG_MAX_SIZE = 100;
 
+    private static final int DEFAULT_REBIND_COUNT = 3;
     private static final int TIMEOUT_BIND_MS = 3000; //Maximum msec to wait for a bind
 
     /**
@@ -219,6 +222,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private int mBindingUserID;
     private boolean mUnbinding;
     private boolean mTryBindOnBindTimeout = false;
+    private List<Integer> mSupportedProfileList = new ArrayList<>();
 
     private BluetoothModeChangeHelper mBluetoothModeChangeHelper;
 
@@ -800,7 +804,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private boolean synchronousDisable(AttributionSource attributionSource)
             throws RemoteException, TimeoutException {
         if (mBluetooth == null) return false;
-        final SynchronousResultReceiver<Boolean> recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
         mBluetooth.disable(attributionSource, recv);
         return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(false);
     }
@@ -809,7 +813,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private boolean synchronousEnable(boolean quietMode, AttributionSource attributionSource)
             throws RemoteException, TimeoutException {
         if (mBluetooth == null) return false;
-        final SynchronousResultReceiver<Boolean> recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
         mBluetooth.enable(quietMode, attributionSource, recv);
         return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(false);
     }
@@ -818,7 +822,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private String synchronousGetAddress(AttributionSource attributionSource)
             throws RemoteException, TimeoutException {
         if (mBluetooth == null) return null;
-        final SynchronousResultReceiver<String> recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver<String> recv = SynchronousResultReceiver.get();
         mBluetooth.getAddressWithAttribution(attributionSource, recv);
         return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
     }
@@ -827,7 +831,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private String synchronousGetName(AttributionSource attributionSource)
             throws RemoteException, TimeoutException {
         if (mBluetooth == null) return null;
-        final SynchronousResultReceiver<String> recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver<String> recv = SynchronousResultReceiver.get();
         mBluetooth.getName(attributionSource, recv);
         return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
     }
@@ -836,7 +840,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private int synchronousGetState()
             throws RemoteException, TimeoutException {
         if (mBluetooth == null) return BluetoothAdapter.STATE_OFF;
-        final SynchronousResultReceiver<Integer> recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
         mBluetooth.getState(recv);
         return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(BluetoothAdapter.STATE_OFF);
     }
@@ -845,7 +849,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private void synchronousOnBrEdrDown(AttributionSource attributionSource)
             throws RemoteException, TimeoutException {
         if (mBluetooth == null) return;
-        final SynchronousResultReceiver recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
         mBluetooth.onBrEdrDown(attributionSource, recv);
         recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
     }
@@ -854,7 +858,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private void synchronousOnLeServiceUp(AttributionSource attributionSource)
             throws RemoteException, TimeoutException {
         if (mBluetooth == null) return;
-        final SynchronousResultReceiver recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
         mBluetooth.onLeServiceUp(attributionSource, recv);
         recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
     }
@@ -863,7 +867,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private void synchronousRegisterCallback(IBluetoothCallback callback,
             AttributionSource attributionSource) throws RemoteException, TimeoutException {
         if (mBluetooth == null) return;
-        final SynchronousResultReceiver recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
         mBluetooth.registerCallback(callback, attributionSource, recv);
         recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
     }
@@ -872,9 +876,28 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private void synchronousUnregisterCallback(IBluetoothCallback callback,
             AttributionSource attributionSource) throws RemoteException, TimeoutException {
         if (mBluetooth == null) return;
-        final SynchronousResultReceiver recv = new SynchronousResultReceiver();
+        final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
         mBluetooth.unregisterCallback(callback, attributionSource, recv);
         recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+    }
+
+    @GuardedBy("mBluetoothLock")
+    private List<Integer> synchronousGetSupportedProfiles(AttributionSource attributionSource)
+            throws RemoteException, TimeoutException {
+        final ArrayList<Integer> supportedProfiles = new ArrayList<Integer>();
+        if (mBluetooth == null) return supportedProfiles;
+        final SynchronousResultReceiver<Long> recv = SynchronousResultReceiver.get();
+        mBluetooth.getSupportedProfiles(attributionSource, recv);
+        final long supportedProfilesBitMask =
+                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue((long) 0);
+
+        for (int i = 0; i <= BluetoothProfile.MAX_PROFILE_ID; i++) {
+            if ((supportedProfilesBitMask & (1 << i)) != 0) {
+                supportedProfiles.add(i);
+            }
+        }
+
+        return supportedProfiles;
     }
 
     /**
@@ -1273,7 +1296,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         if (isBleAppPresent()) {
             // Need to stay at BLE ON. Disconnect all Gatt connections
             try {
-                final SynchronousResultReceiver recv = new SynchronousResultReceiver();
+                final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
                 if (mBluetoothGatt != null) {
                     mBluetoothGatt.unregAll(attributionSource, recv);
                 }
@@ -1538,23 +1561,23 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         }
         synchronized (mProfileServices) {
             ProfileServiceConnections psc = mProfileServices.get(new Integer(bluetoothProfile));
+            Intent intent;
+            if (bluetoothProfile == BluetoothProfile.HEADSET
+                    && mSupportedProfileList.contains(BluetoothProfile.HEADSET)) {
+                intent = new Intent(IBluetoothHeadset.class.getName());
+            } else if (bluetoothProfile == BluetoothProfile.LE_CALL_CONTROL
+                    && mSupportedProfileList.contains(BluetoothProfile.LE_CALL_CONTROL)) {
+                intent = new Intent(IBluetoothLeCallControl.class.getName());
+            } else {
+                return false;
+            }
             if (psc == null) {
                 if (DBG) {
                     Log.d(TAG, "Creating new ProfileServiceConnections object for" + " profile: "
                             + bluetoothProfile);
                 }
-
-                Intent intent;
-                if (bluetoothProfile == BluetoothProfile.HEADSET) {
-                    intent = new Intent(IBluetoothHeadset.class.getName());
-                } else if (bluetoothProfile== BluetoothProfile.LE_CALL_CONTROL) {
-                    intent = new Intent(IBluetoothLeCallControl.class.getName());
-                } else {
-                    return false;
-                }
-
                 psc = new ProfileServiceConnections(intent);
-                if (!psc.bindService()) {
+                if (!psc.bindService(DEFAULT_REBIND_COUNT)) {
                     return false;
                 }
 
@@ -1689,7 +1712,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
             mIntent = intent;
         }
 
-        private boolean bindService() {
+        private boolean bindService(int rebindCount) {
             int state = BluetoothAdapter.STATE_OFF;
             try {
                 mBluetoothLock.readLock().lock();
@@ -1712,6 +1735,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                     && doBind(mIntent, this, 0, USER_HANDLE_CURRENT_OR_SELF)) {
                 Message msg = mHandler.obtainMessage(MESSAGE_BIND_PROFILE_SERVICE);
                 msg.obj = this;
+                msg.arg1 = rebindCount;
                 mHandler.sendMessageDelayed(msg, TIMEOUT_BIND_MS);
                 return true;
             }
@@ -1738,6 +1762,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 if (!mHandler.hasMessages(MESSAGE_BIND_PROFILE_SERVICE, this)) {
                     Message msg = mHandler.obtainMessage(MESSAGE_BIND_PROFILE_SERVICE);
                     msg.obj = this;
+                    msg.arg1 = DEFAULT_REBIND_COUNT;
                     mHandler.sendMessage(msg);
                 }
             }
@@ -2012,7 +2037,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
             } else if (state == BluetoothAdapter.STATE_OFF) {
                 mEnable = true;
                 mBluetooth.factoryReset(mContext.getAttributionSource(),
-                                        new SynchronousResultReceiver());
+                                        SynchronousResultReceiver.get());
                 handleEnable(mQuietEnable);
             } else if (state == BluetoothAdapter.STATE_BLE_ON) {
                 addActiveLog(
@@ -2020,14 +2045,14 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 mContext.getPackageName(), false);
                 synchronousOnBrEdrDown(mContext.getAttributionSource());
                 mBluetooth.factoryReset(mContext.getAttributionSource(),
-                                        new SynchronousResultReceiver());
+                                        SynchronousResultReceiver.get());
             } else if (state == BluetoothAdapter.STATE_ON) {
                 addActiveLog(
                 BluetoothProtoEnums.ENABLE_DISABLE_REASON_FACTORY_RESET,
                 mContext.getPackageName(), false);
                 handleDisable();
                 mBluetooth.factoryReset(mContext.getAttributionSource(),
-                                        new SynchronousResultReceiver());
+                                        SynchronousResultReceiver.get());
             }
         } catch (RemoteException | TimeoutException e) {
             Log.e(TAG, "factoryReset(): Unable to do factoryReset.", e);
@@ -2506,8 +2531,15 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                         Log.w(TAG, "psc is null, breaking");
                         break;
                     }
-                    Log.w(TAG, "Calling psc.bindService from MESSAGE_BIND_PROFILE_SERVICE");
-                    psc.bindService();
+                    if (msg.arg1 > 0) {
+                        try {
+                            mContext.unbindService(psc);
+                            Log.w(TAG, "Calling psc.bindService from MESSAGE_BIND_PROFILE_SERVICE");
+                        } catch (IllegalArgumentException e) {
+                            Log.e(TAG, "Unable to unbind service with intent: " + psc.mIntent, e);
+                        }
+                        psc.bindService(msg.arg1 - 1);
+                    }
                     break;
                 }
                 case MESSAGE_BLUETOOTH_SERVICE_CONNECTED: {
@@ -2551,6 +2583,14 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                         Message informMsg =
                                     mHandler.obtainMessage(MESSAGE_INFORM_ADAPTER_SERVICE_UP);
                         mHandler.sendMessage(informMsg);
+
+                        // Get the supported profiles list
+                        try {
+                            mSupportedProfileList = synchronousGetSupportedProfiles(
+                                    mContext.getAttributionSource());
+                        } catch (RemoteException | TimeoutException e) {
+                            Log.e(TAG, "Unable to get the supported profiles list", e);
+                        }
 
                         //Do enable request
                         try {
@@ -2651,6 +2691,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                                 break;
                             }
                             mBluetooth = null;
+                            mSupportedProfileList.clear();
                         } else if (msg.arg1 == SERVICE_IBLUETOOTHGATT) {
                             mBluetoothGatt = null;
                             break;
@@ -3333,19 +3374,56 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
      */
     private void updateOppLauncherComponentState(UserHandle userHandle,
             boolean bluetoothSharingDisallowed) {
-        final ComponentName oppLauncherComponent = new ComponentName(
-                mContext.getPackageManager().getPackagesForUid(Process.BLUETOOTH_UID)[0],
-                "com.android.bluetooth.opp.BluetoothOppLauncherActivity");
-        final int newState =
-                bluetoothSharingDisallowed ? PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-                        : PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
         try {
-            mContext.createContextAsUser(userHandle, 0)
-                .getPackageManager()
-                .setComponentEnabledSetting(oppLauncherComponent, newState,
-                        PackageManager.DONT_KILL_APP);
+            int newState;
+            if (bluetoothSharingDisallowed) {
+                newState = PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+            } else if (BluetoothProperties.isProfileOppEnabled().orElse(false)) {
+                newState = PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+            } else {
+                newState = PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
+            }
+
+            String launcherActivity = "com.android.bluetooth.opp.BluetoothOppLauncherActivity";
+
+            PackageManager packageManager = mContext.createContextAsUser(userHandle, 0)
+                                                        .getPackageManager();
+            var allPackages = packageManager.getPackagesForUid(Process.BLUETOOTH_UID);
+            for (String candidatePackage : allPackages) {
+                PackageInfo packageInfo;
+                try {
+                    // note: we need the package manager for the SYSTEM user, not our userHandle
+                    packageInfo = mContext.getPackageManager().getPackageInfo(
+                        candidatePackage,
+                        PackageManager.PackageInfoFlags.of(PackageManager.GET_ACTIVITIES));
+                } catch (PackageManager.NameNotFoundException e) {
+                    // ignore, try next package
+                    Log.e(TAG, "Could not find package " + candidatePackage);
+                    continue;
+                } catch (Exception e) {
+                    Log.e(TAG, "Error while loading package" + e);
+                    continue;
+                }
+                if (packageInfo.activities == null) {
+                    continue;
+                }
+                for (var activity : packageInfo.activities) {
+                    if (launcherActivity.equals(activity.name)) {
+                        final ComponentName oppLauncherComponent = new ComponentName(
+                                candidatePackage, launcherActivity
+                        );
+                        packageManager.setComponentEnabledSetting(
+                                oppLauncherComponent, newState, PackageManager.DONT_KILL_APP
+                        );
+                        return;
+                    }
+                }
+            }
+
+            Log.e(TAG,
+                    "Cannot toggle BluetoothOppLauncherActivity, could not find it in any package");
         } catch (Exception e) {
-            // The component was not found, do nothing.
+            Log.e(TAG, "updateOppLauncherComponentState failed: " + e);
         }
     }
 

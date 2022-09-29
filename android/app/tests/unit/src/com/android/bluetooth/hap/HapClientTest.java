@@ -42,7 +42,6 @@ import com.android.bluetooth.btservice.AdapterService;
 import com.android.bluetooth.btservice.ServiceFactory;
 import com.android.bluetooth.btservice.storage.DatabaseManager;
 import com.android.bluetooth.csip.CsipSetCoordinatorService;
-import com.android.bluetooth.le_audio.LeAudioService;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -90,8 +89,6 @@ public class HapClientTest {
     @Mock
     private CsipSetCoordinatorService mCsipService;
     @Mock
-    private LeAudioService mLeAudioService;
-    @Mock
     private IBluetoothHapClientCallback mCallback;
     @Mock
     private Binder mBinder;
@@ -118,7 +115,6 @@ public class HapClientTest {
         mService.mHapClientNativeInterface = mNativeInterface;
         mService.mFactory = mServiceFactory;
         doReturn(mCsipService).when(mServiceFactory).getCsipSetCoordinatorService();
-        doReturn(mLeAudioService).when(mServiceFactory).getLeAudioService();
 
         // Set up the State Changed receiver
         IntentFilter filter = new IntentFilter();
@@ -150,14 +146,15 @@ public class HapClientTest {
         groups3.put(groupId3,
                 ParcelUuid.fromString("00001853-0000-1000-8000-00805F9B34FB"));
 
-        doReturn(Arrays.asList(mDevice, mDevice2)).when(mLeAudioService).getGroupDevices(groupId2);
+        doReturn(Arrays.asList(mDevice, mDevice2)).when(mCsipService)
+                        .getGroupDevicesOrdered(groupId2);
         doReturn(groups2).when(mCsipService).getGroupUuidMapByDevice(mDevice);
         doReturn(groups2).when(mCsipService).getGroupUuidMapByDevice(mDevice2);
 
-        doReturn(Arrays.asList(mDevice3)).when(mLeAudioService).getGroupDevices(0x03);
+        doReturn(Arrays.asList(mDevice3)).when(mCsipService).getGroupDevicesOrdered(0x03);
         doReturn(groups3).when(mCsipService).getGroupUuidMapByDevice(mDevice3);
 
-        doReturn(Arrays.asList(mDevice)).when(mLeAudioService).getGroupDevices(0x01);
+        doReturn(Arrays.asList(mDevice)).when(mCsipService).getGroupDevicesOrdered(0x01);
 
         doReturn(BluetoothDevice.BOND_BONDED).when(mAdapterService)
                 .getBondState(any(BluetoothDevice.class));
@@ -173,6 +170,10 @@ public class HapClientTest {
 
     @After
     public void tearDown() throws Exception {
+        if (mService == null) {
+            return;
+        }
+
         mService.mCallbacks.unregister(mCallback);
 
         stopService();
@@ -246,6 +247,20 @@ public class HapClientTest {
                 .thenReturn(BluetoothProfile.CONNECTION_POLICY_ALLOWED);
         Assert.assertEquals("Setting device policy to POLICY_ALLOWED",
                 BluetoothProfile.CONNECTION_POLICY_ALLOWED,
+                mService.getConnectionPolicy(mDevice));
+    }
+
+    /**
+     * Test if getProfileConnectionPolicy works after the service is stopped.
+     */
+    @Test
+    public void testGetPolicyAfterStopped() {
+        mService.stop();
+        when(mDatabaseManager
+                .getProfileConnectionPolicy(mDevice, BluetoothProfile.HAP_CLIENT))
+                .thenReturn(BluetoothProfile.CONNECTION_POLICY_UNKNOWN);
+        Assert.assertEquals("Initial device policy",
+                BluetoothProfile.CONNECTION_POLICY_UNKNOWN,
                 mService.getConnectionPolicy(mDevice));
     }
 
@@ -510,8 +525,9 @@ public class HapClientTest {
     public void testSwitchToNextPresetForGroup() {
         doReturn(new ParcelUuid[]{BluetoothUuid.HAS}).when(mAdapterService)
                 .getRemoteUuids(any(BluetoothDevice.class));
+        testConnectingDevice(mDevice3);
         int flags = 0x01;
-        mNativeInterface.onFeaturesUpdate(getByteAddress(mDevice), flags);
+        mNativeInterface.onFeaturesUpdate(getByteAddress(mDevice3), flags);
 
         // Verify Native Interface call
         mService.switchToNextPresetForGroup(0x03);
@@ -547,8 +563,8 @@ public class HapClientTest {
         mNativeInterface.onFeaturesUpdate(getByteAddress(mDevice), flags);
 
         // Verify Native Interface call
-        mService.switchToPreviousPresetForGroup(0x03);
-        verify(mNativeInterface, times(1)).groupPreviousActivePreset(eq(0x03));
+        mService.switchToPreviousPresetForGroup(0x02);
+        verify(mNativeInterface, times(1)).groupPreviousActivePreset(eq(0x02));
     }
 
     /**
@@ -622,7 +638,7 @@ public class HapClientTest {
         doReturn(new ParcelUuid[]{BluetoothUuid.HAS}).when(mAdapterService)
                 .getRemoteUuids(any(BluetoothDevice.class));
         int test_group = 0x02;
-        for (BluetoothDevice device : mLeAudioService.getGroupDevices(test_group)) {
+        for (BluetoothDevice device : mCsipService.getGroupDevicesOrdered(test_group)) {
             testConnectingDevice(device);
         }
 
@@ -659,6 +675,9 @@ public class HapClientTest {
         doReturn(new ParcelUuid[]{BluetoothUuid.HAS}).when(mAdapterService)
                 .getRemoteUuids(any(BluetoothDevice.class));
 
+        doCallRealMethod()
+                .when(mNativeInterface)
+                .onDeviceAvailable(any(byte[].class), anyInt());
         mNativeInterface.onDeviceAvailable(getByteAddress(mDevice), 0x03);
 
         Intent intent = TestUtils.waitForIntent(TIMEOUT_MS, mIntentQueue.get(mDevice));
@@ -677,6 +696,9 @@ public class HapClientTest {
         doReturn(new ParcelUuid[]{BluetoothUuid.HAS}).when(mAdapterService)
                 .getRemoteUuids(any(BluetoothDevice.class));
 
+        doCallRealMethod()
+                .when(mNativeInterface)
+                .onActivePresetSelected(any(byte[].class), anyInt());
         mNativeInterface.onActivePresetSelected(getByteAddress(mDevice), 0x01);
 
         try {
@@ -698,6 +720,10 @@ public class HapClientTest {
         doReturn(new ParcelUuid[]{BluetoothUuid.HAS}).when(mAdapterService)
                 .getRemoteUuids(any(BluetoothDevice.class));
 
+
+        doCallRealMethod()
+                .when(mNativeInterface)
+                .onActivePresetSelectError(any(byte[].class), anyInt());
         /* Send INVALID_PRESET_INDEX error */
         mNativeInterface.onActivePresetSelectError(getByteAddress(mDevice), 0x05);
 
@@ -726,6 +752,10 @@ public class HapClientTest {
                         .setWritable(true)
                         .setAvailable(false)
                         .build()};
+
+        doCallRealMethod()
+                .when(mNativeInterface)
+                .onPresetInfo(any(byte[].class), anyInt(), any());
         mNativeInterface.onPresetInfo(getByteAddress(mDevice), info_reason, info);
 
         ArgumentCaptor<List<BluetoothHapPresetInfo>> presetsCaptor =
@@ -757,6 +787,9 @@ public class HapClientTest {
         doReturn(new ParcelUuid[]{BluetoothUuid.HAS}).when(mAdapterService)
                 .getRemoteUuids(any(BluetoothDevice.class));
 
+        doCallRealMethod()
+                .when(mNativeInterface)
+                .onPresetNameSetError(any(byte[].class), anyInt(), anyInt());
         /* Not a valid name length */
         mNativeInterface.onPresetNameSetError(getByteAddress(mDevice), 0x01,
                 HapClientStackEvent.STATUS_INVALID_PRESET_NAME_LENGTH);
@@ -815,6 +848,10 @@ public class HapClientTest {
     public void testStackEventOnGroupPresetNameSetError() {
         doReturn(new ParcelUuid[]{BluetoothUuid.HAS}).when(mAdapterService)
                 .getRemoteUuids(any(BluetoothDevice.class));
+
+        doCallRealMethod()
+                .when(mNativeInterface)
+                .onGroupPresetNameSetError(anyInt(), anyInt(), anyInt());
 
         /* Not a valid name length */
         mNativeInterface.onGroupPresetNameSetError(0x01, 0x01,

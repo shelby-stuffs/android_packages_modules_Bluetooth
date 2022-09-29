@@ -6,7 +6,9 @@ use crate::bindings::root as bindings;
 use crate::topstack::get_dispatchers;
 use num_traits::cast::{FromPrimitive, ToPrimitive};
 use std::cmp;
-use std::fmt::{Debug, Formatter, Result};
+use std::convert::TryFrom;
+use std::fmt::{Debug, Display, Formatter, Result};
+use std::hash::{Hash, Hasher};
 use std::mem;
 use std::os::raw::c_char;
 use std::sync::{Arc, Mutex};
@@ -118,10 +120,10 @@ impl From<bindings::bt_acl_state_t> for BtAclState {
 #[derive(Clone, Debug, FromPrimitive, ToPrimitive, PartialEq, PartialOrd)]
 #[repr(u32)]
 pub enum BtDeviceType {
-    Bredr = 0x1,
+    Unknown = 0,
+    Bredr,
     Ble,
     Dual,
-    Unknown,
 }
 
 #[derive(Clone, Debug, Eq, Hash, FromPrimitive, ToPrimitive, PartialEq, PartialOrd)]
@@ -173,7 +175,7 @@ impl From<u32> for BtDiscoveryState {
     }
 }
 
-#[derive(Clone, Debug, FromPrimitive, ToPrimitive, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, FromPrimitive, ToPrimitive, PartialEq, PartialOrd)]
 #[repr(u32)]
 pub enum BtStatus {
     Success = 0,
@@ -222,6 +224,12 @@ impl From<bindings::bt_status_t> for BtStatus {
             Some(x) => x,
             _ => BtStatus::Unknown,
         }
+    }
+}
+
+impl Into<u32> for BtStatus {
+    fn into(self) -> u32 {
+        self.to_u32().unwrap_or_default()
     }
 }
 
@@ -288,6 +296,52 @@ pub type BtPinCode = bindings::bt_pin_code_t;
 pub type BtRemoteVersion = bindings::bt_remote_version_t;
 pub type Uuid = bindings::bluetooth::Uuid;
 pub type Uuid128Bit = bindings::bluetooth::Uuid_UUID128Bit;
+
+impl TryFrom<Uuid> for Vec<u8> {
+    type Error = &'static str;
+
+    fn try_from(value: Uuid) -> std::result::Result<Self, Self::Error> {
+        Ok((&value.uu).to_vec())
+    }
+}
+
+impl TryFrom<Vec<u8>> for Uuid {
+    type Error = &'static str;
+
+    fn try_from(value: Vec<u8>) -> std::result::Result<Self, Self::Error> {
+        if value.len() != 16 {
+            Err("Vector size must be exactly 16.")
+        } else {
+            let mut uu: [u8; 16] = Default::default();
+            uu.copy_from_slice(&value[0..16]);
+            Ok(Uuid { uu })
+        }
+    }
+}
+
+impl Hash for Uuid {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.uu.hash(state);
+    }
+}
+
+impl Uuid {
+    /// Formats this UUID to a human-readable representation.
+    pub fn format(uuid: &Uuid128Bit, f: &mut Formatter) -> Result {
+        write!(f, "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
+            uuid[0], uuid[1], uuid[2], uuid[3],
+            uuid[4], uuid[5],
+            uuid[6], uuid[7],
+            uuid[8], uuid[9],
+            uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15])
+    }
+}
+
+impl Display for Uuid {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        Uuid::format(&self.uu, f)
+    }
+}
 
 /// All supported Bluetooth properties after conversion.
 #[derive(Debug, Clone)]
@@ -487,7 +541,7 @@ impl From<bindings::bt_property_t> for BluetoothProperty {
                 BluetoothProperty::ClassOfDevice(u32_from_bytes(slice))
             }
             BtPropertyType::TypeOfDevice => BluetoothProperty::TypeOfDevice(
-                BtDeviceType::from_u32(u32_from_bytes(slice)).unwrap_or(BtDeviceType::Bredr),
+                BtDeviceType::from_u32(u32_from_bytes(slice)).unwrap_or(BtDeviceType::Unknown),
             ),
             BtPropertyType::ServiceRecord => {
                 let v = unsafe { *(prop.val as *const bindings::bt_service_record_t) };
@@ -553,6 +607,7 @@ pub enum SupportedProfiles {
     A2dp,
     Gatt,
     Sdp,
+    Socket,
 }
 
 impl From<SupportedProfiles> for Vec<u8> {
@@ -563,6 +618,7 @@ impl From<SupportedProfiles> for Vec<u8> {
             SupportedProfiles::A2dp => "a2dp",
             SupportedProfiles::Gatt => "gatt",
             SupportedProfiles::Sdp => "sdp",
+            SupportedProfiles::Socket => "socket",
         }
         .bytes()
         .chain("\0".bytes())
@@ -702,6 +758,7 @@ pub enum BaseCallbacks {
     SspRequest(RawAddress, String, u32, BtSspVariant, u32),
     BondState(BtStatus, RawAddress, BtBondState, i32),
     AddressConsolidate(RawAddress, RawAddress),
+    LeAddressAssociate(RawAddress, RawAddress),
     AclState(BtStatus, RawAddress, BtAclState, BtTransport, BtHciErrorCode),
     // Unimplemented so far:
     // thread_evt_cb
@@ -753,6 +810,12 @@ u32 -> BtStatus, *mut FfiAddress, bindings::bt_bond_state_t -> BtBondState, i32,
 });
 
 cb_variant!(BaseCb, address_consolidate_cb -> BaseCallbacks::AddressConsolidate,
+*mut FfiAddress, *mut FfiAddress, {
+    let _0 = unsafe { *(_0 as *const RawAddress) };
+    let _1 = unsafe { *(_1 as *const RawAddress) };
+});
+
+cb_variant!(BaseCb, le_address_associate_cb -> BaseCallbacks::LeAddressAssociate,
 *mut FfiAddress, *mut FfiAddress, {
     let _0 = unsafe { *(_0 as *const RawAddress) };
     let _1 = unsafe { *(_1 as *const RawAddress) };
@@ -874,6 +937,7 @@ impl BluetoothInterface {
             ssp_request_cb: Some(ssp_request_cb),
             bond_state_changed_cb: Some(bond_state_cb),
             address_consolidate_cb: Some(address_consolidate_cb),
+            le_address_associate_cb: Some(le_address_associate_cb),
             acl_state_changed_cb: Some(acl_state_cb),
             thread_evt_cb: None,
             dut_mode_recv_cb: None,
@@ -899,7 +963,8 @@ impl BluetoothInterface {
             is_common_criteria_mode,
             config_compare_result,
             flags,
-            is_atv
+            is_atv,
+            std::ptr::null()
         );
 
         self.is_init = init == 0;

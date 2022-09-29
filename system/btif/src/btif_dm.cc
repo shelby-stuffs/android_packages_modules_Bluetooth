@@ -164,6 +164,9 @@ typedef struct {
   bool is_le_nc; /* LE Numeric comparison */
   btif_dm_ble_cb_t ble;
   uint8_t fail_reason;
+  Uuid::UUID128Bit eir_uuids[32];
+  uint8_t num_eir_uuids;
+  std::set<Uuid::UUID128Bit> uuids;
 } btif_dm_pairing_cb_t;
 
 // TODO(jpawlowski): unify ?
@@ -1123,22 +1126,14 @@ static void btif_dm_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
         break;
 
       case HCI_ERR_PAIRING_NOT_ALLOWED:
-        if (!bluetooth::shim::is_gd_security_enabled()) {
-          is_bonded_device_removed = (btif_storage_remove_bonded_device(
-                                          &bd_addr) == BT_STATUS_SUCCESS);
-        } else {
-          is_bonded_device_removed = true;
-        }
+        is_bonded_device_removed = false;
         status = BT_STATUS_AUTH_REJECTED;
         break;
 
       /* map the auth failure codes, so we can retry pairing if necessary */
       case HCI_ERR_AUTH_FAILURE:
       case HCI_ERR_KEY_MISSING:
-        is_bonded_device_removed = (bluetooth::shim::is_gd_security_enabled())
-                                       ? true
-                                       : (btif_storage_remove_bonded_device(
-                                              &bd_addr) == BT_STATUS_SUCCESS);
+        is_bonded_device_removed = false;
         [[fallthrough]];
       case HCI_ERR_HOST_REJECT_SECURITY:
       case HCI_ERR_ENCRY_MODE_NOT_ACCEPTABLE:
@@ -1169,10 +1164,7 @@ static void btif_dm_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
       /* Remove Device as bonded in nvram as authentication failed */
       BTIF_TRACE_DEBUG("%s(): removing hid pointing device from nvram",
                        __func__);
-      is_bonded_device_removed = (bluetooth::shim::is_gd_security_enabled())
-                                     ? true
-                                     : (btif_storage_remove_bonded_device(
-                                            &bd_addr) == BT_STATUS_SUCCESS);
+      is_bonded_device_removed = false;
     }
     // Report bond state change to java only if we are bonding to a device or
     // a device is removed from the pairing list.
@@ -1223,8 +1215,10 @@ static void btif_dm_search_devices_evt(tBTA_DM_SEARCH_EVT event,
       uint8_t num_uuids = 0, max_num_uuid = 32;
       uint8_t uuid_list[32 * Uuid::kNumBytes16];
 
-      p_search_data->inq_res.remt_name_not_required =
-          check_eir_remote_name(p_search_data, NULL, NULL);
+      if (p_search_data->inq_res.inq_result_type != BTM_INQ_RESULT_BLE) {
+        p_search_data->inq_res.remt_name_not_required =
+            check_eir_remote_name(p_search_data, NULL, NULL);
+      }
       RawAddress& bdaddr = p_search_data->inq_res.bd_addr;
 
       BTIF_TRACE_DEBUG("%s() %s device_type = 0x%x\n", __func__,
@@ -1307,19 +1301,17 @@ static void btif_dm_search_devices_evt(tBTA_DM_SEARCH_EVT event,
                                    &(p_search_data->inq_res.include_rsi));
         num_properties++;
 
-        /* EIR queried services */
-        std::vector<Uuid> uuid128_list;
+        /* Cache EIR queried services */
         if (num_uuids > 0) {
           uint16_t* p_uuid16 = (uint16_t*)uuid_list;
+          pairing_cb.num_eir_uuids = 0;
+          LOG_INFO("EIR UUIDS:");
           for (int i = 0; i < num_uuids; ++i) {
             Uuid uuid = Uuid::From16Bit(p_uuid16[i]);
-            uuid128_list.push_back(uuid);
+            LOG_INFO("        %s", uuid.ToString().c_str());
+            pairing_cb.eir_uuids[i] = uuid.To128BitBE();
+            pairing_cb.num_eir_uuids++;
           }
-
-          BTIF_STORAGE_FILL_PROPERTY(
-              &properties[num_properties], BT_PROPERTY_UUIDS,
-              num_uuids * Uuid::kNumBytes128, uuid128_list.data());
-          num_properties++;
         }
 
         status =
@@ -1381,6 +1373,7 @@ static void btif_dm_search_services_evt(tBTA_DM_SEARCH_EVT event,
       bt_property_t prop;
       uint32_t i = 0;
       bt_status_t ret;
+      std::vector<uint8_t> property_value;
 
       RawAddress& bd_addr = p_data->disc_res.bd_addr;
 
@@ -1402,12 +1395,18 @@ static void btif_dm_search_services_evt(tBTA_DM_SEARCH_EVT event,
       prop.len = 0;
       if ((p_data->disc_res.result == BTA_SUCCESS) &&
           (p_data->disc_res.num_uuids > 0)) {
-        prop.val = p_data->disc_res.p_uuid_list;
-        prop.len = p_data->disc_res.num_uuids * Uuid::kNumBytes128;
+        LOG_INFO("New UUIDs:");
         for (i = 0; i < p_data->disc_res.num_uuids; i++) {
-          std::string temp = ((p_data->disc_res.p_uuid_list + i))->ToString();
-          LOG_INFO("index:%d uuid:%s", i, temp.c_str());
+          auto uuid = p_data->disc_res.p_uuid_list + i;
+          LOG_INFO("index:%d uuid:%s", i, uuid->ToString().c_str());
+          auto valAsBe = uuid->To128BitBE();
+          pairing_cb.uuids.insert(valAsBe);
         }
+        for (auto uuid : pairing_cb.uuids) {
+          property_value.insert(property_value.end(), uuid.begin(), uuid.end());
+        }
+        prop.val = (void*)property_value.data();
+        prop.len = Uuid::kNumBytes128 * pairing_cb.uuids.size();
       }
 
       /* onUuidChanged requires getBondedDevices to be populated.
@@ -1419,28 +1418,34 @@ static void btif_dm_search_services_evt(tBTA_DM_SEARCH_EVT event,
         LOG_INFO("SDP search done for %s", bd_addr.ToString().c_str());
         pairing_cb.sdp_attempts = 0;
 
+        // Send UUIDs discovered through EIR to Java to unblock pairing intent
+        // when SDP failed or no UUID is discovered
+        if (p_data->disc_res.result != BTA_SUCCESS ||
+            p_data->disc_res.num_uuids == 0) {
+          LOG_INFO("SDP failed, send %d EIR UUIDs to unblock bonding %s",
+                   pairing_cb.num_eir_uuids, bd_addr.ToString().c_str());
+          bt_property_t prop_uuids;
+          Uuid uuid = {};
+          prop_uuids.type = BT_PROPERTY_UUIDS;
+          if (pairing_cb.num_eir_uuids > 0) {
+            prop_uuids.val = pairing_cb.eir_uuids;
+            prop_uuids.len = pairing_cb.num_eir_uuids * Uuid::kNumBytes128;
+          } else {
+            prop_uuids.val = &uuid;
+            prop_uuids.len = Uuid::kNumBytes128;
+          }
+
+          /* Send the event to the BTIF
+           * prop_uuids will be deep copied by this call
+           */
+          invoke_remote_device_properties_cb(BT_STATUS_SUCCESS, bd_addr, 1,
+                                             &prop_uuids);
+          pairing_cb = {};
+          break;
+        }
         // Both SDP and bonding are done, clear pairing control block in case
         // it is not already cleared
         pairing_cb = {};
-
-        // Send one empty UUID to Java to unblock pairing intent when SDP failed
-        // or no UUID is discovered
-        if (p_data->disc_res.result != BTA_SUCCESS ||
-            p_data->disc_res.num_uuids == 0) {
-          LOG_INFO("SDP failed, send empty UUID to unblock bonding %s",
-                   bd_addr.ToString().c_str());
-          bt_property_t prop_uuids;
-          Uuid uuid = {};
-
-          prop_uuids.type = BT_PROPERTY_UUIDS;
-          prop_uuids.val = &uuid;
-          prop_uuids.len = Uuid::kNumBytes128;
-
-          /* Send the event to the BTIF */
-          invoke_remote_device_properties_cb(BT_STATUS_SUCCESS, bd_addr, 1,
-                                             &prop_uuids);
-          break;
-        }
       }
 
       if (p_data->disc_res.num_uuids != 0) {
@@ -1468,14 +1473,17 @@ static void btif_dm_search_services_evt(tBTA_DM_SEARCH_EVT event,
       std::vector<uint8_t> property_value;
       int num_uuids = 0;
 
+      LOG_INFO("New BLE UUIDs:");
       for (Uuid uuid : *p_data->disc_ble_res.services) {
-        LOG_VERBOSE("service %s", uuid.ToString().c_str());
+        LOG_INFO("index:%d uuid:%s", num_uuids, uuid.ToString().c_str());
         if (btif_is_interesting_le_service(uuid)) {
           num_uuids++;
           auto valAsBe = uuid.To128BitBE();
-          property_value.insert(property_value.end(), valAsBe.begin(),
-                                valAsBe.end());
+          pairing_cb.uuids.insert(valAsBe);
         }
+      }
+      for (auto uuid : pairing_cb.uuids) {
+        property_value.insert(property_value.end(), uuid.begin(), uuid.end());
       }
 
       if (num_uuids == 0) {
@@ -1486,7 +1494,7 @@ static void btif_dm_search_services_evt(tBTA_DM_SEARCH_EVT event,
       RawAddress& bd_addr = p_data->disc_ble_res.bd_addr;
       prop[0].type = BT_PROPERTY_UUIDS;
       prop[0].val = (void*)property_value.data();
-      prop[0].len = Uuid::kNumBytes128 * num_uuids;
+      prop[0].len = Uuid::kNumBytes128 * pairing_cb.uuids.size();
 
       /* Also write this to the NVRAM */
       bt_status_t ret =
@@ -1581,11 +1589,11 @@ void BTIF_dm_enable() {
     }
   }
   /* clear control blocks */
-  memset(&pairing_cb, 0, sizeof(btif_dm_pairing_cb_t));
+  pairing_cb = {};
   pairing_cb.bond_type = tBTM_SEC_DEV_REC::BOND_TYPE_PERSISTENT;
   if (enable_address_consolidate) {
     LOG_INFO("enable address consolidate");
-    btif_storage_load_consolidate_devices();
+    btif_storage_load_le_devices();
   }
 
   /* This function will also trigger the adapter_properties_cb
@@ -1843,6 +1851,12 @@ static void btif_dm_upstreams_evt(uint16_t event, char* p_param) {
                                    pairing_cb.fail_reason);
       btif_dm_remove_bond(bd_addr);
       break;
+
+    case BTA_DM_LE_ADDR_ASSOC_EVT:
+      invoke_le_address_associate_cb(p_data->proc_id_addr.pairing_bda,
+                                     p_data->proc_id_addr.id_addr);
+      break;
+
     default:
       BTIF_TRACE_WARNING("%s: unhandled event (%d)", __func__, event);
       break;
@@ -1911,6 +1925,7 @@ static void bta_energy_info_cb(tBTM_BLE_TX_TIME_MS tx_time,
 void btif_dm_start_discovery(void) {
   BTIF_TRACE_EVENT("%s", __func__);
 
+  /* no race here because we're guaranteed to be in the main thread */
   if (bta_dm_is_search_request_queued()) {
     LOG_INFO("%s skipping start discovery because a request is queued",
              __func__);
@@ -1920,7 +1935,7 @@ void btif_dm_start_discovery(void) {
   /* Will be enabled to true once inquiry busy level has been received */
   btif_dm_inquiry_in_progress = false;
   /* find nearby devices */
-  BTA_DmSearch(btif_dm_search_devices_evt, is_bonding_or_sdp());
+  BTA_DmSearch(btif_dm_search_devices_evt);
 }
 
 /*******************************************************************************
@@ -2400,10 +2415,7 @@ void btif_dm_get_remote_services(RawAddress remote_addr, const int transport) {
   BTIF_TRACE_EVENT("%s: transport=%d, remote_addr=%s", __func__, transport,
                    remote_addr.ToString().c_str());
 
-  BTA_DmDiscover(remote_addr, btif_dm_search_services_evt, transport,
-                 remote_addr != pairing_cb.bd_addr &&
-                     remote_addr != pairing_cb.static_bdaddr &&
-                     is_bonding_or_sdp());
+  BTA_DmDiscover(remote_addr, btif_dm_search_services_evt, transport);
 }
 
 void btif_dm_enable_service(tBTA_SERVICE_ID service_id, bool enable) {
@@ -2844,20 +2856,20 @@ static void btif_dm_ble_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
     status = BT_STATUS_SUCCESS;
     state = BT_BOND_STATE_BONDED;
     tBLE_ADDR_TYPE addr_type;
-    RawAddress bdaddr = p_auth_cmpl->bd_addr;
-    if (btif_storage_get_remote_addr_type(&bdaddr, &addr_type) !=
+
+    if (btif_storage_get_remote_addr_type(&bd_addr, &addr_type) !=
         BT_STATUS_SUCCESS)
-      btif_storage_set_remote_addr_type(&bdaddr, p_auth_cmpl->addr_type);
+      btif_storage_set_remote_addr_type(&bd_addr, p_auth_cmpl->addr_type);
 
     /* Test for temporary bonding */
-    if (btm_get_bond_type_dev(p_auth_cmpl->bd_addr) ==
+    if (btm_get_bond_type_dev(bd_addr) ==
         tBTM_SEC_DEV_REC::BOND_TYPE_TEMPORARY) {
       BTIF_TRACE_DEBUG("%s: sending BT_BOND_STATE_NONE for Temp pairing",
                        __func__);
-      btif_storage_remove_bonded_device(&bdaddr);
+      btif_storage_remove_bonded_device(&bd_addr);
       state = BT_BOND_STATE_NONE;
     } else {
-      btif_dm_save_ble_bonding_keys(bdaddr);
+      btif_dm_save_ble_bonding_keys(bd_addr);
       btif_dm_get_remote_services(bd_addr, BT_TRANSPORT_LE);
     }
   } else {

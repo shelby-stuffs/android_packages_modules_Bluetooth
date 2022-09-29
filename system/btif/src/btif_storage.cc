@@ -39,6 +39,7 @@
 #include <string.h>
 #include <time.h>
 
+#include <unordered_set>
 #include <vector>
 
 #include "bta_csis_api.h"
@@ -486,7 +487,12 @@ static bt_status_t btif_in_fetch_bonded_devices(
           }
         }
         bt_linkkey_file_found = true;
-        p_bonded_devices->devices[p_bonded_devices->num_devices++] = bd_addr;
+        if (p_bonded_devices->num_devices < BTM_SEC_MAX_DEVICE_RECORDS) {
+          p_bonded_devices->devices[p_bonded_devices->num_devices++] = bd_addr;
+        } else {
+          BTIF_TRACE_WARNING("%s: exceed the max number of bonded devices",
+                             __func__);
+        }
       } else {
         bt_linkkey_file_found = false;
       }
@@ -929,17 +935,23 @@ static void remove_devices_with_sample_ltk() {
 
 /*******************************************************************************
  *
- * Function         btif_storage_load_consolidate_devices
+ * Function         btif_storage_load_le_devices
  *
- * Description      BTIF storage API - Load the consolidate devices from NVRAM
- *                  Additionally, this API also invokes the adaper_properties_cb
- *                  and invoke_address_consolidate_cb for each of the
- *                  consolidate devices.
+ * Description      BTIF storage API - Loads all LE-only and Dual Mode devices
+ *                  from NVRAM. This API invokes the adaper_properties_cb.
+ *                  It also invokes invoke_address_consolidate_cb
+ *                  to consolidate each Dual Mode device and
+ *                  invoke_le_address_associate_cb to associate each LE-only
+ *                  device between its RPA and identity address.
  *
  ******************************************************************************/
-void btif_storage_load_consolidate_devices(void) {
+void btif_storage_load_le_devices(void) {
   btif_bonded_devices_t bonded_devices;
   btif_in_fetch_bonded_devices(&bonded_devices, 1);
+  std::unordered_set<RawAddress> bonded_addresses;
+  for (uint16_t i = 0; i < bonded_devices.num_devices; i++) {
+    bonded_addresses.insert(bonded_devices.devices[i]);
+  }
 
   std::vector<std::pair<RawAddress, RawAddress>> consolidated_devices;
   for (uint16_t i = 0; i < bonded_devices.num_devices; i++) {
@@ -949,7 +961,7 @@ void btif_storage_load_consolidate_devices(void) {
             bonded_devices.devices[i], BTM_LE_KEY_PID, (uint8_t*)&key,
             sizeof(tBTM_LE_PID_KEYS)) == BT_STATUS_SUCCESS) {
       if (bonded_devices.devices[i] != key.pid_key.identity_addr) {
-        LOG_INFO("found consolidated device %s %s",
+        LOG_INFO("found device with a known identity address %s %s",
                  bonded_devices.devices[i].ToString().c_str(),
                  key.pid_key.identity_addr.ToString().c_str());
 
@@ -981,7 +993,13 @@ void btif_storage_load_consolidate_devices(void) {
   }
 
   for (const auto& device : consolidated_devices) {
-    invoke_address_consolidate_cb(device.first, device.second);
+    if (bonded_addresses.find(device.second) != bonded_addresses.end()) {
+      // Invokes address consolidation for DuMo devices
+      invoke_address_consolidate_cb(device.first, device.second);
+    } else {
+      // Associates RPA & identity address for LE-only devices
+      invoke_le_address_associate_cb(device.first, device.second);
+    }
   }
 }
 
@@ -1369,7 +1387,12 @@ static bt_status_t btif_in_fetch_bonded_ble_device(
 
     // Fill in the bonded devices
     if (device_added) {
-      p_bonded_devices->devices[p_bonded_devices->num_devices++] = bd_addr;
+      if (p_bonded_devices->num_devices < BTM_SEC_MAX_DEVICE_RECORDS) {
+        p_bonded_devices->devices[p_bonded_devices->num_devices++] = bd_addr;
+      } else {
+        BTIF_TRACE_WARNING("%s: exceed the max number of bonded devices",
+                           __func__);
+      }
       btif_gatts_add_bonded_dev_from_nv(bd_addr);
     }
 

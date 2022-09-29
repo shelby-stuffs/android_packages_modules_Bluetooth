@@ -1,17 +1,20 @@
 use crate::dbus_iface::{
-    export_bluetooth_callback_dbus_obj, export_bluetooth_connection_callback_dbus_obj,
-    export_bluetooth_gatt_callback_dbus_obj, export_bluetooth_manager_callback_dbus_obj,
-    export_suspend_callback_dbus_obj,
+    export_bluetooth_callback_dbus_intf, export_bluetooth_connection_callback_dbus_intf,
+    export_bluetooth_gatt_callback_dbus_intf, export_bluetooth_manager_callback_dbus_intf,
+    export_scanner_callback_dbus_intf, export_suspend_callback_dbus_intf,
 };
 use crate::ClientContext;
-use crate::{console_yellow, print_info};
-use bt_topshim::btif::{BtBondState, BtSspVariant};
+use crate::{console_red, console_yellow, print_error, print_info};
+use bt_topshim::btif::{BtBondState, BtPropertyType, BtSspVariant, Uuid128Bit};
 use bt_topshim::profiles::gatt::GattStatus;
 use btstack::bluetooth::{
     BluetoothDevice, IBluetooth, IBluetoothCallback, IBluetoothConnectionCallback,
 };
-use btstack::bluetooth_gatt::{BluetoothGattService, IBluetoothGattCallback, LePhy};
+use btstack::bluetooth_gatt::{
+    BluetoothGattService, IBluetoothGattCallback, IScannerCallback, LePhy,
+};
 use btstack::suspend::ISuspendCallback;
+use btstack::uuid::UuidWrapper;
 use btstack::RPCProxy;
 use dbus::nonblock::SyncConnection;
 use dbus_crossroads::Crossroads;
@@ -70,13 +73,12 @@ impl RPCProxy for BtManagerCallback {
 
     fn export_for_rpc(self: Box<Self>) {
         let cr = self.dbus_crossroads.clone();
-        export_bluetooth_manager_callback_dbus_obj(
-            self.get_object_id(),
+        let iface = export_bluetooth_manager_callback_dbus_intf(
             self.dbus_connection.clone(),
             &mut cr.lock().unwrap(),
-            Arc::new(Mutex::new(self)),
             Arc::new(Mutex::new(DisconnectWatcher::new())),
         );
+        cr.lock().unwrap().insert(self.get_object_id(), &[iface], Arc::new(Mutex::new(self)));
     }
 }
 
@@ -101,6 +103,8 @@ impl BtCallback {
 }
 
 impl IBluetoothCallback for BtCallback {
+    fn on_adapter_property_changed(&self, _prop: BtPropertyType) {}
+
     fn on_address_changed(&self, addr: String) {
         print_info!("Address changed to {}", &addr);
         self.context.lock().unwrap().adapter_address = Some(addr);
@@ -230,13 +234,12 @@ impl RPCProxy for BtCallback {
 
     fn export_for_rpc(self: Box<Self>) {
         let cr = self.dbus_crossroads.clone();
-        export_bluetooth_callback_dbus_obj(
-            self.get_object_id(),
+        let iface = export_bluetooth_callback_dbus_intf(
             self.dbus_connection.clone(),
             &mut cr.lock().unwrap(),
-            Arc::new(Mutex::new(self)),
             Arc::new(Mutex::new(DisconnectWatcher::new())),
         );
+        cr.lock().unwrap().insert(self.get_object_id(), &[iface], Arc::new(Mutex::new(self)));
     }
 }
 
@@ -284,13 +287,70 @@ impl RPCProxy for BtConnectionCallback {
 
     fn export_for_rpc(self: Box<Self>) {
         let cr = self.dbus_crossroads.clone();
-        export_bluetooth_connection_callback_dbus_obj(
-            self.get_object_id(),
+        let iface = export_bluetooth_connection_callback_dbus_intf(
             self.dbus_connection.clone(),
             &mut cr.lock().unwrap(),
-            Arc::new(Mutex::new(self)),
             Arc::new(Mutex::new(DisconnectWatcher::new())),
         );
+        cr.lock().unwrap().insert(self.get_object_id(), &[iface], Arc::new(Mutex::new(self)));
+    }
+}
+
+pub(crate) struct ScannerCallback {
+    objpath: String,
+    _context: Arc<Mutex<ClientContext>>,
+
+    dbus_connection: Arc<SyncConnection>,
+    dbus_crossroads: Arc<Mutex<Crossroads>>,
+}
+
+impl ScannerCallback {
+    pub(crate) fn new(
+        objpath: String,
+        _context: Arc<Mutex<ClientContext>>,
+        dbus_connection: Arc<SyncConnection>,
+        dbus_crossroads: Arc<Mutex<Crossroads>>,
+    ) -> Self {
+        Self { objpath, _context, dbus_connection, dbus_crossroads }
+    }
+}
+
+impl IScannerCallback for ScannerCallback {
+    fn on_scanner_registered(&self, uuid: Uuid128Bit, status: u8, scanner_id: u8) {
+        if status != 0 {
+            print_error!("Failed registering scanner, status = {}", status);
+            return;
+        }
+
+        print_info!(
+            "Scanner callback registered, uuid = {}, id = {}",
+            UuidWrapper(&uuid),
+            scanner_id
+        );
+    }
+}
+
+impl RPCProxy for ScannerCallback {
+    fn register_disconnect(&mut self, _f: Box<dyn Fn(u32) + Send>) -> u32 {
+        0
+    }
+
+    fn get_object_id(&self) -> String {
+        self.objpath.clone()
+    }
+
+    fn unregister(&mut self, _id: u32) -> bool {
+        false
+    }
+
+    fn export_for_rpc(self: Box<Self>) {
+        let cr = self.dbus_crossroads.clone();
+        let iface = export_scanner_callback_dbus_intf(
+            self.dbus_connection.clone(),
+            &mut cr.lock().unwrap(),
+            Arc::new(Mutex::new(DisconnectWatcher::new())),
+        );
+        cr.lock().unwrap().insert(self.get_object_id(), &[iface], Arc::new(Mutex::new(self)));
     }
 }
 
@@ -456,13 +516,13 @@ impl RPCProxy for BtGattCallback {
 
     fn export_for_rpc(self: Box<Self>) {
         let cr = self.dbus_crossroads.clone();
-        export_bluetooth_gatt_callback_dbus_obj(
-            self.get_object_id(),
+        let iface = export_bluetooth_gatt_callback_dbus_intf(
             self.dbus_connection.clone(),
             &mut cr.lock().unwrap(),
-            Arc::new(Mutex::new(self)),
             Arc::new(Mutex::new(DisconnectWatcher::new())),
         );
+
+        cr.lock().unwrap().insert(self.get_object_id(), &[iface], Arc::new(Mutex::new(self)));
     }
 }
 
@@ -506,12 +566,11 @@ impl RPCProxy for SuspendCallback {
 
     fn export_for_rpc(self: Box<Self>) {
         let cr = self.dbus_crossroads.clone();
-        export_suspend_callback_dbus_obj(
-            self.get_object_id(),
+        let iface = export_suspend_callback_dbus_intf(
             self.dbus_connection.clone(),
             &mut cr.lock().unwrap(),
-            Arc::new(Mutex::new(self)),
             Arc::new(Mutex::new(DisconnectWatcher::new())),
         );
+        cr.lock().unwrap().insert(self.get_object_id(), &[iface], Arc::new(Mutex::new(self)));
     }
 }

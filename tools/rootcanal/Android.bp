@@ -35,6 +35,7 @@ cc_defaults {
     ],
     generated_headers: [
         "RootCanalGeneratedPackets_h",
+        "RootCanalBrEdrBBGeneratedPackets_h",
         "BluetoothGeneratedPackets_h",
         "libbt_init_flags_bridge_header",
     ],
@@ -57,6 +58,7 @@ cc_library_static {
         "model/controller/link_layer_controller.cc",
         "model/controller/sco_connection.cc",
         "model/controller/security_manager.cc",
+        "model/devices/baseband_sniffer.cc",
         "model/devices/beacon.cc",
         "model/devices/beacon_swarm.cc",
         "model/devices/broken_adv.cc",
@@ -124,6 +126,8 @@ cc_test_host {
         "clang_file_coverage",
         "clang_coverage_bin",
     ],
+    // TODO(b/231993739): Reenable isolated:true by deleting the explicit disable below
+    isolated: false,
     srcs: [
         "test/async_manager_unittest.cc",
         "test/h4_parser_unittest.cc",
@@ -173,7 +177,7 @@ cc_binary_host {
     ],
     shared_libs: [
         "liblog",
-        "libbacktrace",
+        "libunwindstack",
     ],
     whole_static_libs: [
         "libbt-rootcanal",
@@ -216,6 +220,27 @@ genrule {
     ],
     out: [
         "packets/link_layer_packets.h",
+    ],
+}
+
+filegroup {
+    name: "RootCanalLinkLayerPackets",
+    srcs: [
+        "packets/link_layer_packets.pdl",
+    ],
+}
+
+genrule {
+    name: "RootCanalBrEdrBBGeneratedPackets_h",
+    tools: [
+        "bluetooth_packetgen",
+    ],
+    cmd: "$(location bluetooth_packetgen) --root_namespace=bredr_bb --include=packages/modules/Bluetooth/tools/rootcanal/packets --out=$(genDir) $(in)",
+    srcs: [
+        "packets/bredr_bb.pdl",
+    ],
+    out: [
+        "bredr_bb.h",
     ],
 }
 

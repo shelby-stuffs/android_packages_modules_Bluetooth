@@ -46,6 +46,7 @@
 #include "osi/include/osi.h"
 #include "stack/btm/btm_dev.h"
 #include "stack/btm/security_device_record.h"
+#include "stack/eatt/eatt.h"
 #include "stack/include/acl_api.h"
 #include "stack/include/acl_hci_link_interface.h"
 #include "stack/include/btm_status.h"
@@ -3638,9 +3639,12 @@ void btm_sec_connected(const RawAddress& bda, uint16_t handle,
     return;
   }
 
-  /* If initiated dedicated bonding, return the link key now, and initiate
-   * disconnect */
-  /* If dedicated bonding, and we now have a link key, we are all done */
+  /*
+   * The device is still in the pairing state machine and we now have the
+   * link key.  If we have not sent the link key, send it now and remove
+   * the authenticate requirement bit.  Reset the pairing state machine
+   * and inform l2cap if the directed bonding was initiated.
+   */
   if (is_pairing_device && (p_dev_rec->sec_flags & BTM_SEC_LINK_KEY_KNOWN)) {
     if (p_dev_rec->link_key_not_sent) {
       p_dev_rec->link_key_not_sent = false;
@@ -3650,20 +3654,20 @@ void btm_sec_connected(const RawAddress& bda, uint16_t handle,
     p_dev_rec->security_required &= ~BTM_SEC_OUT_AUTHENTICATE;
 
     /* remember flag before it is initialized */
-    bool is_pair_flags_we_started_dd = false;
-    if (btm_cb.pairing_flags & BTM_PAIR_FLAGS_WE_STARTED_DD)
-      is_pair_flags_we_started_dd = true;
-    else
-      is_pair_flags_we_started_dd = false;
-
+    const bool is_pair_flags_we_started_dd =
+        btm_cb.pairing_flags & BTM_PAIR_FLAGS_WE_STARTED_DD;
     btm_sec_change_pairing_state(BTM_PAIR_STATE_IDLE);
 
     if (is_pair_flags_we_started_dd) {
       /* Let l2cap start bond timer */
       l2cu_update_lcb_4_bonding(p_dev_rec->bd_addr, true);
     }
-
-    return;
+    LOG_INFO("Connection complete during pairing process peer:%s",
+             PRIVATE_ADDRESS(bda));
+    BTM_LogHistory(kBtmLogTag, bda, "Dedicated bonding",
+                   base::StringPrintf("Initiated:%c pairing_flag:0x%02x",
+                                      (is_pair_flags_we_started_dd) ? 'T' : 'F',
+                                      p_dev_rec->sec_flags));
   }
 
   p_dev_rec->hci_handle = handle;
@@ -4731,6 +4735,11 @@ void btm_sec_dev_rec_cback_event(tBTM_SEC_DEV_REC* p_dev_rec,
   }
 
   btm_sec_check_pending_reqs();
+
+  if (btm_status == BTM_SUCCESS && is_le_transport) {
+    /* Link is encrypted, start EATT */
+    bluetooth::eatt::EattExtension::GetInstance()->Connect(p_dev_rec->bd_addr);
+  }
 }
 
 void btm_sec_cr_loc_oob_data_cback_event(const RawAddress& address,

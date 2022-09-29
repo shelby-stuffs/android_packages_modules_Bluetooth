@@ -148,13 +148,14 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.function.Predicate;
@@ -282,8 +283,7 @@ public class AdapterService extends Service {
     private boolean mQuietmode = false;
     private HashMap<String, CallerInfo> mBondAttemptCallerInfo = new HashMap<>();
 
-    private final Map<UUID, RfcommListenerData> mBluetoothServerSockets =
-            Collections.synchronizedMap(new HashMap<>());
+    private final Map<UUID, RfcommListenerData> mBluetoothServerSockets = new ConcurrentHashMap<>();
     private final Executor mSocketServersExecutor = r -> new Thread(r).start();
 
     private AlarmManager mAlarmManager;
@@ -496,7 +496,7 @@ public class AdapterService extends Service {
                 PackageManager.FEATURE_LEANBACK_ONLY);
         mUserManager = getSystemService(UserManager.class);
         initNative(mUserManager.isGuestUser(), isCommonCriteriaMode(), configCompareResult,
-                getInitFlags(), isAtvDevice);
+                getInitFlags(), isAtvDevice, getApplicationInfo().dataDir);
         mNativeAvailable = true;
         mCallbacks = new RemoteCallbackList<IBluetoothCallback>();
         mAppOps = getSystemService(AppOpsManager.class);
@@ -1491,11 +1491,11 @@ public class AdapterService extends Service {
     }
 
     private void stopRfcommServerSockets() {
-        synchronized (mBluetoothServerSockets) {
-            mBluetoothServerSockets.forEach((key, value) -> {
-                mBluetoothServerSockets.remove(key);
-                value.closeServerAndPendingSockets(mHandler);
-            });
+        Iterator<Map.Entry<UUID, RfcommListenerData>> socketsIterator =
+                mBluetoothServerSockets.entrySet().iterator();
+        while (socketsIterator.hasNext()) {
+            socketsIterator.next().getValue().closeServerAndPendingSockets(mHandler);
+            socketsIterator.remove();
         }
     }
 
@@ -2691,7 +2691,7 @@ public class AdapterService extends Service {
 
             ParcelUuid[] parcels = service.getRemoteUuids(device);
             if (parcels == null) {
-                parcels = new ParcelUuid[0];
+                return null;
             }
             return Arrays.asList(parcels);
         }
@@ -3894,7 +3894,7 @@ public class AdapterService extends Service {
 
     public byte[] getByteIdentityAddress(BluetoothDevice device) {
         DeviceProperties deviceProp = mRemoteDevices.getDeviceProperties(device);
-        if (deviceProp != null && deviceProp.isConsolidated()) {
+        if (deviceProp != null && deviceProp.getIdentityAddress() != null) {
             return Utils.getBytesFromAddress(deviceProp.getIdentityAddress());
         } else {
             return Utils.getByteAddress(device);
@@ -3912,7 +3912,7 @@ public class AdapterService extends Service {
     public String getIdentityAddress(String address) {
         BluetoothDevice device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(address.toUpperCase());
         DeviceProperties deviceProp = mRemoteDevices.getDeviceProperties(device);
-        if (deviceProp != null && deviceProp.isConsolidated()) {
+        if (deviceProp != null && deviceProp.getIdentityAddress() != null) {
             return deviceProp.getIdentityAddress();
         } else {
             return address;
@@ -5068,7 +5068,8 @@ public class AdapterService extends Service {
     private static final String GD_L2CAP_FLAG = "INIT_gd_l2cap";
     private static final String GD_RUST_FLAG = "INIT_gd_rust";
     private static final String GD_LINK_POLICY_FLAG = "INIT_gd_link_policy";
-    private static final String GATT_ROBUST_CACHING_FLAG = "INIT_gatt_robust_caching";
+    private static final String GATT_ROBUST_CACHING_CLIENT_FLAG = "INIT_gatt_robust_caching_client";
+    private static final String GATT_ROBUST_CACHING_SERVER_FLAG = "INIT_gatt_robust_caching_server";
 
     /**
      * Logging flags logic (only applies to DEBUG and VERBOSE levels):
@@ -5121,8 +5122,13 @@ public class AdapterService extends Service {
         if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_LINK_POLICY_FLAG, false)) {
             initFlags.add(String.format("%s=%s", GD_LINK_POLICY_FLAG, "true"));
         }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GATT_ROBUST_CACHING_FLAG, true)) {
-            initFlags.add(String.format("%s=%s", GATT_ROBUST_CACHING_FLAG, "true"));
+        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
+                GATT_ROBUST_CACHING_CLIENT_FLAG, false)) {
+            initFlags.add(String.format("%s=%s", GATT_ROBUST_CACHING_CLIENT_FLAG, "true"));
+        }
+        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
+                GATT_ROBUST_CACHING_SERVER_FLAG, false)) {
+            initFlags.add(String.format("%s=%s", GATT_ROBUST_CACHING_SERVER_FLAG, "true"));
         }
         if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
                 LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG, false)) {
@@ -5443,7 +5449,8 @@ public class AdapterService extends Service {
     static native void classInitNative();
 
     native boolean initNative(boolean startRestricted, boolean isCommonCriteriaMode,
-            int configCompareResult, String[] initFlags, boolean isAtvDevice);
+            int configCompareResult, String[] initFlags, boolean isAtvDevice,
+            String userDataDirectory);
 
     native void cleanupNative();
 

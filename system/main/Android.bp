@@ -144,7 +144,10 @@ cc_test {
     test_options: {
         unit_test: true,
     },
-    defaults: ["fluoride_defaults"],
+    defaults: [
+        "fluoride_defaults",
+        "mts_defaults",
+    ],
     include_dirs: [
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
@@ -172,7 +175,6 @@ cc_test {
         "shim/l2c_api.cc",
         "shim/le_advertising_manager.cc",
         "shim/le_scanning_manager.cc",
-        "shim/link_policy.cc",
         "shim/metric_id_api.cc",
         "shim/metrics_api.cc",
         "shim/shim.cc",
