@@ -490,6 +490,20 @@ public class A2dpService extends ProfileService {
                 if (mActiveDevice == null) return;
                 previousActiveDevice = mActiveDevice;
             }
+
+            int prevActiveConnectionState = getConnectionState(previousActiveDevice);
+
+            // As per b/202602952, if we remove the active device due to a disconnection,
+            // we need to check if another device is connected and set it active instead.
+            // Calling this before any other active related calls has the same effect as
+            // a classic active device switch.
+            BluetoothDevice fallbackdevice = getFallbackDevice();
+            if (fallbackdevice != null && prevActiveConnectionState
+                    != BluetoothProfile.STATE_CONNECTED) {
+                setActiveDevice(fallbackdevice);
+                return;
+            }
+
             // This needs to happen before we inform the audio manager that the device
             // disconnected. Please see comment in updateAndBroadcastActiveDevice() for why.
             updateAndBroadcastActiveDevice(null);
@@ -499,7 +513,7 @@ public class A2dpService extends ProfileService {
             // device, the user has explicitly switched the output to the local device and music
             // should continue playing. Otherwise, the remote device has been indeed disconnected
             // and audio should be suspended before switching the output to the local device.
-            boolean stopAudio = forceStopPlayingAudio || (getConnectionState(previousActiveDevice)
+            boolean stopAudio = forceStopPlayingAudio || (prevActiveConnectionState
                         != BluetoothProfile.STATE_CONNECTED);
             mAudioManager.handleBluetoothActiveDeviceChanged(null, previousActiveDevice,
                     BluetoothProfileConnectionInfo.createA2dpInfo(!stopAudio, -1));
@@ -1242,6 +1256,16 @@ public class A2dpService extends ProfileService {
     }
 
     /**
+     * Retrieves the most recently connected device in the A2DP connected devices list.
+     */
+    private BluetoothDevice getFallbackDevice() {
+        DatabaseManager dbManager = mAdapterService.getDatabase();
+        return dbManager != null ? dbManager
+            .getMostRecentlyConnectedDevicesInList(getConnectedDevices())
+            : null;
+    }
+
+    /**
      * Binder object: must be a static class or memory leak may occur.
      */
     @VisibleForTesting
@@ -1269,12 +1293,7 @@ public class A2dpService extends ProfileService {
         }
 
         @Override
-        public void connect(BluetoothDevice device, SynchronousResultReceiver receiver) {
-            connectWithAttribution(device, Utils.getCallingAttributionSource(mService), receiver);
-        }
-
-        @Override
-        public void connectWithAttribution(BluetoothDevice device, AttributionSource source,
+        public void connect(BluetoothDevice device, AttributionSource source,
                 SynchronousResultReceiver receiver) {
             try {
                 A2dpService service = getService(source);
@@ -1289,13 +1308,7 @@ public class A2dpService extends ProfileService {
         }
 
         @Override
-        public void disconnect(BluetoothDevice device, SynchronousResultReceiver receiver) {
-            disconnectWithAttribution(device, Utils.getCallingAttributionSource(mService),
-                    receiver);
-        }
-
-        @Override
-        public void disconnectWithAttribution(BluetoothDevice device, AttributionSource source,
+        public void disconnect(BluetoothDevice device, AttributionSource source,
                 SynchronousResultReceiver receiver) {
             try {
                 A2dpService service = getService(source);
@@ -1310,13 +1323,7 @@ public class A2dpService extends ProfileService {
         }
 
         @Override
-        public void getConnectedDevices(SynchronousResultReceiver receiver) {
-            getConnectedDevicesWithAttribution(Utils.getCallingAttributionSource(mService),
-                    receiver);
-        }
-
-        @Override
-        public void getConnectedDevicesWithAttribution(AttributionSource source,
+        public void getConnectedDevices(AttributionSource source,
                 SynchronousResultReceiver receiver) {
             try {
                 A2dpService service = getService(source);
@@ -1332,13 +1339,6 @@ public class A2dpService extends ProfileService {
 
         @Override
         public void getDevicesMatchingConnectionStates(int[] states,
-                SynchronousResultReceiver receiver) {
-            getDevicesMatchingConnectionStatesWithAttribution(states,
-                    Utils.getCallingAttributionSource(mService), receiver);
-        }
-
-        @Override
-        public void getDevicesMatchingConnectionStatesWithAttribution(int[] states,
                 AttributionSource source, SynchronousResultReceiver receiver) {
             try {
                 A2dpService service = getService(source);
@@ -1353,13 +1353,7 @@ public class A2dpService extends ProfileService {
         }
 
         @Override
-        public void getConnectionState(BluetoothDevice device, SynchronousResultReceiver receiver) {
-            getConnectionStateWithAttribution(device, Utils.getCallingAttributionSource(mService),
-                    receiver);
-        }
-
-        @Override
-        public void getConnectionStateWithAttribution(BluetoothDevice device,
+        public void getConnectionState(BluetoothDevice device,
                 AttributionSource source, SynchronousResultReceiver receiver) {
             try {
                 A2dpService service = getService(source);
@@ -1641,6 +1635,9 @@ public class A2dpService extends ProfileService {
     }
 
     public void switchCodecByBufferSize(BluetoothDevice device, boolean isLowLatency) {
+        if (getOptionalCodecsEnabled(device) != BluetoothA2dp.OPTIONAL_CODECS_PREF_ENABLED) {
+            return;
+        }
         mA2dpCodecConfig.switchCodecByBufferSize(
                 device, isLowLatency, getCodecStatus(device).getCodecConfig().getCodecType());
     }

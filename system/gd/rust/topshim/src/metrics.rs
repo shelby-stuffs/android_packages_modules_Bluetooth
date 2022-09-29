@@ -19,6 +19,24 @@ mod ffi {
             bond_state: u32,
             fail_reason: i32,
         );
+        fn device_info_report(
+            bt_addr: RustRawAddress,
+            device_type: u32,
+            class_of_device: u32,
+            appearance: u32,
+            vendor_id: u32,
+            vendor_id_src: u32,
+            product_id: u32,
+            version: u32,
+        );
+        fn profile_connection_attempt(bt_addr: RustRawAddress, intent: u32, profile: u32);
+        fn profile_connection_state_changed(
+            bt_addr: RustRawAddress,
+            intent: u32,
+            profile: u32,
+            status: u32,
+            state: u32,
+        );
     }
 }
 
@@ -32,6 +50,14 @@ impl Into<RawAddress> for ffi::RustRawAddress {
     fn into(self) -> RawAddress {
         RawAddress { val: self.address }
     }
+}
+
+#[derive(Debug, FromPrimitive, PartialEq, PartialOrd)]
+#[repr(u32)]
+pub enum MetricsProfileConnectionIntent {
+    Unknown = 0,
+    Connect,
+    Disconnect,
 }
 
 pub fn adapter_state_changed(state: BtState) {
@@ -55,5 +81,51 @@ pub fn bond_state_changed(
         status as u32,
         bond_state as u32,
         fail_reason as i32,
+    );
+}
+
+pub fn device_info_report(
+    addr: RawAddress,
+    device_type: BtDeviceType,
+    class_of_device: u32,
+    appearance: u16,
+    vendor_id: u16,
+    vendor_id_src: u8,
+    product_id: u16,
+    version: u16,
+) {
+    ffi::device_info_report(
+        addr.into(),
+        device_type as u32,
+        class_of_device as u32,
+        appearance as u32,
+        vendor_id as u32,
+        vendor_id_src as u32,
+        product_id as u32,
+        version as u32,
+    );
+}
+
+pub fn profile_connection_attempt(
+    addr: RawAddress,
+    intent: MetricsProfileConnectionIntent,
+    profile: u32,
+) {
+    ffi::profile_connection_attempt(addr.into(), intent as u32, profile);
+}
+
+pub fn profile_connection_state_changed(
+    addr: RawAddress,
+    intent: MetricsProfileConnectionIntent,
+    profile: u32,
+    status: BtStatus,
+    state: u32,
+) {
+    ffi::profile_connection_state_changed(
+        addr.into(),
+        intent as u32,
+        profile,
+        status as u32,
+        state,
     );
 }

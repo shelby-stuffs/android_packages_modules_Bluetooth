@@ -1017,6 +1017,11 @@ struct shim::legacy::Acl::impl {
     shadow_address_resolution_list_.Clear();
   }
 
+  void AddDeviceToFilterAcceptList(
+      const hci::AddressWithType& address_with_type) {
+    GetAclManager()->AddDeviceToFilterAcceptList(address_with_type);
+  }
+
   void DumpConnectionHistory() const {
     std::vector<std::string> history =
         connection_history_.ReadElementsAsString();
@@ -1105,7 +1110,9 @@ void DumpsysAcl(int fd) {
 
   LOG_DUMPSYS_TITLE(fd, DUMPSYS_TAG);
 
-  shim::Stack::GetInstance()->GetAcl()->DumpConnectionHistory(fd);
+  if (shim::Stack::GetInstance()->IsRunning()) {
+    shim::Stack::GetInstance()->GetAcl()->DumpConnectionHistory(fd);
+  }
 
   for (int i = 0; i < MAX_L2CAP_LINKS; i++) {
     const tACL_CONN& link = acl_cb.acl_db[i];
@@ -1695,4 +1702,10 @@ void shim::legacy::Acl::RemoveFromAddressResolution(
 
 void shim::legacy::Acl::ClearAddressResolution() {
   handler_->CallOn(pimpl_.get(), &Acl::impl::ClearResolvingList);
+}
+
+void shim::legacy::Acl::AddDeviceToFilterAcceptList(
+    const hci::AddressWithType& address_with_type) {
+  handler_->CallOn(pimpl_.get(), &Acl::impl::AddDeviceToFilterAcceptList,
+                   address_with_type);
 }

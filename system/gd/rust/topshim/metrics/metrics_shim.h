@@ -31,6 +31,18 @@ void adapter_state_changed(uint32_t state);
 void bond_state_changed(
     RustRawAddress bt_addr, uint32_t device_type, uint32_t status, uint32_t bond_state, int32_t fail_reason);
 void bond_create_attempt(RustRawAddress bt_addr, uint32_t device_type);
+void device_info_report(
+    RustRawAddress bt_addr,
+    uint32_t device_type,
+    uint32_t class_of_device,
+    uint32_t appearance,
+    uint32_t vendor_id,
+    uint32_t vendor_id_src,
+    uint32_t product_id,
+    uint32_t version);
+void profile_connection_attempt(RustRawAddress bt_addr, uint32_t intent, uint32_t profile);
+void profile_connection_state_changed(
+    RustRawAddress bt_addr, uint32_t intent, uint32_t profile, uint32_t status, uint32_t state);
 
 }  // namespace rust
 }  // namespace topshim

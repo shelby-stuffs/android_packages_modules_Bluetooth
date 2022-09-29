@@ -108,13 +108,12 @@ class Host(private val context: Context, private val server: Server) : HostImplB
 
       rebootBluetooth()
 
+      Log.i(TAG, "Shutdown the gRPC Server")
+      server.shutdown()
+
       // The last expression is the return value.
       Empty.getDefaultInstance()
     }
-      .invokeOnCompletion {
-        Log.i(TAG, "Shutdown the gRPC Server")
-        server.shutdownNow()
-      }
   }
 
   override fun softReset(request: Empty, responseObserver: StreamObserver<Empty>) {
@@ -226,35 +225,6 @@ class Host(private val context: Context, private val server: Server) : HostImplB
             .build()
         )
         .build()
-    }
-  }
-
-  override fun deletePairing(
-    request: DeletePairingRequest,
-    responseObserver: StreamObserver<DeletePairingResponse>
-  ) {
-    grpcUnary<DeletePairingResponse>(scope, responseObserver) {
-      val bluetoothDevice = request.address.toBluetoothDevice(bluetoothAdapter)
-      Log.i(TAG, "DeletePairing: device=$bluetoothDevice")
-
-      if (bluetoothDevice.removeBond()) {
-        Log.i(TAG, "DeletePairing: device=$bluetoothDevice - wait BOND_NONE intent")
-        flow
-          .filter { it.getAction() == BluetoothDevice.ACTION_BOND_STATE_CHANGED }
-          .filter { it.getBluetoothDeviceExtra() == bluetoothDevice }
-          .filter {
-            it.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothAdapter.ERROR) ==
-              BluetoothDevice.BOND_NONE
-          }
-          .filter {
-            it.getIntExtra(BluetoothDevice.EXTRA_REASON, BluetoothAdapter.ERROR) ==
-              BluetoothDevice.BOND_SUCCESS
-          }
-          .first()
-      } else {
-        Log.i(TAG, "DeletePairing: device=$bluetoothDevice - Already unpaired")
-      }
-      DeletePairingResponse.getDefaultInstance()
     }
   }
 

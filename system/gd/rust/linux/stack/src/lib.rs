@@ -6,7 +6,10 @@
 #[macro_use]
 extern crate num_derive;
 
+pub mod battery_manager;
+pub mod battery_provider_manager;
 pub mod bluetooth;
+pub mod bluetooth_adv;
 pub mod bluetooth_gatt;
 pub mod bluetooth_media;
 pub mod callbacks;
@@ -27,9 +30,9 @@ use crate::suspend::Suspend;
 use bt_topshim::{
     btif::BaseCallbacks,
     profiles::{
-        a2dp::A2dpCallbacks, avrcp::AvrcpCallbacks, gatt::GattClientCallbacks,
-        gatt::GattScannerCallbacks, gatt::GattServerCallbacks, hfp::HfpCallbacks,
-        hid_host::HHCallbacks, sdp::SdpCallbacks,
+        a2dp::A2dpCallbacks, avrcp::AvrcpCallbacks, gatt::GattAdvCallbacks,
+        gatt::GattAdvInbandCallbacks, gatt::GattClientCallbacks, gatt::GattScannerCallbacks,
+        gatt::GattServerCallbacks, hfp::HfpCallbacks, hid_host::HHCallbacks, sdp::SdpCallbacks,
     },
 };
 
@@ -42,6 +45,8 @@ pub enum Message {
     GattClient(GattClientCallbacks),
     GattServer(GattServerCallbacks),
     LeScanner(GattScannerCallbacks),
+    LeAdvInband(GattAdvInbandCallbacks),
+    LeAdv(GattAdvCallbacks),
     HidHost(HHCallbacks),
     Hfp(HfpCallbacks),
     Sdp(SdpCallbacks),
@@ -63,6 +68,9 @@ pub enum Message {
 
     // Scanner related
     ScannerCallbackDisconnected(u32),
+
+    // Advertising related
+    AdvertiserCallbackDisconnected(u32),
 
     SocketManagerActions(SocketActions),
     SocketManagerCallbackDisconnected(u32),
@@ -120,13 +128,20 @@ impl Stack {
                     bluetooth_gatt.lock().unwrap().dispatch_le_scanner_callbacks(m);
                 }
 
+                Message::LeAdvInband(m) => {
+                    debug!("Received LeAdvInband message: {:?}. This is unexpected!", m);
+                }
+
+                Message::LeAdv(m) => {
+                    bluetooth_gatt.lock().unwrap().dispatch_le_adv_callbacks(m);
+                }
+
                 Message::Hfp(hf) => {
                     bluetooth_media.lock().unwrap().dispatch_hfp_callbacks(hf);
                 }
 
-                Message::HidHost(_h) => {
-                    // TODO(abps) - Handle hid host callbacks
-                    debug!("Received HH callback");
+                Message::HidHost(h) => {
+                    bluetooth.lock().unwrap().dispatch_hid_host_callbacks(h);
                 }
 
                 Message::Sdp(s) => {
@@ -163,6 +178,10 @@ impl Stack {
 
                 Message::ScannerCallbackDisconnected(id) => {
                     bluetooth_gatt.lock().unwrap().remove_scanner_callback(id);
+                }
+
+                Message::AdvertiserCallbackDisconnected(id) => {
+                    bluetooth_gatt.lock().unwrap().remove_adv_callback(id);
                 }
 
                 Message::SocketManagerActions(action) => {
