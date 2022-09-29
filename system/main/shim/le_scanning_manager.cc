@@ -335,6 +335,14 @@ void BleScannerInterfaceImpl::StartSync(uint8_t sid, RawAddress address,
       sid, ToAddressWithType(address, address_type), skip, timeout, reg_id);
 }
 
+void BleScannerInterfaceImpl::StartSync(uint8_t sid, RawAddress address,
+                                        uint16_t skip, uint16_t timeout,
+                                        StartSyncCb start_cb,
+                                        SyncReportCb report_cb,
+                                        SyncLostCb lost_cb) {
+  LOG(INFO) << __func__ << " in shim layer";
+}
+
 void BleScannerInterfaceImpl::StopSync(uint16_t handle) {
   LOG(INFO) << __func__ << " in shim layer";
   bluetooth::shim::GetScanning()->StopSync(handle);
@@ -363,6 +371,13 @@ void BleScannerInterfaceImpl::TransferSync(RawAddress address,
       ToGdAddress(address), service_data, sync_handle, pa_source);
 }
 
+void BleScannerInterfaceImpl::TransferSync(RawAddress address,
+                                           uint16_t service_data,
+                                           uint16_t sync_handle,
+                                           SyncTransferCb cb) {
+  LOG(INFO) << __func__ << " in shim layer";
+}
+
 void BleScannerInterfaceImpl::TransferSetInfo(RawAddress address,
                                               uint16_t service_data,
                                               uint8_t adv_handle,
@@ -380,12 +395,25 @@ void BleScannerInterfaceImpl::TransferSetInfo(RawAddress address,
       ToGdAddress(address), service_data, adv_handle, pa_source);
 }
 
+void BleScannerInterfaceImpl::TransferSetInfo(RawAddress address,
+                                              uint16_t service_data,
+                                              uint8_t adv_handle,
+                                              SyncTransferCb cb) {
+  LOG(INFO) << __func__ << " in shim layer";
+}
+
 void BleScannerInterfaceImpl::SyncTxParameters(RawAddress addr, uint8_t mode,
                                                uint16_t skip, uint16_t timeout,
                                                int reg_id) {
   LOG(INFO) << __func__ << " in shim layer";
   bluetooth::shim::GetScanning()->SyncTxParameters(ToGdAddress(addr), mode,
                                                    skip, timeout, reg_id);
+}
+
+void BleScannerInterfaceImpl::SyncTxParameters(RawAddress addr, uint8_t mode,
+                                               uint16_t skip, uint16_t timeout,
+                                               StartSyncCb start_cb) {
+  LOG(INFO) << __func__ << " in shim layer";
 }
 
 void BleScannerInterfaceImpl::RegisterCallbacks(ScanningCallbacks* callbacks) {
