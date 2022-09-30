@@ -5,9 +5,11 @@ use std::sync::{Arc, Mutex};
 use crate::callbacks::BtGattCallback;
 use crate::ClientContext;
 use crate::{console_red, console_yellow, print_error, print_info};
-use bt_topshim::btif::{BtConnectionState, BtTransport};
+use bt_topshim::btif::{BtConnectionState, BtStatus, BtTransport};
 use btstack::bluetooth::{BluetoothDevice, IBluetooth, IBluetoothQA};
-use btstack::bluetooth_gatt::IBluetoothGatt;
+use btstack::bluetooth_adv::{AdvertiseData, AdvertisingSetParameters};
+use btstack::bluetooth_gatt::{IBluetoothGatt, RSSISettings, ScanSettings, ScanType};
+use btstack::socket_manager::{IBluetoothSocketManager, SocketResult};
 use btstack::uuid::{Profile, UuidHelper, UuidWrapper};
 use manager_service::iface_bluetooth_manager::IBluetoothManager;
 
@@ -85,7 +87,9 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("adapter"),
         CommandOption {
-            rules: vec![String::from("adapter <enable|disable|show|discoverable|connectable>")],
+            rules: vec![String::from(
+                "adapter <enable|disable|show|discoverable|connectable|set-name>",
+            )],
             description: String::from(
                 "Enable/Disable/Show default bluetooth adapter. (e.g. adapter enable)\n
                  Discoverable On/Off (e.g. adapter discoverable on)\n
@@ -147,9 +151,27 @@ fn build_commands() -> HashMap<String, CommandOption> {
             rules: vec![
                 String::from("le-scan register-scanner"),
                 String::from("le-scan unregister-scanner <scanner-id>"),
+                String::from("le-scan start-scan <scanner-id>"),
+                String::from("le-scan stop-scan <scanner-id>"),
             ],
             description: String::from("LE scanning utilities."),
             function_pointer: CommandHandler::cmd_le_scan,
+        },
+    );
+    command_options.insert(
+        String::from("advertise"),
+        CommandOption {
+            rules: vec![String::from("advertise <on|off>")],
+            description: String::from("Advertising utilities."),
+            function_pointer: CommandHandler::cmd_advertise,
+        },
+    );
+    command_options.insert(
+        String::from("socket"),
+        CommandOption {
+            rules: vec![String::from("socket test")],
+            description: String::from("Socket manager utilities."),
+            function_pointer: CommandHandler::cmd_socket,
         },
     );
     command_options.insert(
@@ -275,8 +297,11 @@ impl CommandHandler {
         }
 
         let default_adapter = self.context.lock().unwrap().default_adapter;
-        enforce_arg_len(args, 1, "adapter <enable|disable|show|discoverable|connectable>", || {
-            match &args[0][0..] {
+        enforce_arg_len(
+            args,
+            1,
+            "adapter <enable|disable|show|discoverable|connectable|set-name>",
+            || match &args[0][0..] {
                 "enable" => {
                     self.context.lock().unwrap().manager_dbus.start(default_adapter);
                 }
@@ -339,7 +364,7 @@ impl CommandHandler {
                             .lock()
                             .unwrap()
                             .adapter_dbus
-                            .as_ref()
+                            .as_mut()
                             .unwrap()
                             .set_discoverable(true, 60);
                         print_info!(
@@ -353,7 +378,7 @@ impl CommandHandler {
                             .lock()
                             .unwrap()
                             .adapter_dbus
-                            .as_ref()
+                            .as_mut()
                             .unwrap()
                             .set_discoverable(false, 60);
                         print_info!(
@@ -394,12 +419,25 @@ impl CommandHandler {
                     }
                     _ => println!("Invalid argument for adapter connectable '{}'", args[1]),
                 },
+                "set-name" => {
+                    if let Some(name) = args.get(1) {
+                        self.context
+                            .lock()
+                            .unwrap()
+                            .adapter_dbus
+                            .as_ref()
+                            .unwrap()
+                            .set_name(name.to_string());
+                    } else {
+                        println!("usage: adapter set-name <name>");
+                    }
+                }
 
                 _ => {
                     println!("Invalid argument '{}'", args[0]);
                 }
-            }
-        });
+            },
+        );
     }
 
     fn cmd_get_address(&mut self, _args: &Vec<String>) {
@@ -802,7 +840,7 @@ impl CommandHandler {
                 }
             }
             "unregister-scanner" => {
-                if args.len() < 3 {
+                if args.len() < 2 {
                     println!("usage: le-scan unregister-scanner <scanner-id>");
                     return;
                 }
@@ -814,6 +852,158 @@ impl CommandHandler {
                 } else {
                     print_error!("Failed parsing scanner id");
                 }
+            }
+            "start-scan" => {
+                if args.len() < 2 {
+                    println!("usage: le-scan start-scan <scanner-id>");
+                    return;
+                }
+
+                let scanner_id = String::from(&args[1]).parse::<u8>();
+
+                if let Ok(id) = scanner_id {
+                    self.context.lock().unwrap().gatt_dbus.as_mut().unwrap().start_scan(
+                        id,
+                        // TODO(b/217274432): Construct real settings and filters.
+                        ScanSettings {
+                            interval: 0,
+                            window: 0,
+                            rssi_settings: RSSISettings { high_threshold: 0, low_threshold: 0 },
+                            scan_type: ScanType::Active,
+                        },
+                        vec![],
+                    );
+                    self.context.lock().unwrap().active_scanner_ids.insert(id);
+                } else {
+                    print_error!("Failed parsing scanner id");
+                }
+            }
+            "stop-scan" => {
+                if args.len() < 2 {
+                    println!("usage: le-scan stop-scan <scanner-id>");
+                    return;
+                }
+
+                let scanner_id = String::from(&args[1]).parse::<u8>();
+
+                if let Ok(id) = scanner_id {
+                    self.context.lock().unwrap().gatt_dbus.as_mut().unwrap().stop_scan(id);
+                    self.context.lock().unwrap().active_scanner_ids.remove(&id);
+                } else {
+                    print_error!("Failed parsing scanner id");
+                }
+            }
+            _ => {
+                println!("Invalid argument '{}'", args[0]);
+            }
+        });
+    }
+
+    // TODO(b/233128828): More options will be implemented to test BLE advertising.
+    // Such as setting advertising parameters, starting multiple advertising sets, etc.
+    fn cmd_advertise(&mut self, args: &Vec<String>) {
+        if !self.context.lock().unwrap().adapter_ready {
+            self.adapter_not_ready();
+            return;
+        }
+        if self.context.lock().unwrap().advertiser_callback_id == None {
+            return;
+        }
+        let callback_id = self.context.lock().unwrap().advertiser_callback_id.clone().unwrap();
+
+        enforce_arg_len(args, 1, "advertise <commands>", || match &args[0][0..] {
+            "on" => {
+                if self.context.lock().unwrap().adv_sets.keys().len() > 0 {
+                    print_error!("Already started advertising");
+                    return;
+                }
+
+                let params = AdvertisingSetParameters {
+                    connectable: false,
+                    scannable: false,
+                    is_legacy: true,
+                    is_anonymous: false,
+                    include_tx_power: true,
+                    primary_phy: 1,
+                    secondary_phy: 1,
+                    interval: 160,
+                    tx_power_level: -21,
+                    own_address_type: 0, // random
+                };
+
+                let data = AdvertiseData {
+                    service_uuids: Vec::<String>::new(),
+                    solicit_uuids: Vec::<String>::new(),
+                    transport_discovery_data: Vec::<Vec<u8>>::new(),
+                    manufacturer_data: HashMap::<i32, Vec<u8>>::from([(0, vec![0, 1, 2])]),
+                    service_data: HashMap::<String, Vec<u8>>::new(),
+                    include_tx_power_level: true,
+                    include_device_name: true,
+                };
+
+                let reg_id = self
+                    .context
+                    .lock()
+                    .unwrap()
+                    .gatt_dbus
+                    .as_mut()
+                    .unwrap()
+                    .start_advertising_set(params, data, None, None, None, 0, 0, callback_id);
+                print_info!("Starting advertising set for reg_id = {}", reg_id);
+            }
+            "off" => {
+                let adv_sets = self.context.lock().unwrap().adv_sets.clone();
+                for (_, val) in adv_sets.iter() {
+                    if let Some(&adv_id) = val.as_ref() {
+                        print_info!("Stopping advertising set {}", adv_id);
+                        self.context
+                            .lock()
+                            .unwrap()
+                            .gatt_dbus
+                            .as_mut()
+                            .unwrap()
+                            .stop_advertising_set(adv_id);
+                    }
+                }
+                self.context.lock().unwrap().adv_sets.clear();
+            }
+            _ => {
+                println!("Invalid argument '{}'", args[0]);
+            }
+        });
+    }
+
+    fn cmd_socket(&mut self, args: &Vec<String>) {
+        if !self.context.lock().unwrap().adapter_ready {
+            self.adapter_not_ready();
+            return;
+        }
+        let callback_id = match self.context.lock().unwrap().socket_manager_callback_id.clone() {
+            Some(id) => id,
+            None => {
+                return;
+            }
+        };
+
+        enforce_arg_len(args, 1, "socket <test>", || match &args[0][0..] {
+            "test" => {
+                let SocketResult { status, id } = self
+                    .context
+                    .lock()
+                    .unwrap()
+                    .socket_manager_dbus
+                    .as_mut()
+                    .unwrap()
+                    .listen_using_l2cap_channel(callback_id);
+
+                if status != BtStatus::Success {
+                    print_error!(
+                        "Failed to request for listening using l2cap channel, status = {:?}",
+                        status,
+                    );
+                    return;
+                }
+                print_info!("Requested for listening using l2cap channel on socket {}", id);
             }
             _ => {
                 println!("Invalid argument '{}'", args[0]);

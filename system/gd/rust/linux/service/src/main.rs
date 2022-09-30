@@ -12,6 +12,8 @@ use syslog::{BasicLogger, Facility, Formatter3164};
 
 use bt_topshim::{btif::get_btinterface, topstack};
 use btstack::{
+    battery_manager::BatteryManager,
+    battery_provider_manager::BatteryProviderManager,
     bluetooth::{get_bt_dispatcher, Bluetooth, IBluetooth},
     bluetooth_gatt::BluetoothGatt,
     bluetooth_media::BluetoothMedia,
@@ -22,6 +24,8 @@ use btstack::{
 use dbus_projection::DisconnectWatcher;
 
 mod dbus_arg;
+mod iface_battery_manager;
+mod iface_battery_provider_manager;
 mod iface_bluetooth;
 mod iface_bluetooth_gatt;
 mod iface_bluetooth_media;
@@ -102,6 +106,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(Mutex::new(Box::new(BluetoothGatt::new(intf.clone(), tx.clone()))));
     let bluetooth_media =
         Arc::new(Mutex::new(Box::new(BluetoothMedia::new(tx.clone(), intf.clone()))));
+    let battery_provider_manager = Arc::new(Mutex::new(Box::new(BatteryProviderManager::new())));
+    let battery_manager = Arc::new(Mutex::new(Box::new(BatteryManager::new())));
     let bluetooth = Arc::new(Mutex::new(Box::new(Bluetooth::new(
         tx.clone(),
         intf.clone(),
@@ -206,6 +212,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             disconnect_watcher.clone(),
         );
 
+        let battery_provider_manager_iface =
+            iface_battery_provider_manager::export_battery_provider_manager_dbus_intf(
+                conn.clone(),
+                &mut cr.lock().unwrap(),
+                disconnect_watcher.clone(),
+            );
+
+        let battery_manager_iface = iface_battery_manager::export_battery_manager_dbus_intf(
+            conn.clone(),
+            &mut cr.lock().unwrap(),
+            disconnect_watcher.clone(),
+        );
+
         // Create mixin object for Bluetooth + Suspend interfaces.
         let mixin = Box::new(iface_bluetooth::BluetoothMixin {
             adapter: bluetooth.clone(),
@@ -230,19 +249,30 @@ fn main() -> Result<(), Box<dyn Error>> {
             &[media_iface],
             bluetooth_media.clone(),
         );
+        cr.lock().unwrap().insert(
+            make_object_name(adapter_index, "battery_provider_manager"),
+            &[battery_provider_manager_iface],
+            battery_provider_manager.clone(),
+        );
+        cr.lock().unwrap().insert(
+            make_object_name(adapter_index, "battery__manager"),
+            &[battery_manager_iface],
+            battery_manager.clone(),
+        );
 
         // Hold locks and initialize all interfaces. This must be done AFTER DBus is
         // initialized so DBus can properly enforce user policies.
         {
             intf.lock().unwrap().initialize(get_bt_dispatcher(tx.clone()), init_flags);
 
-            bluetooth_media.lock().unwrap().set_adapter(bluetooth.clone());
+            let adapter = bluetooth.clone();
+            bluetooth_media.lock().unwrap().set_adapter(adapter.clone());
 
             let mut bluetooth = bluetooth.lock().unwrap();
             bluetooth.init_profiles();
             bluetooth.enable();
 
-            bluetooth_gatt.lock().unwrap().init_profiles(tx.clone());
+            bluetooth_gatt.lock().unwrap().init_profiles(tx.clone(), adapter.clone());
             bt_sock_mgr.lock().unwrap().initialize(intf.clone());
         }
 

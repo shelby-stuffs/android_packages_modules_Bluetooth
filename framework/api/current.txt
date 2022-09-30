@@ -466,6 +466,7 @@ package android.bluetooth {
     field public static final int SOURCE_CODEC_TYPE_LC3 = 5; // 0x5
     field public static final int SOURCE_CODEC_TYPE_LDAC = 4; // 0x4
     field public static final int SOURCE_CODEC_TYPE_MAX = 7; // 0x7
+    field public static final int SOURCE_CODEC_TYPE_OPUS = 6; // 0x6
     field public static final int SOURCE_CODEC_TYPE_SBC = 0; // 0x0
     field public static final int SOURCE_QVA_CODEC_TYPE_MAX = 9; // 0x9
   }

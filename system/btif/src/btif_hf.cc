@@ -45,6 +45,7 @@
 #include "include/hardware/bt_hf.h"
 #include "main/shim/dumpsys.h"
 #include "osi/include/log.h"
+#include "stack/btm/btm_sco_hfp_hal.h"
 #include "stack/include/btm_api.h"
 #include "types/raw_address.h"
 
@@ -552,11 +553,10 @@ static void btif_hf_upstreams_evt(uint16_t event, char* p_param) {
     case BTA_AG_AT_BAC_EVT:
       BTIF_TRACE_DEBUG("AG Bitmap of peer-codecs %d", p_data->val.num);
       /* If the peer supports mSBC and the BTIF preferred codec is also mSBC,
-      then
-      we should set the BTA AG Codec to mSBC. This would trigger a +BCS to mSBC
-      at the time
-      of SCO connection establishment */
-      if (p_data->val.num & BTM_SCO_CODEC_MSBC) {
+       * then we should set the BTA AG Codec to mSBC. This would trigger a +BCS
+       * to mSBC at the time of SCO connection establishment */
+      if (hfp_hal_interface::get_wbs_supported() &&
+          (p_data->val.num & BTM_SCO_CODEC_MSBC)) {
         BTIF_TRACE_EVENT("%s: btif_hf override-Preferred Codec to MSBC",
                          __func__);
         BTA_AgSetCodec(btif_hf_cb[idx].handle, BTM_SCO_CODEC_MSBC);
@@ -759,6 +759,7 @@ class HeadsetInterface : Interface {
                                const char* name, RawAddress* bd_addr) override;
 
   void Cleanup() override;
+  bt_status_t SetScoOffloadEnabled(bool value) override;
   bt_status_t SetScoAllowed(bool value) override;
   bt_status_t SendBsir(bool value, RawAddress* bd_addr) override;
   bt_status_t SetActiveDevice(RawAddress* active_device_addr) override;
@@ -1428,6 +1429,12 @@ void HeadsetInterface::Cleanup() {
   }
 #endif
   do_in_jni_thread(FROM_HERE, base::Bind([]() { bt_hf_callbacks = nullptr; }));
+}
+
+bt_status_t HeadsetInterface::SetScoOffloadEnabled(bool value) {
+  CHECK_BTHF_INIT();
+  BTA_AgSetScoOffloadEnabled(value);
+  return BT_STATUS_SUCCESS;
 }
 
 bt_status_t HeadsetInterface::SetScoAllowed(bool value) {
