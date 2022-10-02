@@ -1,7 +1,6 @@
 //! This library provides access to Linux uinput.
 
 use libc;
-use log::error;
 use nix;
 use std::ffi::CString;
 use std::mem;
@@ -28,7 +27,7 @@ const KEY_PREVIOUSSONG: libc::c_uint = 165;
 const UINPUT_MAX_NAME_SIZE: usize = 80;
 const ABS_MAX: usize = 0x3F;
 const BUS_BLUETOOTH: u16 = 0x05;
-const UINPUT_IOCTL_BASE: char = 'U';
+const UINPUT_IOCTL_BASE: libc::c_char = 'U' as libc::c_char;
 
 const EV_SYN: libc::c_int = 0x00;
 const EV_KEY: libc::c_int = 0x01;
@@ -37,13 +36,13 @@ const EV_REP: libc::c_int = 0x14;
 
 const SYN_REPORT: libc::c_int = 0;
 
-const UI_DEV_CREATE: u64 = nix::request_code_none!(UINPUT_IOCTL_BASE, 1);
-const UI_DEV_DESTROY: u64 = nix::request_code_none!(UINPUT_IOCTL_BASE, 2);
-const UI_SET_EVBIT: u64 =
+const UI_DEV_CREATE: libc::c_ulong = nix::request_code_none!(UINPUT_IOCTL_BASE, 1);
+const UI_DEV_DESTROY: libc::c_ulong = nix::request_code_none!(UINPUT_IOCTL_BASE, 2);
+const UI_SET_EVBIT: libc::c_ulong =
     nix::request_code_write!(UINPUT_IOCTL_BASE, 100, mem::size_of::<libc::c_int>());
-const UI_SET_PHYS: u64 =
+const UI_SET_PHYS: libc::c_ulong =
     nix::request_code_write!(UINPUT_IOCTL_BASE, 108, mem::size_of::<libc::c_char>());
-const UI_SET_KEYBIT: u64 =
+const UI_SET_KEYBIT: libc::c_ulong =
     nix::request_code_write!(UINPUT_IOCTL_BASE, 101, mem::size_of::<libc::c_int>());
 
 // Conversion key map from AVRCP keys to uinput keys.
@@ -78,7 +77,7 @@ impl Default for UInputId {
 }
 
 #[repr(C, packed)]
-struct UInputDev {
+struct UInputDevInfo {
     name: [libc::c_char; UINPUT_MAX_NAME_SIZE],
     id: UInputId,
     ff_effects_max: libc::c_int,
@@ -88,9 +87,9 @@ struct UInputDev {
     absflat: [libc::c_int; ABS_MAX + 1],
 }
 
-impl Default for UInputDev {
+impl Default for UInputDevInfo {
     fn default() -> Self {
-        UInputDev {
+        UInputDevInfo {
             name: [0; UINPUT_MAX_NAME_SIZE],
             id: UInputId::default(),
             ff_effects_max: 0,
@@ -102,12 +101,12 @@ impl Default for UInputDev {
     }
 }
 
-impl UInputDev {
+impl UInputDevInfo {
     pub fn serialize(&mut self) -> &[u8] {
         unsafe {
             slice::from_raw_parts(
-                (self as *const UInputDev) as *const u8,
-                mem::size_of::<UInputDev>(),
+                (self as *const UInputDevInfo) as *const u8,
+                mem::size_of::<UInputDevInfo>(),
             )
         }
     }
@@ -132,37 +131,31 @@ impl UInputEvent {
     }
 }
 
-/// A struct that holds the uinput object. It consists of a file descriptor fetched from the kernel
-/// and a device struct which contains the information required to construct an uinput device.
-pub struct UInput {
+struct UInputDev {
     fd: i32,
-    device: UInputDev,
+    addr: String,
+    device: UInputDevInfo,
 }
 
-impl Drop for UInput {
+impl Default for UInputDev {
+    fn default() -> Self {
+        UInputDev {
+            fd: -1,
+            addr: String::from("00:00:00:00:00:00"),
+            device: UInputDevInfo::default(),
+        }
+    }
+}
+
+impl Drop for UInputDev {
     fn drop(&mut self) {
         self.close();
     }
 }
 
-impl UInput {
-    /// Create a new UInput object.
-    pub fn new() -> Self {
-        UInput { fd: -1, device: UInputDev::default() }
-    }
-
-    /// Return true if uinput is open and a valid fd is retrieved.
-    pub fn is_initialized(&self) -> bool {
-        self.fd >= 0
-    }
-
-    /// Initialize a uinput device with kernel.
+impl UInputDev {
     #[allow(temporary_cstring_as_ptr)]
-    pub fn init(&mut self, mut name: String, addr: String) {
-        if self.is_initialized() {
-            return;
-        }
-
+    fn init(&mut self, mut name: String, addr: String) -> Result<(), String> {
         // Truncate the device name if over the max size allowed.
         name.truncate(UINPUT_MAX_NAME_SIZE);
         for (i, ch) in name.chars().enumerate() {
@@ -180,50 +173,56 @@ impl UInput {
             }
 
             if fd < -1 {
-                error!("Failed to open uinput: {}", std::io::Error::last_os_error());
-                return;
+                return Err(format!(
+                    "Failed to open uinput for {}: {}",
+                    addr,
+                    std::io::Error::last_os_error()
+                ));
             }
 
             if libc::write(
                 fd,
                 self.device.serialize().as_ptr() as *const libc::c_void,
-                mem::size_of::<UInputDev>(),
+                mem::size_of::<UInputDevInfo>(),
             ) < 0
             {
-                error!("Can't write device information: {}", std::io::Error::last_os_error());
                 libc::close(fd);
-                return;
+                return Err(format!(
+                    "Can't write device information for {}: {}",
+                    addr,
+                    std::io::Error::last_os_error()
+                ));
             }
 
             libc::ioctl(fd, UI_SET_EVBIT, EV_KEY);
             libc::ioctl(fd, UI_SET_EVBIT, EV_REL);
             libc::ioctl(fd, UI_SET_EVBIT, EV_REP);
             libc::ioctl(fd, UI_SET_EVBIT, EV_SYN);
-            libc::ioctl(fd, UI_SET_PHYS, addr);
+            libc::ioctl(fd, UI_SET_PHYS, addr.clone());
 
             for key_map in KEY_MAP {
                 libc::ioctl(fd, UI_SET_KEYBIT, key_map.uinput);
             }
 
             if libc::ioctl(fd, UI_DEV_CREATE, 0) < 0 {
-                error!("Can't create uinput device: {}", std::io::Error::last_os_error());
                 libc::close(fd);
-                return;
+                return Err(format!(
+                    "Can't create uinput device for {}: {}",
+                    addr,
+                    std::io::Error::last_os_error()
+                ));
             }
         }
 
         self.fd = fd;
+        self.addr = addr;
+        Ok(())
     }
 
-    /// Close the uinput device with kernel if there is one.
-    pub fn close(&mut self) {
-        if self.is_initialized() {
-            unsafe {
-                libc::ioctl(self.fd, UI_DEV_DESTROY, 0);
-                libc::close(self.fd);
-            }
-            self.fd = -1;
-            self.device = UInputDev::default();
+    fn close(&mut self) {
+        unsafe {
+            libc::ioctl(self.fd, UI_DEV_DESTROY, 0);
+            libc::close(self.fd);
         }
     }
 
@@ -244,15 +243,14 @@ impl UInput {
             libc::write(
                 self.fd,
                 event.serialize().as_ptr() as *const libc::c_void,
-                mem::size_of::<UInputDev>(),
+                mem::size_of::<UInputDevInfo>(),
             )
             .try_into()
             .unwrap()
         }
     }
 
-    /// Send key event to the uinput if the device is initialized.
-    pub fn send_key(&mut self, key: u8, value: u8) -> Result<(), String> {
+    fn send_key(&mut self, key: u8, value: u8) -> Result<(), String> {
         let mut uinput_key: libc::c_ushort = 0;
 
         for key_map in KEY_MAP {
@@ -262,22 +260,97 @@ impl UInput {
         }
 
         if uinput_key == 0 {
-            return Err(format!("AVRCP key: {} is not supported", key));
+            return Err(format!("AVRCP key: {} is not supported for device: {}", key, self.addr));
         }
 
-        if self.is_initialized() {
-            if self.send_event(EV_KEY.try_into().unwrap(), uinput_key, value.into()) < 0
-                || self.send_event(EV_SYN.try_into().unwrap(), SYN_REPORT.try_into().unwrap(), 0)
-                    < 0
-            {
-                return Err(format!(
-                    "Failed to send uinput event: {}",
-                    std::io::Error::last_os_error()
-                ));
+        if self.send_event(EV_KEY.try_into().unwrap(), uinput_key, value.into()) < 0
+            || self.send_event(EV_SYN.try_into().unwrap(), SYN_REPORT.try_into().unwrap(), 0) < 0
+        {
+            return Err(format!(
+                "Failed to send uinput event: {} for device: {}",
+                std::io::Error::last_os_error(),
+                self.addr
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub struct UInput {
+    /// A vector that holds uinput objects.
+    devices: Vec<UInputDev>,
+    /// The address of current active device.
+    active_device: String,
+}
+
+impl Drop for UInput {
+    fn drop(&mut self) {
+        for device in self.devices.iter_mut() {
+            device.close();
+        }
+    }
+}
+
+impl UInput {
+    fn get_device(&mut self, addr: String) -> Option<&mut UInputDev> {
+        for device in self.devices.iter_mut() {
+            if device.addr == addr {
+                return Some(device);
             }
+        }
+        None
+    }
+
+    /// Create a new UInput struct that holds a vector of uinput objects.
+    pub fn new() -> Self {
+        UInput {
+            devices: Vec::<UInputDev>::new(),
+            active_device: String::from("00:00:00:00:00:00"),
+        }
+    }
+
+    /// Initialize a uinput device with kernel.
+    pub fn create(&mut self, name: String, addr: String) -> Result<(), String> {
+        if self.get_device(addr.clone()).is_some() {
             return Ok(());
         }
 
-        Err(format!("uinput is not initialized"))
+        let mut device = UInputDev::default();
+        match device.init(name, addr) {
+            Ok(()) => {
+                self.devices.push(device);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Close the specified uinput device with kernel if created.
+    pub fn close(&mut self, addr: String) {
+        if addr == self.active_device {
+            self.active_device = String::from("00:00:00:00:00:00");
+        }
+
+        // Remove the device from the list. uinput will get closed with the kernel through device
+        // Drop trait.
+        if let Some(pos) = self.devices.iter().position(|device| device.addr == addr) {
+            self.devices.remove(pos);
+        }
+    }
+
+    /// Set a device to be AVRCP active.
+    pub fn set_active_device(&mut self, addr: String) {
+        self.active_device = addr;
+    }
+
+    /// Send key event to the active uinput.
+    pub fn send_key(&mut self, key: u8, value: u8) -> Result<(), String> {
+        match self.active_device.as_str() {
+            "00:00:00:00:00:00" => Err(format!("Active device is not specified")),
+            _ => match self.get_device(self.active_device.clone()) {
+                Some(device) => device.send_key(key, value),
+                None => Err(format!("uinput: {} is not initialized", self.active_device)),
+            },
+        }
     }
 }

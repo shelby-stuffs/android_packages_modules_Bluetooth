@@ -41,7 +41,7 @@ public final class BluetoothCodecConfig implements Parcelable {
     @IntDef(prefix = "SOURCE_CODEC_TYPE_",
         value = {SOURCE_CODEC_TYPE_SBC, SOURCE_CODEC_TYPE_AAC, SOURCE_CODEC_TYPE_APTX,
             SOURCE_CODEC_TYPE_APTX_HD, SOURCE_CODEC_TYPE_LDAC, SOURCE_CODEC_TYPE_LC3,
-            SOURCE_CODEC_TYPE_INVALID,
+            SOURCE_CODEC_TYPE_OPUS, SOURCE_CODEC_TYPE_INVALID,
             SOURCE_CODEC_TYPE_APTX_ADAPTIVE,
             SOURCE_CODEC_TYPE_APTX_TWSP,
             SOURCE_QVA_CODEC_TYPE_MAX
@@ -86,7 +86,7 @@ public final class BluetoothCodecConfig implements Parcelable {
     /**
      * Source codec type Opus.
      */
-    private static final int SOURCE_CODEC_TYPE_OPUS = 6;
+    public static final int SOURCE_CODEC_TYPE_OPUS = 6;
 
     /**
      * Source codec type invalid. This is the default value used for codec
@@ -445,16 +445,15 @@ public final class BluetoothCodecConfig implements Parcelable {
         return 0;
     }
 
-    public static final @android.annotation.NonNull Parcelable.Creator<BluetoothCodecConfig> CREATOR =
-            new Parcelable.Creator<BluetoothCodecConfig>() {
-                public BluetoothCodecConfig createFromParcel(Parcel in) {
-                    return new BluetoothCodecConfig(in);
-                }
+    public static final @NonNull Creator<BluetoothCodecConfig> CREATOR = new Creator<>() {
+        public BluetoothCodecConfig createFromParcel(Parcel in) {
+            return new BluetoothCodecConfig(in);
+        }
 
-                public BluetoothCodecConfig[] newArray(int size) {
-                    return new BluetoothCodecConfig[size];
-                }
-            };
+        public BluetoothCodecConfig[] newArray(int size) {
+            return new BluetoothCodecConfig[size];
+        }
+    };
 
     /**
      * Flattens the object to a parcel
@@ -758,6 +757,7 @@ public final class BluetoothCodecConfig implements Parcelable {
                 if (other.mCodecSpecific4 > 0) {
                     return false;
                 }
+            // fall through
             default:
                 return true;
         }
