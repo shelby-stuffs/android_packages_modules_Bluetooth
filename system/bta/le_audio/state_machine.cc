@@ -144,9 +144,16 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     }
 
     auto context_type = group->GetCurrentContextType();
+    auto metadata_context_type = group->GetMetadataContextType();
+
     auto ccid = le_audio::ContentControlIdKeeper::GetInstance()->GetCcid(
         static_cast<uint16_t>(context_type));
-    if (!group->Configure(context_type, ccid)) {
+    std::vector<uint8_t> ccids;
+    if (ccid != -1) {
+      ccids.push_back(static_cast<uint8_t>(ccid));
+    }
+
+    if (!group->Configure(context_type, metadata_context_type, ccids)) {
       LOG_ERROR(" failed to set ASE configuration");
       return false;
     }
@@ -538,6 +545,7 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     while (leAudioDevice != nullptr) {
       for (auto& ase : leAudioDevice->ases_) {
         ase.cis_id = le_audio::kInvalidCisId;
+        ase.cis_conn_hdl = 0;
       }
       leAudioDevice = group->GetNextDevice(leAudioDevice);
     }
@@ -748,12 +756,22 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
 
     FreeLinkQualityReports(leAudioDevice);
 
+    auto ases_pair = leAudioDevice->GetAsesByCisConnHdl(event->cis_conn_hdl);
+
     /* If this is peer disconnecting CIS, make sure to clear data path */
     if (event->reason != HCI_ERR_CONN_CAUSE_LOCAL_HOST) {
       RemoveDataPathByCisHandle(leAudioDevice, event->cis_conn_hdl);
+      // Make sure we won't stay in STREAMING state
+      if (ases_pair.sink) {
+        ases_pair.sink->state =
+            AseState::BTA_LE_AUDIO_ASE_STATE_CODEC_CONFIGURED;
+      }
+      if (ases_pair.source) {
+        ases_pair.source->state =
+            AseState::BTA_LE_AUDIO_ASE_STATE_CODEC_CONFIGURED;
+      }
     }
 
-    auto ases_pair = leAudioDevice->GetAsesByCisConnHdl(event->cis_conn_hdl);
     if (ases_pair.sink) {
       ases_pair.sink->data_path_state = AudioStreamDataPathState::CIS_ASSIGNED;
     }

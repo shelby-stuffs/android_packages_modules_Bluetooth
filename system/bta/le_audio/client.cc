@@ -405,6 +405,15 @@ class LeAudioClientImpl : public LeAudioClient {
     }
   }
 
+  static void ReconfigurationComplete(uint8_t directions) {
+    if (directions & le_audio::types::kLeAudioDirectionSink) {
+      leAudioClientAudioSource->ReconfigurationComplete();
+    }
+    if (directions & le_audio::types::kLeAudioDirectionSource) {
+      leAudioClientAudioSink->ReconfigurationComplete();
+    }
+  }
+
   void CancelStreamingRequest() {
     if (audio_sender_state_ >= AudioState::READY_TO_START) {
       leAudioClientAudioSource->CancelStreamingRequest();
@@ -1383,37 +1392,43 @@ class LeAudioClientImpl : public LeAudioClient {
 
     /* GATTC will ommit not registered previously handles */
     for (auto pac_tuple : leAudioDevice->snk_pacs_) {
-      BTA_GATTC_RegisterForNotifications(gatt_if_, leAudioDevice->address_,
-                                         std::get<0>(pac_tuple).val_hdl);
+      subscribe_for_notification(leAudioDevice->conn_id_,
+                                 leAudioDevice->address_,
+                                 std::get<0>(pac_tuple));
     }
     for (auto pac_tuple : leAudioDevice->src_pacs_) {
-      BTA_GATTC_RegisterForNotifications(gatt_if_, leAudioDevice->address_,
-                                         std::get<0>(pac_tuple).val_hdl);
+      subscribe_for_notification(leAudioDevice->conn_id_,
+                                 leAudioDevice->address_,
+                                 std::get<0>(pac_tuple));
     }
 
     if (leAudioDevice->snk_audio_locations_hdls_.val_hdl != 0)
-      BTA_GATTC_RegisterForNotifications(
-          gatt_if_, leAudioDevice->address_,
-          leAudioDevice->snk_audio_locations_hdls_.val_hdl);
+      subscribe_for_notification(leAudioDevice->conn_id_,
+                                 leAudioDevice->address_,
+                                 leAudioDevice->snk_audio_locations_hdls_);
     if (leAudioDevice->src_audio_locations_hdls_.val_hdl != 0)
-      BTA_GATTC_RegisterForNotifications(
-          gatt_if_, leAudioDevice->address_,
-          leAudioDevice->src_audio_locations_hdls_.val_hdl);
+      subscribe_for_notification(leAudioDevice->conn_id_,
+                                 leAudioDevice->address_,
+                                 leAudioDevice->src_audio_locations_hdls_);
+
     if (leAudioDevice->audio_avail_hdls_.val_hdl != 0)
-      BTA_GATTC_RegisterForNotifications(
-          gatt_if_, leAudioDevice->address_,
-          leAudioDevice->audio_avail_hdls_.val_hdl);
+      subscribe_for_notification(leAudioDevice->conn_id_,
+                                 leAudioDevice->address_,
+                                 leAudioDevice->audio_avail_hdls_);
+
     if (leAudioDevice->audio_supp_cont_hdls_.val_hdl != 0)
-      BTA_GATTC_RegisterForNotifications(
-          gatt_if_, leAudioDevice->address_,
-          leAudioDevice->audio_supp_cont_hdls_.val_hdl);
+      subscribe_for_notification(leAudioDevice->conn_id_,
+                                 leAudioDevice->address_,
+                                 leAudioDevice->audio_supp_cont_hdls_);
+
     if (leAudioDevice->ctp_hdls_.val_hdl != 0)
-      BTA_GATTC_RegisterForNotifications(gatt_if_, leAudioDevice->address_,
-                                         leAudioDevice->ctp_hdls_.val_hdl);
+      subscribe_for_notification(leAudioDevice->conn_id_,
+                                 leAudioDevice->address_,
+                                 leAudioDevice->ctp_hdls_);
 
     for (struct ase& ase : leAudioDevice->ases_)
-      BTA_GATTC_RegisterForNotifications(gatt_if_, leAudioDevice->address_,
-                                         ase.hdls.val_hdl);
+      subscribe_for_notification(leAudioDevice->conn_id_,
+                                 leAudioDevice->address_, ase.hdls);
   }
 
   void OnEncryptionComplete(const RawAddress& address, uint8_t status) {
@@ -1500,12 +1515,15 @@ class LeAudioClientImpl : public LeAudioClient {
     }
   }
 
-  bool subscribe_for_indications(uint16_t conn_id, const RawAddress& address,
-                                 uint16_t handle, uint16_t ccc_handle,
-                                 bool ntf) {
+  bool subscribe_for_notification(
+      uint16_t conn_id, const RawAddress& address,
+      struct le_audio::types::hdl_pair handle_pair) {
     std::vector<uint8_t> value(2);
     uint8_t* ptr = value.data();
+    uint16_t handle = handle_pair.val_hdl;
+    uint16_t ccc_handle = handle_pair.ccc_hdl;
 
+    LOG_INFO("conn id %d", conn_id);
     if (BTA_GATTC_RegisterForNotifications(gatt_if_, address, handle) !=
         GATT_SUCCESS) {
       LOG(ERROR) << __func__ << ", cannot register for notification: "
@@ -1513,8 +1531,7 @@ class LeAudioClientImpl : public LeAudioClient {
       return false;
     }
 
-    UINT16_TO_STREAM(ptr, ntf ? GATT_CHAR_CLIENT_CONFIG_NOTIFICATION
-                              : GATT_CHAR_CLIENT_CONFIG_INDICTION);
+    UINT16_TO_STREAM(ptr, GATT_CHAR_CLIENT_CONFIG_NOTIFICATION);
 
     BtaGattQueue::WriteDescriptor(
         conn_id, ccc_handle, std::move(value), GATT_WRITE,
@@ -1666,9 +1683,8 @@ class LeAudioClientImpl : public LeAudioClient {
           return;
         }
 
-        if (!subscribe_for_indications(conn_id, leAudioDevice->address_,
-                                       hdl_pair.val_hdl, hdl_pair.ccc_hdl,
-                                       true)) {
+        if (!subscribe_for_notification(conn_id, leAudioDevice->address_,
+                                        hdl_pair)) {
           DisconnectDevice(leAudioDevice);
           return;
         }
@@ -1697,9 +1713,8 @@ class LeAudioClientImpl : public LeAudioClient {
           return;
         }
 
-        if (!subscribe_for_indications(conn_id, leAudioDevice->address_,
-                                       hdl_pair.val_hdl, hdl_pair.ccc_hdl,
-                                       true)) {
+        if (!subscribe_for_notification(conn_id, leAudioDevice->address_,
+                                        hdl_pair)) {
           DisconnectDevice(leAudioDevice);
           return;
         }
@@ -1726,10 +1741,9 @@ class LeAudioClientImpl : public LeAudioClient {
                        "ccc";
 
         if (leAudioDevice->snk_audio_locations_hdls_.ccc_hdl != 0 &&
-            !subscribe_for_indications(
+            !subscribe_for_notification(
                 conn_id, leAudioDevice->address_,
-                leAudioDevice->snk_audio_locations_hdls_.val_hdl,
-                leAudioDevice->snk_audio_locations_hdls_.ccc_hdl, true)) {
+                leAudioDevice->snk_audio_locations_hdls_)) {
           DisconnectDevice(leAudioDevice);
           return;
         }
@@ -1754,10 +1768,9 @@ class LeAudioClientImpl : public LeAudioClient {
                        "ccc";
 
         if (leAudioDevice->src_audio_locations_hdls_.ccc_hdl != 0 &&
-            !subscribe_for_indications(
+            !subscribe_for_notification(
                 conn_id, leAudioDevice->address_,
-                leAudioDevice->src_audio_locations_hdls_.val_hdl,
-                leAudioDevice->src_audio_locations_hdls_.ccc_hdl, true)) {
+                leAudioDevice->src_audio_locations_hdls_)) {
           DisconnectDevice(leAudioDevice);
           return;
         }
@@ -1782,10 +1795,8 @@ class LeAudioClientImpl : public LeAudioClient {
           return;
         }
 
-        if (!subscribe_for_indications(conn_id, leAudioDevice->address_,
-                                       leAudioDevice->audio_avail_hdls_.val_hdl,
-                                       leAudioDevice->audio_avail_hdls_.ccc_hdl,
-                                       true)) {
+        if (!subscribe_for_notification(conn_id, leAudioDevice->address_,
+                                        leAudioDevice->audio_avail_hdls_)) {
           DisconnectDevice(leAudioDevice);
           return;
         }
@@ -1807,10 +1818,8 @@ class LeAudioClientImpl : public LeAudioClient {
           LOG(INFO) << __func__ << ", audio avails char doesn't have ccc";
 
         if (leAudioDevice->audio_supp_cont_hdls_.ccc_hdl != 0 &&
-            !subscribe_for_indications(
-                conn_id, leAudioDevice->address_,
-                leAudioDevice->audio_supp_cont_hdls_.val_hdl,
-                leAudioDevice->audio_supp_cont_hdls_.ccc_hdl, true)) {
+            !subscribe_for_notification(conn_id, leAudioDevice->address_,
+                                        leAudioDevice->audio_supp_cont_hdls_)) {
           DisconnectDevice(leAudioDevice);
           return;
         }
@@ -1840,9 +1849,9 @@ class LeAudioClientImpl : public LeAudioClient {
           DisconnectDevice(leAudioDevice);
           return;
         }
-
-        if (!subscribe_for_indications(conn_id, leAudioDevice->address_,
-                                       charac.value_handle, ccc_handle, true)) {
+        struct le_audio::types::hdl_pair hdls(charac.value_handle, ccc_handle);
+        if (!subscribe_for_notification(conn_id, leAudioDevice->address_,
+                                        hdls)) {
           DisconnectDevice(leAudioDevice);
           return;
         }
@@ -1872,10 +1881,8 @@ class LeAudioClientImpl : public LeAudioClient {
           return;
         }
 
-        if (!subscribe_for_indications(conn_id, leAudioDevice->address_,
-                                       leAudioDevice->ctp_hdls_.val_hdl,
-                                       leAudioDevice->ctp_hdls_.ccc_hdl,
-                                       true)) {
+        if (!subscribe_for_notification(conn_id, leAudioDevice->address_,
+                                        leAudioDevice->ctp_hdls_)) {
           DisconnectDevice(leAudioDevice);
           return;
         }
@@ -2520,6 +2527,12 @@ class LeAudioClientImpl : public LeAudioClient {
     leAudioClientAudioSource->UpdateRemoteDelay(remote_delay_ms);
     leAudioClientAudioSource->ConfirmStreamingRequest();
     audio_sender_state_ = AudioState::STARTED;
+    /* We update the target audio allocation before streamStarted that the
+     * offloder would know how to configure offloader encoder. We should check
+     * if we need to update the current
+     * allocation here as the target allocation and the current allocation is
+     * different */
+    updateOffloaderIfNeeded(group);
 
     return true;
   }
@@ -2578,6 +2591,12 @@ class LeAudioClientImpl : public LeAudioClient {
     leAudioClientAudioSink->UpdateRemoteDelay(remote_delay_ms);
     leAudioClientAudioSink->ConfirmStreamingRequest();
     audio_receiver_state_ = AudioState::STARTED;
+    /* We update the target audio allocation before streamStarted that the
+     * offloder would know how to configure offloader decoder. We should check
+     * if we need to update the current
+     * allocation here as the target allocation and the current allocation is
+     * different */
+    updateOffloaderIfNeeded(group);
   }
 
   void SuspendAudio(void) {
@@ -3504,7 +3523,7 @@ class LeAudioClientImpl : public LeAudioClient {
 
     const auto* stream_conf = &group->stream_conf;
 
-    if (stream_conf->sink_offloader_changed) {
+    if (stream_conf->sink_offloader_changed || stream_conf->sink_is_initial) {
       LOG_INFO("Update sink offloader streams");
       uint16_t remote_delay_ms =
           group->GetRemoteDelay(le_audio::types::kLeAudioDirectionSink);
@@ -3515,7 +3534,8 @@ class LeAudioClientImpl : public LeAudioClient {
       group->StreamOffloaderUpdated(le_audio::types::kLeAudioDirectionSink);
     }
 
-    if (stream_conf->source_offloader_changed) {
+    if (stream_conf->source_offloader_changed ||
+        stream_conf->source_is_initial) {
       LOG_INFO("Update source offloader streams");
       uint16_t remote_delay_ms =
           group->GetRemoteDelay(le_audio::types::kLeAudioDirectionSource);
@@ -3556,14 +3576,26 @@ class LeAudioClientImpl : public LeAudioClient {
         /** Stop Audio but don't release all the Audio resources */
         SuspendAudio();
         break;
-      case GroupStreamStatus::CONFIGURED_BY_USER:
+      case GroupStreamStatus::CONFIGURED_BY_USER: {
+        // Check which directions were suspended
+        uint8_t previously_active_directions = 0;
+        if (audio_sender_state_ >= AudioState::READY_TO_START) {
+          previously_active_directions |=
+              le_audio::types::kLeAudioDirectionSink;
+        }
+        if (audio_receiver_state_ >= AudioState::READY_TO_START) {
+          previously_active_directions |=
+              le_audio::types::kLeAudioDirectionSource;
+        }
+
         /* We are done with reconfiguration.
          * Clean state and if Audio HAL is waiting, cancel the request
          * so Audio HAL can Resume again.
          */
         CancelStreamingRequest();
         HandlePendingAvailableContexts(group);
-        break;
+        ReconfigurationComplete(previously_active_directions);
+      } break;
       case GroupStreamStatus::CONFIGURED_AUTONOMOUS:
         /* This state is notified only when
          * groups stays into CONFIGURED state after

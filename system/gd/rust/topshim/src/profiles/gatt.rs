@@ -486,6 +486,34 @@ impl Display for GattStatus {
     }
 }
 
+#[derive(Debug, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+/// Represents LE PHY.
+pub enum LePhy {
+    Invalid = 0,
+    Phy1m = 1,
+    Phy2m = 2,
+    PhyCoded = 3,
+}
+
+impl From<LePhy> for i32 {
+    fn from(item: LePhy) -> Self {
+        item.to_i32().unwrap_or(0)
+    }
+}
+
+impl From<LePhy> for u8 {
+    fn from(item: LePhy) -> Self {
+        item.to_u8().unwrap_or(0)
+    }
+}
+
+impl Default for LePhy {
+    fn default() -> Self {
+        LePhy::Invalid
+    }
+}
+
 #[derive(Debug)]
 pub enum GattClientCallbacks {
     RegisterClient(GattStatus, i32, Uuid),
@@ -1648,6 +1676,7 @@ impl Gatt {
         gatt_client_callbacks_dispatcher: GattClientCallbacksDispatcher,
         gatt_server_callbacks_dispatcher: GattServerCallbacksDispatcher,
         gatt_scanner_callbacks_dispatcher: GattScannerCallbacksDispatcher,
+        gatt_scanner_inband_callbacks_dispatcher: GattScannerInbandCallbacksDispatcher,
         gatt_adv_inband_callbacks_dispatcher: GattAdvInbandCallbacksDispatcher,
         gatt_adv_callbacks_dispatcher: GattAdvCallbacksDispatcher,
     ) -> bool {
@@ -1674,6 +1703,12 @@ impl Gatt {
             .set::<GDScannerCb>(Arc::new(Mutex::new(gatt_scanner_callbacks_dispatcher)))
         {
             panic!("Tried to set dispatcher for GattScannerCallbacks but it already existed");
+        }
+
+        if get_dispatchers().lock().unwrap().set::<GDScannerInbandCb>(Arc::new(Mutex::new(
+            gatt_scanner_inband_callbacks_dispatcher,
+        ))) {
+            panic!("Tried to set dispatcher for GattScannerInbandCallbacks but it already existed");
         }
 
         if get_dispatchers()
