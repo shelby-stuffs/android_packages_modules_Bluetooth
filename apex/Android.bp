@@ -13,42 +13,6 @@ linker_config {
     installable: false,
 }
 
-// Mainline bluetooth apex module (legacy, do not use).
-// TODO: Remove
-apex {
-    // TODO(b/224561763): Qualcomm to refactor BT modifications into APEX.
-    name: "com.android.bluetooth",
-    enabled: false,
-
-    manifest: "apex_manifest.json",
-
-    native_shared_libs: [
-      "libbluetooth_jni",
-      "libbluetooth"
-    ],
-
-    // TODO(b/244748540) re-enable
-    // compat_configs: ["bluetooth-compat-config"],
-    apps: ["Bluetooth"],
-
-    compile_multilib: "both",
-
-    prebuilts: [
-        "audio_set_configurations_bfbs",
-        "audio_set_configurations_json",
-        "audio_set_scenarios_bfbs",
-        "audio_set_scenarios_json",
-        "btservices-linker-config",
-        "bt_did.conf",
-        "bt_stack.conf",
-        "privapp_allowlist_com.android.bluetooth.xml",
-    ],
-    key: "com.android.btservices.key",
-    certificate: ":com.android.btservices.certificate",
-    updatable: false,
-    compressible: false,
-}
-
 // Mainline bluetooth apex module.
 apex {
     name: "com.android.btservices",

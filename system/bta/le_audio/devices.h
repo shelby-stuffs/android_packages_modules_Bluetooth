@@ -115,8 +115,8 @@ class LeAudioDevice {
       types::AudioStreamDataPathState state);
   struct types::ase* GetFirstInactiveAse(uint8_t direction,
                                          bool reconnect = false);
-  struct types::ase* GetFirstInactiveAseWithState(uint8_t direction,
-                                                  types::AseState state);
+  struct types::ase* GetFirstAseWithState(uint8_t direction,
+                                          types::AseState state);
   struct types::ase* GetNextActiveAse(struct types::ase* ase);
   struct types::ase* GetAseToMatchBidirectionCis(struct types::ase* ase);
   types::BidirectAsesPair GetAsesByCisConnHdl(uint16_t conn_hdl);
@@ -211,12 +211,11 @@ class LeAudioDeviceGroup {
         transport_latency_mtos_us_(0),
         transport_latency_stom_us_(0),
         active_context_type_(types::LeAudioContextType::UNINITIALIZED),
+        metadata_context_type_(0),
         pending_update_available_contexts_(std::nullopt),
         target_state_(types::AseState::BTA_LE_AUDIO_ASE_STATE_IDLE),
         current_state_(types::AseState::BTA_LE_AUDIO_ASE_STATE_IDLE),
-        context_type_(types::LeAudioContextType::UNINITIALIZED) {
-    downmix_fallback_ = osi_property_get_bool(kDownmixFallback, false);
-  }
+        context_type_(types::LeAudioContextType::UNINITIALIZED) {}
   ~LeAudioDeviceGroup(void);
 
   void AddNode(const std::shared_ptr<LeAudioDevice>& leAudioDevice);
@@ -321,6 +320,10 @@ class LeAudioDeviceGroup {
     pending_update_available_contexts_ = audio_contexts;
   }
 
+  inline types::AudioContexts GetMetadataContextType(void) const {
+    return metadata_context_type_;
+  }
+
   bool IsInTransition(void);
   bool IsReleasing(void);
   void Dump(int fd);
@@ -343,15 +346,13 @@ class LeAudioDeviceGroup {
 
   /* Mask and table of currently supported contexts */
   types::LeAudioContextType active_context_type_;
+  types::AudioContexts metadata_context_type_;
   types::AudioContexts active_contexts_mask_;
   std::optional<types::AudioContexts> pending_update_available_contexts_;
   std::map<types::LeAudioContextType,
            const set_configurations::AudioSetConfiguration*>
       active_context_to_configuration_map;
 
-  static constexpr char kDownmixFallback[] =
-      "persist.bluetooth.leaudio.offloader.downmix_fallback";
-  bool downmix_fallback_;
   types::AseState target_state_;
   types::AseState current_state_;
   types::LeAudioContextType context_type_;

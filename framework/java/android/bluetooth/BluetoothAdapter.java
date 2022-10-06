@@ -1038,7 +1038,8 @@ public final class BluetoothAdapter {
      * @throws IllegalArgumentException if address is invalid
      */
     @RequiresNoPermission
-    public @NonNull BluetoothDevice getRemoteLeDevice(@NonNull String address,
+    @NonNull
+    public BluetoothDevice getRemoteLeDevice(@NonNull String address,
             @AddressType int addressType) {
         final BluetoothDevice res = new BluetoothDevice(address, addressType);
         res.setAttributionSource(mAttributionSource);
@@ -3713,8 +3714,8 @@ public final class BluetoothAdapter {
      * @return true on success, false on error
      */
     @SuppressLint({
-        "AndroidFrameworkRequiresPermission",
-        "AndroidFrameworkBluetoothPermission"
+            "AndroidFrameworkRequiresPermission",
+            "AndroidFrameworkBluetoothPermission"
     })
     public boolean getProfileProxy(Context context, BluetoothProfile.ServiceListener listener,
             int profile) {
@@ -4461,14 +4462,18 @@ public final class BluetoothAdapter {
 
     /*package*/ IBluetooth getBluetoothService() {
         synchronized (sServiceLock) {
-            if (sProxyServiceStateCallbacks.isEmpty()) {
-                throw new IllegalStateException(
-                        "Anonymous service access requires at least one lifecycle in process");
-            }
             return sService;
         }
     }
 
+    /**
+     * Registers a IBluetoothManagerCallback and returns the cached
+     * Bluetooth service proxy object.
+     *
+     * TODO: rename this API to registerBlueoothManagerCallback or something?
+     * the current name does not match what it does very well.
+     *
+     * /
     @UnsupportedAppUsage
     /*package*/ IBluetooth getBluetoothService(IBluetoothManagerCallback cb) {
         Objects.requireNonNull(cb);

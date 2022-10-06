@@ -7,13 +7,13 @@ use crate::dbus_iface::{
 use crate::ClientContext;
 use crate::{console_red, console_yellow, print_error, print_info};
 use bt_topshim::btif::{BtBondState, BtPropertyType, BtSspVariant, BtStatus, Uuid128Bit};
-use bt_topshim::profiles::gatt::GattStatus;
+use bt_topshim::profiles::gatt::{GattStatus, LePhy};
 use btstack::bluetooth::{
     BluetoothDevice, IBluetooth, IBluetoothCallback, IBluetoothConnectionCallback,
 };
 use btstack::bluetooth_adv::IAdvertisingSetCallback;
 use btstack::bluetooth_gatt::{
-    BluetoothGattService, IBluetoothGattCallback, IScannerCallback, LePhy, ScanResult,
+    BluetoothGattService, IBluetoothGattCallback, IScannerCallback, ScanResult,
 };
 use btstack::socket_manager::{
     BluetoothServerSocket, BluetoothSocket, IBluetoothSocketManager,
@@ -21,7 +21,7 @@ use btstack::socket_manager::{
 };
 use btstack::suspend::ISuspendCallback;
 use btstack::uuid::UuidWrapper;
-use btstack::RPCProxy;
+use btstack::{RPCProxy, SuspendMode};
 use dbus::nonblock::SyncConnection;
 use dbus_crossroads::Crossroads;
 use dbus_projection::DisconnectWatcher;
@@ -61,6 +61,10 @@ impl IBluetoothManagerCallback for BtManagerCallback {
 
     fn on_hci_enabled_changed(&self, hci_interface: i32, enabled: bool) {
         self.context.lock().unwrap().set_adapter_enabled(hci_interface, enabled);
+    }
+
+    fn on_default_adapter_changed(&self, hci_interface: i32) {
+        print_info!("hci{} is now the default", hci_interface);
     }
 }
 
@@ -322,6 +326,10 @@ impl IScannerCallback for ScannerCallback {
         if self.context.lock().unwrap().active_scanner_ids.len() > 0 {
             print_info!("Scan result: {:#?}", scan_result);
         }
+    }
+
+    fn on_suspend_mode_change(&self, _suspend_mode: SuspendMode) {
+        // No-op, not interesting for btclient.
     }
 }
 
@@ -736,17 +744,17 @@ impl IBluetoothSocketManagerCallbacks for BtSocketManagerCallback {
 
     fn on_handle_incoming_connection(
         &mut self,
-        listener_id: SocketId,
-        connection: BluetoothSocket,
+        _listener_id: SocketId,
+        _connection: BluetoothSocket,
     ) {
         todo!();
     }
 
     fn on_outgoing_connection_result(
         &mut self,
-        connecting_id: SocketId,
-        result: BtStatus,
-        socket: Option<BluetoothSocket>,
+        _connecting_id: SocketId,
+        _result: BtStatus,
+        _socket: Option<BluetoothSocket>,
     ) {
         todo!();
     }

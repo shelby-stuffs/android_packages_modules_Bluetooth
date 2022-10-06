@@ -4,7 +4,7 @@ use bt_topshim::btif::{
     BtBondState, BtConnectionState, BtDeviceType, BtPropertyType, BtSspVariant, BtStatus,
     BtTransport, Uuid, Uuid128Bit,
 };
-use bt_topshim::profiles::gatt::GattStatus;
+use bt_topshim::profiles::gatt::{GattStatus, LePhy};
 use bt_topshim::profiles::socket::SocketType;
 
 use btstack::bluetooth::{
@@ -16,13 +16,13 @@ use btstack::bluetooth_adv::{
 use btstack::bluetooth_gatt::{
     BluetoothGattCharacteristic, BluetoothGattDescriptor, BluetoothGattService,
     GattWriteRequestStatus, GattWriteType, IBluetoothGatt, IBluetoothGattCallback,
-    IScannerCallback, LePhy, RSSISettings, ScanFilter, ScanResult, ScanSettings, ScanType,
+    IScannerCallback, RSSISettings, ScanFilter, ScanResult, ScanSettings, ScanType,
 };
 use btstack::socket_manager::{
     BluetoothServerSocket, BluetoothSocket, CallbackId, IBluetoothSocketManager,
     IBluetoothSocketManagerCallbacks, SocketId, SocketResult,
 };
-use btstack::RPCProxy;
+use btstack::{RPCProxy, SuspendMode};
 
 use btstack::suspend::{ISuspend, ISuspendCallback, SuspendType};
 
@@ -68,6 +68,7 @@ impl_dbus_arg_enum!(LePhy);
 impl_dbus_arg_enum!(Profile);
 impl_dbus_arg_enum!(ScanType);
 impl_dbus_arg_enum!(SocketType);
+impl_dbus_arg_enum!(SuspendMode);
 impl_dbus_arg_enum!(SuspendType);
 impl_dbus_arg_from_into!(Uuid, Vec<u8>);
 
@@ -240,6 +241,11 @@ impl IScannerCallback for IScannerCallbackDBus {
 
     #[dbus_method("OnScanResult")]
     fn on_scan_result(&self, scan_result: ScanResult) {
+        dbus_generated!()
+    }
+
+    #[dbus_method("OnSuspendModeChange")]
+    fn on_suspend_mode_change(&self, suspend_mode: SuspendMode) {
         dbus_generated!()
     }
 }
@@ -595,6 +601,16 @@ impl IBluetoothManager for BluetoothManagerDBus {
     fn get_available_adapters(&mut self) -> Vec<AdapterWithEnabled> {
         dbus_generated!()
     }
+
+    #[dbus_method("GetDefaultAdapter")]
+    fn get_default_adapter(&mut self) -> i32 {
+        dbus_generated!()
+    }
+
+    #[dbus_method("SetDesiredDefaultAdapter")]
+    fn set_desired_default_adapter(&mut self, adapter: i32) {
+        dbus_generated!()
+    }
 }
 
 struct IBluetoothManagerCallbackDBus {}
@@ -611,6 +627,9 @@ impl IBluetoothManagerCallback for IBluetoothManagerCallbackDBus {
 
     #[dbus_method("OnHciEnabledChanged")]
     fn on_hci_enabled_changed(&self, hci_interface: i32, enabled: bool) {}
+
+    #[dbus_method("OnDefaultAdapterChanged")]
+    fn on_default_adapter_changed(&self, hci_interface: i32) {}
 }
 
 #[allow(dead_code)]
@@ -680,8 +699,8 @@ struct AdvertisingSetParametersDBus {
     is_legacy: bool,
     is_anonymous: bool,
     include_tx_power: bool,
-    primary_phy: i32,
-    secondary_phy: i32,
+    primary_phy: LePhy,
+    secondary_phy: LePhy,
     interval: i32,
     tx_power_level: i32,
     own_address_type: i32,
@@ -735,6 +754,8 @@ impl BluetoothGattDBus {
 
 #[generate_dbus_interface_client(BluetoothGattDBusRPC)]
 impl IBluetoothGatt for BluetoothGattDBus {
+    // Scanning
+
     #[dbus_method("RegisterScannerCallback")]
     fn register_scanner_callback(&mut self, _callback: Box<dyn IScannerCallback + Send>) -> u32 {
         dbus_generated!()
@@ -756,65 +777,23 @@ impl IBluetoothGatt for BluetoothGattDBus {
     }
 
     #[dbus_method("StartScan")]
-    fn start_scan(&mut self, _scanner_id: u8, _settings: ScanSettings, _filters: Vec<ScanFilter>) {
+    fn start_scan(
+        &mut self,
+        _scanner_id: u8,
+        _settings: ScanSettings,
+        _filters: Vec<ScanFilter>,
+    ) -> BtStatus {
         dbus_generated!()
     }
 
     #[dbus_method("StopScan")]
-    fn stop_scan(&mut self, _scanner_id: u8) {
+    fn stop_scan(&mut self, _scanner_id: u8) -> BtStatus {
         dbus_generated!()
     }
 
-    // Scanning
-
-    fn scan_filter_setup(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn scan_filter_add(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn scan_filter_clear(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn scan_filter_enable(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn scan_filter_disable(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn set_scan_parameters(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn batch_scan_config_storage(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn batch_scan_enable(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn batch_scan_disable(&self) {
-        // TODO(b/200066804): implement
-        todo!()
-    }
-
-    fn batch_scan_read_reports(&self) {
-        // TODO(b/200066804): implement
-        todo!()
+    #[dbus_method("GetScanSuspendMode")]
+    fn get_scan_suspend_mode(&self) -> SuspendMode {
+        dbus_generated!()
     }
 
     // Advertising
@@ -907,116 +886,6 @@ impl IBluetoothGatt for BluetoothGattDBus {
     }
 
     // GATT Client
-    fn start_sync(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn stop_sync(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn cancel_create_sync(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn transfer_sync(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn transfer_set_info(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn sync_tx_parameters(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn execute_write(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn deregister_for_notification(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn get_device_type(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn test_command(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    fn get_gatt_db(&self) {
-        // TODO(b/193686094): implement
-        todo!()
-    }
-
-    // GATT Server
-    fn register_server(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn unregister_server(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn server_connect(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn server_disconnect(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn add_service(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn stop_service(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn delete_service(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn send_indication(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn send_response(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn server_set_preferred_phy(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
-
-    fn server_read_phy(&self) {
-        // TODO(b/193686564): implement
-        todo!()
-    }
 
     #[dbus_method("RegisterClient")]
     fn register_client(
@@ -1039,9 +908,9 @@ impl IBluetoothGatt for BluetoothGattDBus {
         client_id: i32,
         addr: String,
         is_direct: bool,
-        transport: i32,
+        transport: BtTransport,
         opportunistic: bool,
-        phy: i32,
+        phy: LePhy,
     ) {
         dbus_generated!()
     }
