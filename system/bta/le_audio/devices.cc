@@ -189,19 +189,33 @@ void LeAudioDeviceGroup::Deactivate(void) {
   }
 }
 
+le_audio::types::CigState LeAudioDeviceGroup::GetCigState(void) {
+  return cig_state_;
+}
+
+void LeAudioDeviceGroup::SetCigState(le_audio::types::CigState state) {
+  LOG_VERBOSE("%s -> %s", bluetooth::common::ToString(cig_state_).c_str(),
+              bluetooth::common::ToString(state).c_str());
+  cig_state_ = state;
+}
+
 bool LeAudioDeviceGroup::Activate(LeAudioContextType context_type) {
+  bool is_activate = false;
   for (auto leAudioDevice : leAudioDevices_) {
     if (leAudioDevice.expired()) continue;
 
     bool activated = leAudioDevice.lock()->ActivateConfiguredAses(context_type);
-    LOG_INFO("Device %s is activated now: ",
-             leAudioDevice.lock().get()->address_.ToString().c_str());
+    LOG_INFO("Device %s is %s",
+             leAudioDevice.lock().get()->address_.ToString().c_str(),
+             activated ? "activated" : " not activated");
     if (activated) {
-      if (!CigAssignCisIds(leAudioDevice.lock().get())) return false;
+      if (!CigAssignCisIds(leAudioDevice.lock().get())) {
+        return false;
+      }
+      is_activate = true;
     }
   }
-
-  return true;
+  return is_activate;
 }
 
 LeAudioDevice* LeAudioDeviceGroup::GetFirstDevice(void) {
@@ -394,17 +408,6 @@ LeAudioDevice* LeAudioDeviceGroup::GetNextActiveDeviceByDataPathState(
   }
 
   return iter->lock().get();
-}
-
-bool LeAudioDeviceGroup::SetContextType(LeAudioContextType context_type) {
-  /* XXX: group context policy ? / may it disallow to change type ?) */
-  context_type_ = context_type;
-
-  return true;
-}
-
-LeAudioContextType LeAudioDeviceGroup::GetContextType(void) {
-  return context_type_;
 }
 
 uint32_t LeAudioDeviceGroup::GetSduInterval(uint8_t direction) {
@@ -1565,9 +1568,6 @@ const set_configurations::AudioSetConfiguration*
 LeAudioDeviceGroup::GetActiveConfiguration(void) {
   return active_context_to_configuration_map[active_context_type_];
 }
-AudioContexts LeAudioDeviceGroup::GetActiveContexts(void) {
-  return active_contexts_mask_;
-}
 
 std::optional<LeAudioCodecConfiguration>
 LeAudioDeviceGroup::GetCodecConfigurationByDirection(
@@ -1694,6 +1694,11 @@ void LeAudioDeviceGroup::CreateStreamVectorForOffloader(uint8_t direction) {
 
   if (offloader_streams_target_allocation->size() == 0) {
     *is_initial = true;
+  } else if (*is_initial) {
+    // As multiple CISes phone call case, the target_allocation already have the
+    // previous data, but the is_initial flag not be cleared. We need to clear
+    // here to avoid make duplicated target allocation stream map.
+    offloader_streams_target_allocation->clear();
   }
 
   offloader_streams_current_allocation->clear();
@@ -1758,16 +1763,16 @@ void LeAudioDeviceGroup::CreateStreamVectorForOffloader(uint8_t direction) {
   }
 }
 
-types::LeAudioContextType LeAudioDeviceGroup::GetCurrentContextType(void) {
-  return active_context_type_;
-}
-
 bool LeAudioDeviceGroup::IsPendingConfiguration(void) {
   return stream_conf.pending_configuration;
 }
 
 void LeAudioDeviceGroup::SetPendingConfiguration(void) {
   stream_conf.pending_configuration = true;
+}
+
+void LeAudioDeviceGroup::ClearPendingConfiguration(void) {
+  stream_conf.pending_configuration = false;
 }
 
 bool LeAudioDeviceGroup::IsConfigurationSupported(
@@ -2617,7 +2622,11 @@ void LeAudioDevices::Dump(int fd, int group_id) {
 
 void LeAudioDevices::Cleanup(void) {
   for (auto const& device : leAudioDevices_) {
-    device->DisconnectAcl();
+    if (device->conn_id_ != GATT_INVALID_CONN_ID) {
+      BtaGattQueue::Clean(device->conn_id_);
+      BTA_GATTC_Close(device->conn_id_);
+      device->DisconnectAcl();
+    }
   }
   leAudioDevices_.clear();
 }

@@ -1,4 +1,4 @@
-use crate::btif::{BluetoothInterface, RawAddress};
+use crate::btif::{BluetoothInterface, BtStatus, RawAddress};
 use crate::topstack::get_dispatchers;
 
 use num_traits::cast::FromPrimitive;
@@ -6,7 +6,7 @@ use std::convert::{TryFrom, TryInto};
 use std::sync::{Arc, Mutex};
 use topshim_macros::cb_variant;
 
-#[derive(Debug, FromPrimitive, ToPrimitive, PartialEq, PartialOrd)]
+#[derive(Debug, FromPrimitive, ToPrimitive, PartialEq, PartialOrd, Clone)]
 #[repr(u32)]
 pub enum BthfConnectionState {
     Disconnected = 0,
@@ -75,15 +75,16 @@ pub mod ffi {
         unsafe fn GetHfpProfile(btif: *const u8) -> UniquePtr<HfpIntf>;
 
         fn init(self: Pin<&mut HfpIntf>) -> i32;
-        fn connect(self: Pin<&mut HfpIntf>, bt_addr: RustRawAddress) -> i32;
+        fn connect(self: Pin<&mut HfpIntf>, bt_addr: RustRawAddress) -> u32;
         fn connect_audio(
             self: Pin<&mut HfpIntf>,
             bt_addr: RustRawAddress,
             sco_offload: bool,
+            force_cvsd: bool,
         ) -> i32;
         fn set_active_device(self: Pin<&mut HfpIntf>, bt_addr: RustRawAddress) -> i32;
         fn set_volume(self: Pin<&mut HfpIntf>, volume: i8, bt_addr: RustRawAddress) -> i32;
-        fn disconnect(self: Pin<&mut HfpIntf>, bt_addr: RustRawAddress) -> i32;
+        fn disconnect(self: Pin<&mut HfpIntf>, bt_addr: RustRawAddress) -> u32;
         fn disconnect_audio(self: Pin<&mut HfpIntf>, bt_addr: RustRawAddress) -> i32;
         fn cleanup(self: Pin<&mut HfpIntf>);
 
@@ -180,12 +181,12 @@ impl Hfp {
         true
     }
 
-    pub fn connect(&mut self, addr: RawAddress) {
-        self.internal.pin_mut().connect(addr.into());
+    pub fn connect(&mut self, addr: RawAddress) -> BtStatus {
+        BtStatus::from(self.internal.pin_mut().connect(addr.into()))
     }
 
-    pub fn connect_audio(&mut self, addr: RawAddress, sco_offload: bool) -> i32 {
-        self.internal.pin_mut().connect_audio(addr.into(), sco_offload)
+    pub fn connect_audio(&mut self, addr: RawAddress, sco_offload: bool, force_cvsd: bool) -> i32 {
+        self.internal.pin_mut().connect_audio(addr.into(), sco_offload, force_cvsd)
     }
 
     pub fn set_active_device(&mut self, addr: RawAddress) -> i32 {
@@ -196,8 +197,8 @@ impl Hfp {
         self.internal.pin_mut().set_volume(volume, addr.into())
     }
 
-    pub fn disconnect(&mut self, addr: RawAddress) {
-        self.internal.pin_mut().disconnect(addr.into());
+    pub fn disconnect(&mut self, addr: RawAddress) -> BtStatus {
+        BtStatus::from(self.internal.pin_mut().disconnect(addr.into()))
     }
 
     pub fn disconnect_audio(&mut self, addr: RawAddress) -> i32 {

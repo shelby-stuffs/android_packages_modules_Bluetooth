@@ -12,6 +12,7 @@ use bt_topshim::profiles::gatt::{
     GattServerCallbacksDispatcher, GattStatus, LePhy,
 };
 use bt_topshim::topstack;
+use bt_utils::adv_parser;
 
 use crate::bluetooth::{Bluetooth, IBluetooth};
 use crate::bluetooth_adv::{
@@ -203,7 +204,7 @@ pub trait IBluetoothGatt {
         &mut self,
         scanner_id: u8,
         settings: ScanSettings,
-        filters: Vec<ScanFilter>,
+        filter: ScanFilter,
     ) -> BtStatus;
 
     /// Deactivate scan of the given scanner id.
@@ -498,67 +499,84 @@ impl BluetoothGattService {
 /// Callback for GATT Client API.
 pub trait IBluetoothGattCallback: RPCProxy {
     /// When the `register_client` request is done.
-    fn on_client_registered(&self, status: GattStatus, client_id: i32);
+    fn on_client_registered(&self, _status: GattStatus, _client_id: i32) {}
 
     /// When there is a change in the state of a GATT client connection.
     fn on_client_connection_state(
         &self,
-        status: GattStatus,
-        client_id: i32,
-        connected: bool,
-        addr: String,
-    );
+        _status: GattStatus,
+        _client_id: i32,
+        _connected: bool,
+        _addr: String,
+    ) {
+    }
 
     /// When there is a change of PHY.
-    fn on_phy_update(&self, addr: String, tx_phy: LePhy, rx_phy: LePhy, status: GattStatus);
+    fn on_phy_update(&self, _addr: String, _tx_phy: LePhy, _rx_phy: LePhy, _status: GattStatus) {}
 
     /// The completion of IBluetoothGatt::read_phy.
-    fn on_phy_read(&self, addr: String, tx_phy: LePhy, rx_phy: LePhy, status: GattStatus);
+    fn on_phy_read(&self, _addr: String, _tx_phy: LePhy, _rx_phy: LePhy, _status: GattStatus) {}
 
     /// When GATT db is available.
     fn on_search_complete(
         &self,
-        addr: String,
-        services: Vec<BluetoothGattService>,
-        status: GattStatus,
-    );
+        _addr: String,
+        _services: Vec<BluetoothGattService>,
+        _status: GattStatus,
+    ) {
+    }
 
     /// The completion of IBluetoothGatt::read_characteristic.
-    fn on_characteristic_read(&self, addr: String, status: GattStatus, handle: i32, value: Vec<u8>);
+    fn on_characteristic_read(
+        &self,
+        _addr: String,
+        _status: GattStatus,
+        _handle: i32,
+        _value: Vec<u8>,
+    ) {
+    }
 
     /// The completion of IBluetoothGatt::write_characteristic.
-    fn on_characteristic_write(&self, addr: String, status: GattStatus, handle: i32);
+    fn on_characteristic_write(&self, _addr: String, _status: GattStatus, _handle: i32) {}
 
     /// When a reliable write is completed.
-    fn on_execute_write(&self, addr: String, status: GattStatus);
+    fn on_execute_write(&self, _addr: String, _status: GattStatus) {}
 
     /// The completion of IBluetoothGatt::read_descriptor.
-    fn on_descriptor_read(&self, addr: String, status: GattStatus, handle: i32, value: Vec<u8>);
+    fn on_descriptor_read(
+        &self,
+        _addr: String,
+        _status: GattStatus,
+        _handle: i32,
+        _value: Vec<u8>,
+    ) {
+    }
 
     /// The completion of IBluetoothGatt::write_descriptor.
-    fn on_descriptor_write(&self, addr: String, status: GattStatus, handle: i32);
+    fn on_descriptor_write(&self, _addr: String, _status: GattStatus, _handle: i32) {}
 
     /// When notification or indication is received.
-    fn on_notify(&self, addr: String, handle: i32, value: Vec<u8>);
+    fn on_notify(&self, _addr: String, _handle: i32, _value: Vec<u8>) {}
 
     /// The completion of IBluetoothGatt::read_remote_rssi.
-    fn on_read_remote_rssi(&self, addr: String, rssi: i32, status: GattStatus);
+    fn on_read_remote_rssi(&self, _addr: String, _rssi: i32, _status: GattStatus) {}
 
     /// The completion of IBluetoothGatt::configure_mtu.
-    fn on_configure_mtu(&self, addr: String, mtu: i32, status: GattStatus);
+    fn on_configure_mtu(&self, _addr: String, _mtu: i32, _status: GattStatus) {}
 
     /// When a connection parameter changes.
     fn on_connection_updated(
         &self,
-        addr: String,
-        interval: i32,
-        latency: i32,
-        timeout: i32,
-        status: GattStatus,
-    );
+        _addr: String,
+        _interval: i32,
+        _latency: i32,
+        _timeout: i32,
+        _status: GattStatus,
+    ) {
+    }
 
     /// When there is an addition, removal, or change of a GATT service.
-    fn on_service_changed(&self, addr: String);
+    fn on_service_changed(&self, _addr: String) {}
 }
 
 /// Interface for scanner callbacks to clients, passed to
@@ -617,26 +635,21 @@ impl Default for ScanType {
     }
 }
 
-/// Represents RSSI configurations for hardware offloaded scanning.
-// TODO(b/200066804): This is still a placeholder struct, not yet complete.
-#[derive(Debug, Default)]
-pub struct RSSISettings {
-    pub low_threshold: i32,
-    pub high_threshold: i32,
-}
-
 /// Represents scanning configurations to be passed to `IBluetoothGatt::start_scan`.
+///
+/// This configuration is general and supported on all Bluetooth hardware, irrelevant of the
+/// hardware filter offload (APCF or MSFT).
 #[derive(Debug, Default)]
 pub struct ScanSettings {
     pub interval: i32,
     pub window: i32,
     pub scan_type: ScanType,
-    pub rssi_settings: RSSISettings,
 }
 
 /// Represents scan result
 #[derive(Debug)]
 pub struct ScanResult {
+    pub name: String,
     pub address: String,
     pub addr_type: u8,
     pub event_type: u16,
@@ -646,12 +659,72 @@ pub struct ScanResult {
     pub tx_power: i8,
     pub rssi: i8,
     pub periodic_adv_int: u16,
+    pub flags: u8,
+    pub service_uuids: Vec<Uuid128Bit>,
+    /// A map of 128-bit UUID and its corresponding service data.
+    pub service_data: HashMap<String, Vec<u8>>,
+    pub manufacturer_data: HashMap<u16, Vec<u8>>,
     pub adv_data: Vec<u8>,
 }
 
+#[derive(Debug)]
+pub struct ScanFilterPattern {
+    /// Specifies the starting byte position of the pattern immediately following AD Type.
+    pub start_position: u8,
+
+    /// Advertising Data type (https://www.bluetooth.com/specifications/assigned-numbers/).
+    pub ad_type: u8,
+
+    /// The pattern to be matched for the specified AD Type within the advertisement packet from
+    /// the specified starting byte.
+    pub content: Vec<u8>,
+}
+
+/// Represents the condition for matching advertisements.
+///
+/// Only pattern-based matching is implemented.
+#[derive(Debug)]
+pub enum ScanFilterCondition {
+    /// All advertisements are matched.
+    All,
+
+    /// Match by pattern anywhere in the advertisement data. Multiple patterns are "OR"-ed.
+    Patterns(Vec<ScanFilterPattern>),
+
+    /// Match by UUID (not implemented).
+    Uuid,
+
+    /// Match if the IRK resolves an advertisement (not implemented).
+    Irk,
+
+    /// Match by Bluetooth address (not implemented).
+    BluetoothAddress,
+}
+
 /// Represents a scan filter to be passed to `IBluetoothGatt::start_scan`.
-#[derive(Debug, Default)]
-pub struct ScanFilter {}
+///
+/// This filter is intentionally modelled close to the MSFT hardware offload filter.
+/// Reference:
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/microsoft-defined-bluetooth-hci-commands-and-events
+#[derive(Debug)]
+pub struct ScanFilter {
+    /// Advertisements with RSSI above or equal this value is considered "found".
+    pub rssi_high_threshold: i16,
+
+    /// Advertisements with RSSI below or equal this value (for a period of rssi_low_timeout) is
+    /// considered "lost".
+    pub rssi_low_threshold: i16,
+
+    /// The time in seconds over which the RSSI value should be below rssi_low_threshold before
+    /// being considered "lost".
+    pub rssi_low_timeout: u16,
+
+    /// The sampling interval in milliseconds.
+    pub rssi_sampling_period: u16,
+
+    /// The condition to match advertisements with.
+    pub condition: ScanFilterCondition,
+}
 
 /// Implementation of the GATT API (IBluetoothGatt).
 pub struct BluetoothGatt {
@@ -901,7 +974,7 @@ impl IBluetoothGatt for BluetoothGatt {
         &mut self,
         scanner_id: u8,
         _settings: ScanSettings,
-        _filters: Vec<ScanFilter>,
+        _filter: ScanFilter,
     ) -> BtStatus {
         // Multiplexing scanners happens at this layer. The implementations of start_scan
         // and stop_scan maintains the state of all registered scanners and based on the states
@@ -1104,9 +1177,19 @@ impl IBluetoothGatt for BluetoothGatt {
         callback: Box<dyn IBluetoothGattCallback + Send>,
         eatt_support: bool,
     ) {
-        let uuid = parse_uuid_string(app_uuid).unwrap();
+        let uuid = match parse_uuid_string(&app_uuid) {
+            Some(id) => id,
+            None => {
+                log::info!("Uuid is malformed: {}", app_uuid);
+                return;
+            }
+        };
         self.context_map.add(&uuid.uu, callback);
-        self.gatt.as_ref().unwrap().client.register_client(&uuid, eatt_support);
+        self.gatt
+            .as_ref()
+            .expect("GATT has not been initialized")
+            .client
+            .register_client(&uuid, eatt_support);
     }
 
     fn unregister_client(&mut self, client_id: i32) {
@@ -2265,6 +2348,7 @@ impl BtifGattScannerCallbacks for BluetoothGatt {
     ) {
         self.scanner_callbacks.for_all_callbacks(|callback| {
             callback.on_scan_result(ScanResult {
+                name: adv_parser::extract_name(adv_data.as_slice()),
                 address: address.to_string(),
                 addr_type,
                 event_type,
@@ -2274,6 +2358,10 @@ impl BtifGattScannerCallbacks for BluetoothGatt {
                 tx_power,
                 rssi,
                 periodic_adv_int,
+                flags: adv_parser::extract_flags(adv_data.as_slice()),
+                service_uuids: adv_parser::extract_service_uuids(adv_data.as_slice()),
+                service_data: adv_parser::extract_service_data(adv_data.as_slice()),
+                manufacturer_data: adv_parser::extract_manufacturer_data(adv_data.as_slice()),
                 adv_data: adv_data.clone(),
             });
         });
