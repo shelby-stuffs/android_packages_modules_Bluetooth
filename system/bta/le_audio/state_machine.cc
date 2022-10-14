@@ -101,6 +101,7 @@ using le_audio::types::ase;
 using le_audio::types::AseState;
 using le_audio::types::AudioContexts;
 using le_audio::types::AudioStreamDataPathState;
+using le_audio::types::CigState;
 using le_audio::types::CodecLocation;
 
 namespace {
@@ -171,16 +172,16 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     switch (group->GetState()) {
       case AseState::BTA_LE_AUDIO_ASE_STATE_CODEC_CONFIGURED:
         if (group->GetCurrentContextType() == context_type) {
-          group->Activate(context_type);
-          if (!group->Activate(context_type)) {
-            LOG(ERROR) << __func__ << ", failed to activate ASEs";
-            return false;
+          if (group->Activate(context_type)) {
+            SetTargetState(group, AseState::BTA_LE_AUDIO_ASE_STATE_STREAMING);
+            if (CigCreate(group)) {
+              return true;
+            }
           }
-          SetTargetState(group, AseState::BTA_LE_AUDIO_ASE_STATE_STREAMING);
-          CigCreate(group);
-          return true;
+          LOG_INFO("Could not activate device, try to configure it again");
         }
 
+        /* We are going to reconfigure whole group. Clear Cises.*/
         ReleaseCisIds(group);
 
         /* If configuration is needed */
@@ -192,7 +193,6 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
         }
 
         group->CigGenerateCisIds(context_type);
-        group->SetContextType(context_type);
         /* All ASEs should aim to achieve target state */
         SetTargetState(group, AseState::BTA_LE_AUDIO_ASE_STATE_STREAMING);
         PrepareAndSendCodecConfigure(group, group->GetFirstActiveDevice());
@@ -361,18 +361,30 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     }
 
     if (status != HCI_SUCCESS) {
-      group->cig_state_ = le_audio::types::CigState::NONE;
+      if (status == HCI_ERR_COMMAND_DISALLOWED) {
+        /*
+         * We are here, because stack has no chance to remove CIG when it was
+         * shut during streaming. In the same time, controller probably was not
+         * Reseted, which creates the issue. Lets remove CIG and try to create
+         * it again.
+         */
+        group->SetCigState(CigState::RECOVERING);
+        IsoManager::GetInstance()->RemoveCig(group->group_id_, true);
+        return;
+      }
+
+      group->SetCigState(CigState::NONE);
       LOG_ERROR(", failed to create CIG, reason: 0x%02x, new cig state: %s",
                 +status, ToString(group->cig_state_).c_str());
       StopStream(group);
       return;
     }
 
-    ASSERT_LOG(group->cig_state_ == le_audio::types::CigState::CREATING,
+    ASSERT_LOG(group->GetCigState() == CigState::CREATING,
                "Unexpected CIG creation group id: %d, cig state: %s",
                group->group_id_, ToString(group->cig_state_).c_str());
 
-    group->cig_state_ = le_audio::types::CigState::CREATED;
+    group->SetCigState(CigState::CREATED);
     LOG_INFO("Group: %p, id: %d cig state: %s, number of cis handles: %d",
              group, group->group_id_, ToString(group->cig_state_).c_str(),
              static_cast<int>(conn_handles.size()));
@@ -404,21 +416,46 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     leAudioDevice->link_quality_timer = nullptr;
   }
 
+  void ProcessHciNotifyOnCigRemoveRecovering(uint8_t status,
+                                             LeAudioDeviceGroup* group) {
+    group->SetCigState(CigState::NONE);
+
+    if (status != HCI_SUCCESS) {
+      LOG_ERROR(
+          "Could not recover from the COMMAND DISALLOAD on CigCreate. Status "
+          "on CIG remove is 0x%02x",
+          status);
+      StopStream(group);
+      return;
+    }
+    LOG_INFO("Succeed on CIG Recover - back to creating CIG");
+    if (!CigCreate(group)) {
+      LOG_ERROR("Could not create CIG. Stop the stream for group %d",
+                group->group_id_);
+      StopStream(group);
+    }
+  }
+
   void ProcessHciNotifOnCigRemove(uint8_t status,
                                   LeAudioDeviceGroup* group) override {
-    if (status) {
-      group->cig_state_ = le_audio::types::CigState::CREATED;
-      LOG_ERROR(
-          "failed to remove cig, id: %d, status 0x%02x, new cig state: %s",
-          group->group_id_, +status, ToString(group->cig_state_).c_str());
+    if (group->GetCigState() == CigState::RECOVERING) {
+      ProcessHciNotifyOnCigRemoveRecovering(status, group);
       return;
     }
 
-    ASSERT_LOG(group->cig_state_ == le_audio::types::CigState::REMOVING,
-               "Unexpected CIG remove group id: %d, cig state %s",
-               group->group_id_, ToString(group->cig_state_).c_str());
+    if (status != HCI_SUCCESS) {
+      group->SetCigState(CigState::CREATED);
+      LOG_ERROR(
+          "failed to remove cig, id: %d, status 0x%02x, new cig state: %s",
+          group->group_id_, +status, ToString(group->GetCigState()).c_str());
+      return;
+    }
 
-    group->cig_state_ = le_audio::types::CigState::NONE;
+    ASSERT_LOG(group->GetCigState() == CigState::REMOVING,
+               "Unexpected CIG remove group id: %d, cig state %s",
+               group->group_id_, ToString(group->GetCigState()).c_str());
+
+    group->SetCigState(CigState::NONE);
 
     LeAudioDevice* leAudioDevice = group->GetFirstDevice();
     if (!leAudioDevice) return;
@@ -556,13 +593,13 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
   void RemoveCigForGroup(LeAudioDeviceGroup* group) {
     LOG_DEBUG("Group: %p, id: %d cig state: %s", group, group->group_id_,
               ToString(group->cig_state_).c_str());
-    if (group->cig_state_ != le_audio::types::CigState::CREATED) {
+    if (group->GetCigState() != CigState::CREATED) {
       LOG_WARN("Group: %p, id: %d cig state: %s cannot be removed", group,
                group->group_id_, ToString(group->cig_state_).c_str());
       return;
     }
 
-    group->cig_state_ = le_audio::types::CigState::REMOVING;
+    group->SetCigState(CigState::REMOVING);
     IsoManager::GetInstance()->RemoveCig(group->group_id_);
     LOG_DEBUG("Group: %p, id: %d cig state: %s", group, group->group_id_,
               ToString(group->cig_state_).c_str());
@@ -1134,7 +1171,7 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     group->CigUnassignCis(leAudioDevice);
   }
 
-  void CigCreate(LeAudioDeviceGroup* group) {
+  bool CigCreate(LeAudioDeviceGroup* group) {
     uint32_t sdu_interval_mtos, sdu_interval_stom;
     uint16_t max_trans_lat_mtos, max_trans_lat_stom;
     uint8_t packing, framing, sca;
@@ -1143,10 +1180,10 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
     LOG_DEBUG("Group: %p, id: %d cig state: %s", group, group->group_id_,
               ToString(group->cig_state_).c_str());
 
-    if (group->cig_state_ != le_audio::types::CigState::NONE) {
+    if (group->GetCigState() != CigState::NONE) {
       LOG_WARN(" Group %p, id: %d has invalid cig state: %s ", group,
                group->group_id_, ToString(group->cig_state_).c_str());
-      return;
+      return false;
     }
 
     sdu_interval_mtos =
@@ -1233,10 +1270,11 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
         .max_trans_lat_mtos = max_trans_lat_mtos,
         .cis_cfgs = std::move(cis_cfgs),
     };
-    group->cig_state_ = le_audio::types::CigState::CREATING;
+    group->SetCigState(CigState::CREATING);
     IsoManager::GetInstance()->CreateCig(group->group_id_, std::move(param));
     LOG_DEBUG("Group: %p, id: %d cig state: %s", group, group->group_id_,
               ToString(group->cig_state_).c_str());
+    return true;
   }
 
   static void CisCreateForDevice(LeAudioDevice* leAudioDevice) {
@@ -1447,7 +1485,7 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
       return;
     }
 
-    if (group->cig_state_ == le_audio::types::CigState::CREATED)
+    if (group->GetCigState() == CigState::CREATED)
       group->CigAssignCisConnHandlesToAses(leAudioDevice);
 
     ase = leAudioDevice->GetFirstActiveAse();
@@ -1576,15 +1614,19 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
 
           if (group->GetTargetState() ==
               AseState::BTA_LE_AUDIO_ASE_STATE_STREAMING) {
-            CigCreate(group);
+            if (!CigCreate(group)) {
+              LOG_ERROR("Could not create CIG. Stop the stream for group %d",
+                        group->group_id_);
+              StopStream(group);
+            }
             return;
           }
 
           if (group->GetTargetState() ==
                   AseState::BTA_LE_AUDIO_ASE_STATE_CODEC_CONFIGURED &&
-              group->stream_conf.pending_configuration) {
+              group->IsPendingConfiguration()) {
             LOG_INFO(" Configured state completed ");
-            group->stream_conf.pending_configuration = false;
+            group->ClearPendingConfiguration();
             state_machine_callbacks_->StatusReportCb(
                 group->group_id_, GroupStreamStatus::CONFIGURED_BY_USER);
 
@@ -1661,15 +1703,19 @@ class LeAudioGroupStateMachineImpl : public LeAudioGroupStateMachine {
 
           if (group->GetTargetState() ==
               AseState::BTA_LE_AUDIO_ASE_STATE_STREAMING) {
-            CigCreate(group);
+            if (!CigCreate(group)) {
+              LOG_ERROR("Could not create CIG. Stop the stream for group %d",
+                        group->group_id_);
+              StopStream(group);
+            }
             return;
           }
 
           if (group->GetTargetState() ==
                   AseState::BTA_LE_AUDIO_ASE_STATE_CODEC_CONFIGURED &&
-              group->stream_conf.pending_configuration) {
+              group->IsPendingConfiguration()) {
             LOG_INFO(" Configured state completed ");
-            group->stream_conf.pending_configuration = false;
+            group->ClearPendingConfiguration();
             state_machine_callbacks_->StatusReportCb(
                 group->group_id_, GroupStreamStatus::CONFIGURED_BY_USER);
 

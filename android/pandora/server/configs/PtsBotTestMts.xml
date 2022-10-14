@@ -5,6 +5,10 @@
         <option name="install-arg" value="-g" />
     </target_preparer>
 
+    <target_preparer class="com.android.tradefed.targetprep.RootTargetPreparer">
+      <option name="force-root" value="true"/>
+    </target_preparer>
+
     <target_preparer class="com.android.tradefed.targetprep.RunHostCommandTargetPreparer">
         <option name="host-background-command" value="adb -s $SERIAL shell am instrument --no-hidden-api-checks -w com.android.pandora/.Main" />
     </target_preparer>
@@ -19,10 +23,14 @@
         <!-- mmi2grpc is contained inside testcases folder -->
         <option name="mmi2grpc" value="testcases" />
         <option name="tests-config-file" value="pts_bot_tests_config.json" />
+        <option name="max-flaky-tests" value="3" />
+        <option name="max-retries-per-test" value="3" />
         <option name="physical" value="false" />
         <option name="profile" value="A2DP/SRC" />
+        <option name="profile" value="A2DP/SNK" />
         <option name="profile" value="AVCTP" />
         <option name="profile" value="AVDTP/SRC" />
+        <option name="profile" value="AVDTP/SNK" />
         <option name="profile" value="AVRCP" />
         <option name="profile" value="GATT/CL/GAC" />
         <option name="profile" value="GATT/CL/GAD" />
@@ -30,8 +38,10 @@
         <option name="profile" value="GATT/CL/GAW" />
         <option name="profile" value="HFP/AG/DIS" />
         <option name="profile" value="HFP/AG/HFI" />
+        <option name="profile" value="HFP/AG/PSI" />
         <option name="profile" value="HFP/AG/SLC" />
         <option name="profile" value="HFP/AG/TCA" />
+        <option name="profile" value="L2CAP/LE/CFC" />
         <option name="profile" value="SDP/SR" />
         <option name="profile" value="SM/CEN/EKS" />
         <option name="profile" value="SM/CEN/JW" />

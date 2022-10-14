@@ -20,6 +20,7 @@
 
 #include "hci/hci_packets.h"
 #include "include/hardware/bluetooth.h"
+#include "include/hardware/bt_av.h"
 #include "include/hardware/bt_hh.h"
 
 namespace bluetooth {
@@ -29,8 +30,18 @@ namespace metrics {
 typedef bt_bond_state_t BtBondState;
 // topshim::btif::BtStatus is a copy of hardware/bluetooth.h:bt_status_t
 typedef bt_status_t BtStatus;
-// topshim::profile::hid_host::BthhConnectionState is a copy of hardware/bluetooth.h:bthh_connection_state_t
+// topshim::profile::a2dp::BtavConnectionState is a copy of hardware/bt_av.h:btav_connection_state_t
+typedef btav_connection_state_t BtavConnectionState;
+// topshim::profile::hid_host::BthhConnectionState is a copy of hardware/bt_hh.h:bthh_connection_state_t
 typedef bthh_connection_state_t BthhConnectionState;
+
+// A copy of topshim::btif::BtDeviceType
+enum class BtDeviceType {
+  Unknown = 0,
+  Bredr,
+  Ble,
+  Dual,
+};
 
 // A normalized connection state ENUM definition all profiles
 enum class ProfilesConnectionState {
@@ -173,6 +184,8 @@ static PairingState FailReasonToPairingState(int32_t fail_reason) {
       return PairingState::PAIR_FAIL_AUTH_FAILED;
     case hci::ErrorCode::ROLE_SWITCH_FAILED:
       return PairingState::PAIR_FAIL_FAILED;
+    case hci::ErrorCode::HOST_BUSY:
+      return PairingState::PAIR_FAIL_BUSY;
     case hci::ErrorCode::CONTROLLER_BUSY:
       return PairingState::PAIR_FAIL_BUSY;
     case hci::ErrorCode::CONNECTION_FAILED_ESTABLISHMENT:
@@ -188,11 +201,35 @@ static PairingState FailReasonToPairingState(int32_t fail_reason) {
     case hci::ErrorCode::UNKNOWN_ADVERTISING_IDENTIFIER:
     case hci::ErrorCode::STATUS_UNKNOWN:
       return PairingState::PAIR_FAIL_UNKNOWN;
+    default:
+      return PairingState::PAIR_FAIL_UNKNOWN;
   }
 }
 
 AdapterState ToAdapterState(uint32_t state) {
   return state == 1 ? AdapterState::ON : AdapterState::OFF;
+}
+
+ConnectionType ToPairingDeviceType(std::string addr, uint32_t device_type) {
+  // A map stores the pending ConnectionType used to match a pairing event with unknown type.
+  // map<address, type>
+  static std::map<std::string, ConnectionType> pending_type;
+
+  switch ((BtDeviceType)device_type) {
+    case BtDeviceType::Ble:
+      pending_type[addr] = ConnectionType::CONN_TYPE_LE;
+      return ConnectionType::CONN_TYPE_LE;
+    case BtDeviceType::Bredr:
+      pending_type[addr] = ConnectionType::CONN_TYPE_BREDR;
+      return ConnectionType::CONN_TYPE_BREDR;
+    case BtDeviceType::Dual:
+    case BtDeviceType::Unknown:
+      if (pending_type.find(addr) != pending_type.end()) {
+        return pending_type[addr];
+      } else {
+        return ConnectionType::CONN_TYPE_UNKNOWN;
+      }
+  }
 }
 
 PairingState ToPairingState(uint32_t status, uint32_t bond_state, int32_t fail_reason) {
@@ -294,7 +331,26 @@ static std::pair<uint32_t, uint32_t> ToProfileConnectionState(uint32_t profile, 
   std::pair<uint32_t, uint32_t> output;
 
   switch ((ProfilesFloss)profile) {
-    // case ProfilesFloss::A2dpSink:
+    case ProfilesFloss::A2dpSink:
+      output.first = (uint32_t)Profile::A2DP;
+      switch ((BtavConnectionState)state) {
+        case BtavConnectionState::BTAV_CONNECTION_STATE_CONNECTED:
+          output.second = (uint32_t)ProfilesConnectionState::CONNECTED;
+          break;
+        case BtavConnectionState::BTAV_CONNECTION_STATE_CONNECTING:
+          output.second = (uint32_t)ProfilesConnectionState::CONNECTING;
+          break;
+        case BtavConnectionState::BTAV_CONNECTION_STATE_DISCONNECTED:
+          output.second = (uint32_t)ProfilesConnectionState::DISCONNECTED;
+          break;
+        case BtavConnectionState::BTAV_CONNECTION_STATE_DISCONNECTING:
+          output.second = (uint32_t)ProfilesConnectionState::DISCONNECTING;
+          break;
+        default:
+          output.second = (uint32_t)ProfilesConnectionState::UNKNOWN;
+          break;
+      }
+      break;
     // case ProfilesFloss::A2dpSource:
     // case ProfilesFloss::AdvAudioDist:
     // case ProfilesFloss::Hsp:

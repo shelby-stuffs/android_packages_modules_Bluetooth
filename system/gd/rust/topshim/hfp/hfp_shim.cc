@@ -210,15 +210,15 @@ int HfpIntf::init() {
   return intf_->Init(DBusHeadsetCallbacks::GetInstance(intf_), 1, false);
 }
 
-int HfpIntf::connect(RustRawAddress bt_addr) {
+uint32_t HfpIntf::connect(RustRawAddress bt_addr) {
   RawAddress addr = rusty::CopyFromRustAddress(bt_addr);
   return intf_->Connect(&addr);
 }
 
-int HfpIntf::connect_audio(RustRawAddress bt_addr, bool sco_offload) {
+int HfpIntf::connect_audio(RustRawAddress bt_addr, bool sco_offload, bool force_cvsd) {
   RawAddress addr = rusty::CopyFromRustAddress(bt_addr);
   intf_->SetScoOffloadEnabled(sco_offload);
-  return intf_->ConnectAudio(&addr);
+  return intf_->ConnectAudio(&addr, force_cvsd);
 }
 
 int HfpIntf::set_active_device(RustRawAddress bt_addr) {
@@ -231,7 +231,7 @@ int HfpIntf::set_volume(int8_t volume, RustRawAddress bt_addr) {
   return intf_->VolumeControl(headset::bthf_volume_type_t::BTHF_VOLUME_TYPE_SPK, volume, &addr);
 }
 
-int HfpIntf::disconnect(RustRawAddress bt_addr) {
+uint32_t HfpIntf::disconnect(RustRawAddress bt_addr) {
   RawAddress addr = rusty::CopyFromRustAddress(bt_addr);
   return intf_->Disconnect(&addr);
 }

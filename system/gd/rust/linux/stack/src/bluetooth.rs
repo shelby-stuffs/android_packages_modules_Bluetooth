@@ -22,8 +22,7 @@ use log::{debug, error, warn};
 use num_traits::cast::ToPrimitive;
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::mpsc::Sender;
@@ -183,6 +182,9 @@ pub trait IBluetooth {
 
     /// Disconnect all profiles supported by device and enabled on adapter.
     fn disconnect_all_enabled_profiles(&mut self, device: BluetoothDevice) -> bool;
+
+    /// Returns whether WBS is supported.
+    fn is_wbs_supported(&self) -> bool;
 }
 
 /// Adapter API for Bluetooth qualification and verification.
@@ -349,6 +351,9 @@ pub struct Bluetooth {
     // Internal API members
     internal_le_rand_queue: VecDeque<OneShotSender<u64>>,
     discoverable_timeout: Option<JoinHandle<()>>,
+
+    /// Used to notify signal handler that we have turned off the stack.
+    sig_notifier: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl Bluetooth {
@@ -357,6 +362,7 @@ impl Bluetooth {
         tx: Sender<Message>,
         intf: Arc<Mutex<BluetoothInterface>>,
         bluetooth_media: Arc<Mutex<Box<BluetoothMedia>>>,
+        sig_notifier: Arc<(Mutex<bool>, Condvar)>,
     ) -> Bluetooth {
         Bluetooth {
             bonded_devices: HashMap::new(),
@@ -384,6 +390,7 @@ impl Bluetooth {
             // Internal API members
             internal_le_rand_queue: VecDeque::<OneShotSender<u64>>::new(),
             discoverable_timeout: None,
+            sig_notifier,
         }
     }
 
@@ -694,6 +701,10 @@ impl BtifBluetoothCallbacks for Bluetooth {
 
         if self.state == BtState::Off {
             self.properties.clear();
+
+            // Let the signal notifier know we are turned off.
+            *self.sig_notifier.0.lock().unwrap() = false;
+            self.sig_notifier.1.notify_all();
         } else {
             // Trigger properties update
             self.intf.lock().unwrap().get_adapter_properties();
@@ -703,6 +714,10 @@ impl BtifBluetoothCallbacks for Bluetooth {
 
             // Ensure device is connectable so that disconnected device can reconnect
             self.set_connectable(true);
+
+            // Notify the signal notifier that we are turned on.
+            *self.sig_notifier.0.lock().unwrap() = true;
+            self.sig_notifier.1.notify_all();
         }
     }
 
@@ -1212,7 +1227,11 @@ impl IBluetooth for Bluetooth {
         }
 
         let address = addr.unwrap();
-        let device_type = self.get_remote_type(device);
+        let device_type = match transport {
+            BtTransport::Bredr => BtDeviceType::Bredr,
+            BtTransport::Le => BtDeviceType::Ble,
+            _ => self.get_remote_type(device),
+        };
 
         // We explicitly log the attempt to start the bonding separate from logging the bond state.
         // The start of the attempt is critical to help identify a bonding/pairing session.
@@ -1599,6 +1618,10 @@ impl IBluetooth for Bluetooth {
         }
 
         return true;
+    }
+
+    fn is_wbs_supported(&self) -> bool {
+        self.intf.lock().unwrap().get_wbs_supported()
     }
 }
 

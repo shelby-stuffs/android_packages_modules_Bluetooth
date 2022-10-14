@@ -9,7 +9,9 @@ use bt_topshim::btif::{BtConnectionState, BtStatus, BtTransport};
 use bt_topshim::profiles::gatt::LePhy;
 use btstack::bluetooth::{BluetoothDevice, IBluetooth, IBluetoothQA};
 use btstack::bluetooth_adv::{AdvertiseData, AdvertisingSetParameters};
-use btstack::bluetooth_gatt::{IBluetoothGatt, RSSISettings, ScanSettings, ScanType};
+use btstack::bluetooth_gatt::{
+    IBluetoothGatt, ScanFilter, ScanFilterCondition, ScanSettings, ScanType,
+};
 use btstack::socket_manager::{IBluetoothSocketManager, SocketResult};
 use btstack::uuid::{Profile, UuidHelper, UuidWrapper};
 use manager_service::iface_bluetooth_manager::IBluetoothManager;
@@ -331,6 +333,7 @@ impl CommandHandler {
                     let cod = adapter_dbus.get_bluetooth_class();
                     let multi_adv_supported = adapter_dbus.is_multi_advertisement_supported();
                     let le_ext_adv_supported = adapter_dbus.is_le_extended_advertising_supported();
+                    let wbs_supported = adapter_dbus.is_wbs_supported();
                     let uuid_helper = UuidHelper::new();
                     let enabled_profiles = uuid_helper.get_enabled_profiles();
                     let connected_profiles: Vec<Profile> = enabled_profiles
@@ -348,6 +351,7 @@ impl CommandHandler {
                     print_info!("IsMultiAdvertisementSupported: {}", multi_adv_supported);
                     print_info!("IsLeExtendedAdvertisingSupported: {}", le_ext_adv_supported);
                     print_info!("Connected profiles: {:?}", connected_profiles);
+                    print_info!("IsWbsSupported: {}", wbs_supported);
                     print_info!(
                         "Uuids: {}",
                         DisplayList(
@@ -703,7 +707,7 @@ impl CommandHandler {
                 );
             }
             "client-connect" => {
-                if args.len() < 3 {
+                if args.len() < 2 {
                     println!("usage: gatt client-connect <addr>");
                     return;
                 }
@@ -725,7 +729,7 @@ impl CommandHandler {
                 );
             }
             "client-disconnect" => {
-                if args.len() < 3 {
+                if args.len() < 2 {
                     println!("usage: gatt client-disconnect <addr>");
                     return;
                 }
@@ -746,7 +750,7 @@ impl CommandHandler {
                     .client_disconnect(client_id.unwrap(), addr);
             }
             "client-read-phy" => {
-                if args.len() < 3 {
+                if args.len() < 2 {
                     println!("usage: gatt client-read-phy <addr>");
                     return;
                 }
@@ -767,7 +771,7 @@ impl CommandHandler {
                     .client_read_phy(client_id.unwrap(), addr);
             }
             "client-discover-services" => {
-                if args.len() < 3 {
+                if args.len() < 2 {
                     println!("usage: gatt client-discover-services <addr>");
                     return;
                 }
@@ -788,7 +792,7 @@ impl CommandHandler {
                     .discover_services(client_id.unwrap(), addr);
             }
             "configure-mtu" => {
-                if args.len() < 4 {
+                if args.len() < 3 {
                     println!("usage: gatt configure-mtu <addr> <mtu>");
                     return;
                 }
@@ -866,13 +870,14 @@ impl CommandHandler {
                     self.context.lock().unwrap().gatt_dbus.as_mut().unwrap().start_scan(
                         id,
                         // TODO(b/217274432): Construct real settings and filters.
-                        ScanSettings {
-                            interval: 0,
-                            window: 0,
-                            rssi_settings: RSSISettings { high_threshold: 0, low_threshold: 0 },
-                            scan_type: ScanType::Active,
+                        ScanSettings { interval: 0, window: 0, scan_type: ScanType::Active },
+                        ScanFilter {
+                            condition: ScanFilterCondition::Patterns(vec![]),
+                            rssi_low_threshold: 0,
+                            rssi_low_timeout: 0,
+                            rssi_high_threshold: 0,
+                            rssi_sampling_period: 0,
                         },
-                        vec![],
                     );
                     self.context.lock().unwrap().active_scanner_ids.insert(id);
                 } else {
