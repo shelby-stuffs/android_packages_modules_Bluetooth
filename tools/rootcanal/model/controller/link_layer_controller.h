@@ -104,6 +104,9 @@ class LinkLayerController {
   ErrorCode AuthenticationRequested(uint16_t handle);
 #endif /* ROOTCANAL_LMP */
 
+  std::vector<bluetooth::hci::Lap> const& ReadCurrentIacLap() const;
+  void WriteCurrentIacLap(std::vector<bluetooth::hci::Lap> iac_lap);
+
   ErrorCode AcceptConnectionRequest(const Address& addr, bool try_role_switch);
   void MakePeripheralConnection(const Address& addr, bool try_role_switch);
   ErrorCode RejectConnectionRequest(const Address& addr, uint8_t reason);
@@ -200,7 +203,8 @@ class LinkLayerController {
   ErrorCode LeRemoteConnectionParameterRequestNegativeReply(
       uint16_t connection_handle, bluetooth::hci::ErrorCode reason);
   uint16_t HandleLeConnection(AddressWithType addr, AddressWithType own_addr,
-                              uint8_t role, uint16_t connection_interval,
+                              bluetooth::hci::Role role,
+                              uint16_t connection_interval,
                               uint16_t connection_latency,
                               uint16_t supervision_timeout,
                               bool send_le_channel_selection_algorithm_event);
@@ -348,8 +352,14 @@ class LinkLayerController {
   void SetInquiryMaxResponses(uint8_t max);
   void Inquiry();
 
+  bool GetInquiryScanEnable() { return inquiry_scan_enable_; }
   void SetInquiryScanEnable(bool enable);
+
+  bool GetPageScanEnable() { return page_scan_enable_; }
   void SetPageScanEnable(bool enable);
+
+  uint16_t GetPageTimeout();
+  void SetPageTimeout(uint16_t page_timeout);
 
   ErrorCode ChangeConnectionPacketType(uint16_t handle, uint16_t types);
   ErrorCode ChangeConnectionLinkKey(uint16_t handle);
@@ -732,6 +742,9 @@ class LinkLayerController {
 
   // Other configuration parameters.
 
+  // Current IAC LAP (Vol 4, Part E § 7.3.44).
+  std::vector<bluetooth::hci::Lap> current_iac_lap_list_{};
+
   // Min Encryption Key Size (Vol 4, Part E § 7.3.102).
   uint8_t min_encryption_key_size_{16};
 
@@ -839,6 +852,8 @@ class LinkLayerController {
 #else
   SecurityManager security_manager_{10};
 #endif /* ROOTCANAL_LMP */
+
+  AsyncTaskId page_timeout_task_id_ = kInvalidTaskId;
 
   std::chrono::steady_clock::time_point last_inquiry_;
   model::packets::InquiryType inquiry_mode_{

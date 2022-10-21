@@ -538,8 +538,18 @@ impl IBluetooth for BluetoothDBus {
         dbus_generated!()
     }
 
+    #[dbus_method("GetRemoteAppearance")]
+    fn get_remote_appearance(&self, device: BluetoothDevice) -> u16 {
+        dbus_generated!()
+    }
+
     #[dbus_method("GetRemoteConnected")]
     fn get_remote_connected(&self, device: BluetoothDevice) -> bool {
+        dbus_generated!()
+    }
+
+    #[dbus_method("GetRemoteWakeAllowed")]
+    fn get_remote_wake_allowed(&self, _device: BluetoothDevice) -> bool {
         dbus_generated!()
     }
 
@@ -1437,7 +1447,7 @@ impl ISuspend for SuspendDBus {
     }
 
     #[dbus_method("Suspend")]
-    fn suspend(&self, _suspend_type: SuspendType) {
+    fn suspend(&mut self, _suspend_type: SuspendType) {
         dbus_generated!()
     }
 
