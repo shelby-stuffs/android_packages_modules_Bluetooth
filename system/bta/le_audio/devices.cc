@@ -2417,8 +2417,7 @@ bool LeAudioDevice::ActivateConfiguredAses(LeAudioContextType context_type) {
 
   LOG_INFO(" Configuring device %s", address_.ToString().c_str());
   for (auto& ase : ases_) {
-    if (!ase.active &&
-        ase.state == AseState::BTA_LE_AUDIO_ASE_STATE_CODEC_CONFIGURED &&
+    if (ase.state == AseState::BTA_LE_AUDIO_ASE_STATE_CODEC_CONFIGURED &&
         ase.configured_for_context_type == context_type) {
       LOG_INFO(
           " conn_id: %d, ase id %d, cis id %d, cis_handle 0x%04x is activated.",
@@ -2432,14 +2431,13 @@ bool LeAudioDevice::ActivateConfiguredAses(LeAudioContextType context_type) {
 }
 
 void LeAudioDevice::DeactivateAllAses(void) {
-  /* Just clear states and keep previous configuration for use
-   * in case device will get reconnected
-   */
   for (auto& ase : ases_) {
     if (ase.active) {
       ase.state = AseState::BTA_LE_AUDIO_ASE_STATE_IDLE;
       ase.data_path_state = AudioStreamDataPathState::IDLE;
       ase.active = false;
+      ase.cis_id = le_audio::kInvalidCisId;
+      ase.cis_conn_hdl = 0;
     }
   }
 }
@@ -2591,13 +2589,18 @@ LeAudioDevice* LeAudioDevices::FindByConnId(uint16_t conn_id) {
   return (iter == leAudioDevices_.end()) ? nullptr : iter->get();
 }
 
-LeAudioDevice* LeAudioDevices::FindByCisConnHdl(const uint16_t conn_hdl) {
+LeAudioDevice* LeAudioDevices::FindByCisConnHdl(uint8_t cig_id,
+                                                uint16_t conn_hdl) {
   auto iter = std::find_if(leAudioDevices_.begin(), leAudioDevices_.end(),
-                           [&conn_hdl](auto& d) {
+                           [&conn_hdl, &cig_id](auto& d) {
                              LeAudioDevice* dev;
                              BidirectAsesPair ases;
 
                              dev = d.get();
+                             if (dev->group_id_ != cig_id) {
+                               return false;
+                             }
+
                              ases = dev->GetAsesByCisConnHdl(conn_hdl);
                              if (ases.sink || ases.source)
                                return true;

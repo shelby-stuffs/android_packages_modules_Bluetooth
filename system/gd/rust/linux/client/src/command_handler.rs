@@ -595,7 +595,17 @@ impl CommandHandler {
                         name: String::from("Classic Device"),
                     };
 
-                    let (name, alias, device_type, class, bonded, connection_state, uuids) = {
+                    let (
+                        name,
+                        alias,
+                        device_type,
+                        class,
+                        appearance,
+                        bonded,
+                        connection_state,
+                        uuids,
+                        wake_allowed,
+                    ) = {
                         let ctx = self.context.lock().unwrap();
                         let adapter = ctx.adapter_dbus.as_ref().unwrap();
 
@@ -603,6 +613,7 @@ impl CommandHandler {
                         let device_type = adapter.get_remote_type(device.clone());
                         let alias = adapter.get_remote_alias(device.clone());
                         let class = adapter.get_remote_class(device.clone());
+                        let appearance = adapter.get_remote_appearance(device.clone());
                         let bonded = adapter.get_bond_state(device.clone());
                         let connection_state = match adapter.get_connection_state(device.clone()) {
                             BtConnectionState::NotConnected => "Not Connected",
@@ -610,8 +621,19 @@ impl CommandHandler {
                             _ => "Connected and Paired",
                         };
                         let uuids = adapter.get_remote_uuids(device.clone());
+                        let wake_allowed = adapter.get_remote_wake_allowed(device.clone());
 
-                        (name, alias, device_type, class, bonded, connection_state, uuids)
+                        (
+                            name,
+                            alias,
+                            device_type,
+                            class,
+                            appearance,
+                            bonded,
+                            connection_state,
+                            uuids,
+                            wake_allowed,
+                        )
                     };
 
                     let uuid_helper = UuidHelper::new();
@@ -620,6 +642,8 @@ impl CommandHandler {
                     print_info!("Alias: {}", alias);
                     print_info!("Type: {:?}", device_type);
                     print_info!("Class: {}", class);
+                    print_info!("Appearance: {}", appearance);
+                    print_info!("Wake Allowed: {}", wake_allowed);
                     print_info!("Bond State: {:?}", bonded);
                     print_info!("Connection State: {}", connection_state);
                     print_info!(

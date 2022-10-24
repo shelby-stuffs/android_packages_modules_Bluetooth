@@ -2094,7 +2094,6 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    @SuppressLint("AndroidFrameworkRequiresPermission")
     public int getBondState() {
         if (DBG) log("getBondState(" + getAnonymizedAddress() + ")");
         final IBluetooth service = getService();

@@ -169,6 +169,7 @@ public class AdapterService extends Service {
     private static final int MIN_OFFLOADED_FILTERS = 10;
     private static final int MIN_OFFLOADED_SCAN_STORAGE_BYTES = 1024;
     private static final Duration PENDING_SOCKET_HANDOFF_TIMEOUT = Duration.ofMinutes(1);
+    private static final Duration GENERATE_LOCAL_OOB_DATA_TIMEOUT = Duration.ofSeconds(2);
 
     private final Object mEnergyInfoLock = new Object();
     private int mStackReportedState;
@@ -2211,18 +2212,22 @@ public class AdapterService extends Service {
          * methods must be changed if the logic behind this method changes.
          */
         @Override
-        public void getProfileConnectionState(int profile, SynchronousResultReceiver receiver) {
+        public void getProfileConnectionState(int profile, AttributionSource source,
+                SynchronousResultReceiver receiver) {
             try {
-                receiver.send(getProfileConnectionState(profile));
+                receiver.send(getProfileConnectionState(profile, source));
             } catch (RuntimeException e) {
                 receiver.propagateException(e);
             }
         }
-        private int getProfileConnectionState(int profile) {
+        @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+        private int getProfileConnectionState(int profile, AttributionSource source) {
             AdapterService service = getService();
             if (service == null
                     || !callerIsSystemOrActiveOrManagedUser(
-                            service, TAG, "getProfileConnectionState")) {
+                            service, TAG, "getProfileConnectionState")
+                    || !Utils.checkConnectPermissionForDataDelivery(
+                            service, source, "AdapterService getProfileConnectionState")) {
                 return BluetoothProfile.STATE_DISCONNECTED;
             }
 
@@ -4206,13 +4211,29 @@ public class AdapterService extends Service {
         if (mOobDataCallbackQueue.peek() != null) {
             try {
                 callback.onError(BluetoothStatusCodes.ERROR_ANOTHER_ACTIVE_OOB_REQUEST);
-                return;
             } catch (RemoteException e) {
                 Log.e(TAG, "Failed to make callback", e);
             }
+            return;
         }
         mOobDataCallbackQueue.offer(callback);
+        mHandler.postDelayed(() -> removeFromOobDataCallbackQueue(callback),
+                GENERATE_LOCAL_OOB_DATA_TIMEOUT.toMillis());
         generateLocalOobDataNative(transport);
+    }
+
+    private synchronized void removeFromOobDataCallbackQueue(IBluetoothOobDataCallback callback) {
+        if (callback == null) {
+            return;
+        }
+
+        if (mOobDataCallbackQueue.peek() == callback) {
+            try {
+                mOobDataCallbackQueue.poll().onError(BluetoothStatusCodes.ERROR_UNKNOWN);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Failed to make OobDataCallback to remove callback from queue", e);
+            }
+        }
     }
 
     /* package */ synchronized void notifyOobDataCallback(int transport, OobData oobData) {
@@ -5280,97 +5301,16 @@ public class AdapterService extends Service {
         }
     }
 
-    // Boolean flags
-    private static final String GD_CORE_FLAG = "INIT_gd_core";
-    private static final String GD_ADVERTISING_FLAG = "INIT_gd_advertising";
-    private static final String GD_SCANNING_FLAG = "INIT_gd_scanning";
-    private static final String GD_HCI_FLAG = "INIT_gd_hci";
-    private static final String GD_CONTROLLER_FLAG = "INIT_gd_controller";
-    private static final String GD_ACL_FLAG = "INIT_gd_acl";
-    private static final String GD_L2CAP_FLAG = "INIT_gd_l2cap";
-    private static final String GD_RUST_FLAG = "INIT_gd_rust";
-    private static final String GD_LINK_POLICY_FLAG = "INIT_gd_link_policy";
-    private static final String GATT_ROBUST_CACHING_CLIENT_FLAG = "INIT_gatt_robust_caching_client";
-    private static final String GATT_ROBUST_CACHING_SERVER_FLAG = "INIT_gatt_robust_caching_server";
-
-    /**
-     * Logging flags logic (only applies to DEBUG and VERBOSE levels):
-     * if LOG_TAG in LOGGING_DEBUG_DISABLED_FOR_TAGS_FLAG:
-     *   DO NOT LOG
-     * else if LOG_TAG in LOGGING_DEBUG_ENABLED_FOR_TAGS_FLAG:
-     *   DO LOG
-     * else if LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG:
-     *   DO LOG
-     * else:
-     *   DO NOT LOG
-     */
-    private static final String LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG =
-            "INIT_logging_debug_enabled_for_all";
-    // String flags
-    // Comma separated tags
-    private static final String LOGGING_DEBUG_ENABLED_FOR_TAGS_FLAG =
-            "INIT_logging_debug_enabled_for_tags";
-    private static final String LOGGING_DEBUG_DISABLED_FOR_TAGS_FLAG =
-            "INIT_logging_debug_disabled_for_tags";
-    private static final String BTAA_HCI_LOG_FLAG = "INIT_btaa_hci";
-
     @RequiresPermission(android.Manifest.permission.READ_DEVICE_CONFIG)
     private String[] getInitFlags() {
+        final DeviceConfig.Properties properties =
+                DeviceConfig.getProperties(DeviceConfig.NAMESPACE_BLUETOOTH);
         ArrayList<String> initFlags = new ArrayList<>();
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_CORE_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_CORE_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_ADVERTISING_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_ADVERTISING_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_SCANNING_FLAG,
-                Config.isGdEnabledUpToScanningLayer())) {
-            initFlags.add(String.format("%s=%s", GD_SCANNING_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_HCI_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_HCI_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_CONTROLLER_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_CONTROLLER_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_ACL_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_ACL_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_L2CAP_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_L2CAP_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_RUST_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_RUST_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_LINK_POLICY_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_LINK_POLICY_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
-                GATT_ROBUST_CACHING_CLIENT_FLAG, true)) {
-            initFlags.add(String.format("%s=%s", GATT_ROBUST_CACHING_CLIENT_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
-                GATT_ROBUST_CACHING_SERVER_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GATT_ROBUST_CACHING_SERVER_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
-                LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG, "true"));
-        }
-        String debugLoggingEnabledTags = DeviceConfig.getString(DeviceConfig.NAMESPACE_BLUETOOTH,
-                LOGGING_DEBUG_ENABLED_FOR_TAGS_FLAG, "");
-        if (!debugLoggingEnabledTags.isEmpty()) {
-            initFlags.add(String.format("%s=%s", LOGGING_DEBUG_ENABLED_FOR_TAGS_FLAG,
-                    debugLoggingEnabledTags));
-        }
-        String debugLoggingDisabledTags = DeviceConfig.getString(DeviceConfig.NAMESPACE_BLUETOOTH,
-                LOGGING_DEBUG_DISABLED_FOR_TAGS_FLAG, "");
-        if (!debugLoggingDisabledTags.isEmpty()) {
-            initFlags.add(String.format("%s=%s", LOGGING_DEBUG_DISABLED_FOR_TAGS_FLAG,
-                    debugLoggingDisabledTags));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, BTAA_HCI_LOG_FLAG, true)) {
-            initFlags.add(String.format("%s=%s", BTAA_HCI_LOG_FLAG, "true"));
+        for (String property: properties.getKeyset()) {
+            if (property.startsWith("INIT_")) {
+                initFlags.add(String.format("%s=%s", property,
+                            properties.getString(property, null)));
+            }
         }
         return initFlags.toArray(new String[0]);
     }
