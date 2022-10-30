@@ -137,6 +137,7 @@ android_app {
     errorprone: {
         javacflags: [
             // "-Xep:AndroidFrameworkRequiresPermission:ERROR",
+            "-Xep:AlmostJavadoc:ERROR",
         ],
     },
 }
