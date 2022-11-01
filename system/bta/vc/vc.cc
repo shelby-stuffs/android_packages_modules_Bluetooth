@@ -145,9 +145,7 @@ class VolumeControlImpl : public VolumeControl {
       return;
     }
 
-    if (!device->EnableEncryption(enc_callback_static)) {
-      device_cleanup_helper(device, device->connecting_actively);
-    }
+    device->EnableEncryption();
   }
 
   void OnEncryptionComplete(const RawAddress& address, uint8_t success) {
@@ -755,7 +753,7 @@ class VolumeControlImpl : public VolumeControl {
     devices_control_point_helper(op->devices_, op->opcode_, &(op->arguments_));
   }
 
-  void PrepareVolumeControlOperation(std::vector<RawAddress>& devices,
+  void PrepareVolumeControlOperation(std::vector<RawAddress> devices,
                                      int group_id, bool is_autonomous,
                                      uint8_t opcode,
                                      std::vector<uint8_t>& arguments) {
@@ -766,11 +764,22 @@ class VolumeControlImpl : public VolumeControl {
         arguments.size());
 
     if (std::find_if(ongoing_operations_.begin(), ongoing_operations_.end(),
-                     [opcode, &arguments](const VolumeOperation& op) {
-                       return (op.opcode_ == opcode) &&
-                              std::equal(op.arguments_.begin(),
-                                         op.arguments_.end(),
-                                         arguments.begin());
+                     [opcode, &devices, &arguments](const VolumeOperation& op) {
+                       if (op.opcode_ != opcode) return false;
+                       if (!std::equal(op.arguments_.begin(),
+                                       op.arguments_.end(), arguments.begin()))
+                         return false;
+                       // Filter out all devices which have the exact operation
+                       // already scheduled
+                       devices.erase(
+                           std::remove_if(devices.begin(), devices.end(),
+                                          [&op](auto d) {
+                                            return find(op.devices_.begin(),
+                                                        op.devices_.end(),
+                                                        d) != op.devices_.end();
+                                          }),
+                           devices.end());
+                       return devices.empty();
                      }) == ongoing_operations_.end()) {
       ongoing_operations_.emplace_back(latest_operation_id_++, group_id,
                                        is_autonomous, opcode, arguments,
@@ -1118,11 +1127,6 @@ class VolumeControlImpl : public VolumeControl {
 
   static void gattc_callback_static(tBTA_GATTC_EVT event, tBTA_GATTC* p_data) {
     if (instance) instance->gattc_callback(event, p_data);
-  }
-
-  static void enc_callback_static(const RawAddress* address, tBT_TRANSPORT,
-                                  void*, tBTM_STATUS status) {
-    if (instance) instance->OnEncryptionComplete(*address, status);
   }
 
   static void chrc_read_callback_static(uint16_t conn_id, tGATT_STATUS status,

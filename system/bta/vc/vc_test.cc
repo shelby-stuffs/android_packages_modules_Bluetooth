@@ -441,19 +441,32 @@ class VolumeControlTest : public ::testing::Test {
     gatt_callback(BTA_GATTC_SEARCH_CMPL_EVT, (tBTA_GATTC*)&event_data);
   }
 
+  void GetEncryptionCompleteEvt(const RawAddress& bda) {
+    tBTA_GATTC cb_data{};
+
+    cb_data.enc_cmpl.client_if = gatt_if;
+    cb_data.enc_cmpl.remote_bda = bda;
+    gatt_callback(BTA_GATTC_ENC_CMPL_CB_EVT, &cb_data);
+  }
+
   void SetEncryptionResult(const RawAddress& address, bool success) {
     ON_CALL(btm_interface, BTM_IsEncrypted(address, _))
         .WillByDefault(DoAll(Return(false)));
-    EXPECT_CALL(btm_interface,
-                SetEncryption(address, _, NotNull(), _, BTM_BLE_SEC_ENCRYPT))
-        .WillOnce(Invoke(
-            [&success](const RawAddress& bd_addr, tBT_TRANSPORT transport,
-                       tBTM_SEC_CALLBACK* p_callback, void* p_ref_data,
-                       tBTM_BLE_SEC_ACT sec_act) -> tBTM_STATUS {
-              p_callback(&bd_addr, transport, p_ref_data,
-                         success ? BTM_SUCCESS : BTM_FAILED_ON_SECURITY);
+    ON_CALL(btm_interface, SetEncryption(address, _, _, _, BTM_BLE_SEC_ENCRYPT))
+        .WillByDefault(Invoke(
+            [&success, this](const RawAddress& bd_addr, tBT_TRANSPORT transport,
+                             tBTM_SEC_CALLBACK* p_callback, void* p_ref_data,
+                             tBTM_BLE_SEC_ACT sec_act) -> tBTM_STATUS {
+              if (p_callback) {
+                p_callback(&bd_addr, transport, p_ref_data,
+                           success ? BTM_SUCCESS : BTM_FAILED_ON_SECURITY);
+              }
+              GetEncryptionCompleteEvt(bd_addr);
               return BTM_SUCCESS;
             }));
+    EXPECT_CALL(btm_interface,
+                SetEncryption(address, _, _, _, BTM_BLE_SEC_ENCRYPT))
+        .Times(1);
   }
 
   void SetSampleDatabaseVCS(uint16_t conn_id) {
@@ -1074,6 +1087,23 @@ TEST_F(VolumeControlCsis, test_set_volume) {
   std::vector<uint8_t> value({0x03, 0x01, 0x02});
   GetNotificationEvent(conn_id_1, test_address_1, 0x0021, value);
   GetNotificationEvent(conn_id_2, test_address_2, 0x0021, value);
+
+  /* Verify exactly one operation with this exact value is queued for each
+   * device */
+  EXPECT_CALL(gatt_queue,
+              WriteCharacteristic(conn_id_1, 0x0024, _, GATT_WRITE, _, _))
+      .Times(1);
+  EXPECT_CALL(gatt_queue,
+              WriteCharacteristic(conn_id_2, 0x0024, _, GATT_WRITE, _, _))
+      .Times(1);
+  VolumeControl::Get()->SetVolume(test_address_1, 20);
+  VolumeControl::Get()->SetVolume(test_address_2, 20);
+  VolumeControl::Get()->SetVolume(test_address_1, 20);
+  VolumeControl::Get()->SetVolume(test_address_2, 20);
+
+  std::vector<uint8_t> value2({20, 0x00, 0x03});
+  GetNotificationEvent(conn_id_1, test_address_1, 0x0021, value2);
+  GetNotificationEvent(conn_id_2, test_address_2, 0x0021, value2);
 }
 
 TEST_F(VolumeControlCsis, test_set_volume_device_not_ready) {

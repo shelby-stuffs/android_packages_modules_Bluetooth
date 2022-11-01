@@ -9,7 +9,6 @@ package {
 
 rust_defaults {
     name: "pdl_defaults",
-    srcs: ["src/main.rs"],
     // LINT.IfChange
     rustlibs: [
         "libcodespan_reporting",
@@ -31,11 +30,13 @@ rust_defaults {
 rust_binary_host {
     name: "pdl",
     defaults: ["pdl_defaults"],
+    srcs: ["src/main.rs"],
 }
 
 rust_test_host {
     name: "pdl_inline_tests",
     defaults: ["pdl_defaults"],
+    srcs: ["src/main.rs"],
     test_suites: ["general-tests"],
     enabled: false, // rustfmt is only available on x86.
     arch: {
@@ -57,6 +58,7 @@ rust_test_host {
 
 rust_test_host {
     name: "pdl_tests",
+    defaults: ["pdl_defaults"],
     srcs: ["tests/pdl_tests.rs"],
     test_suites: ["general-tests"],
     enabled: false, // rustfmt is only available on x86.
@@ -65,11 +67,6 @@ rust_test_host {
             enabled: true,
         },
     },
-    // LINT.IfChange
-    rustlibs: [
-        "libtempfile",
-    ],
-    // LINT.ThenChange(Cargo.toml)
     data: [
         ":bluetooth_packetgen",
         ":pdl",
@@ -129,7 +126,6 @@ genrule {
 // pre-generated binary inputs.
 python_test_host {
     name: "pdl_python_generator_test",
-    defaults: ["modern_python_path_defaults"],
     main: "tests/python_generator_test.py",
     srcs: [
         "tests/python_generator_test.py",
@@ -158,7 +154,6 @@ python_test_host {
 // on selected PDL source files.
 python_test_host {
     name: "pdl_python_parser_test",
-    defaults: ["modern_python_path_defaults"],
     main: "tests/python_parser_test.py",
     srcs: ["tests/python_parser_test.py"],
     data: [
