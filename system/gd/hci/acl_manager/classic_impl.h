@@ -27,6 +27,7 @@
 #include "hci/acl_manager/event_checkers.h"
 #include "hci/acl_manager/round_robin_scheduler.h"
 #include "hci/controller.h"
+#include "os/metrics.h"
 #include "security/security_manager_listener.h"
 #include "security/security_module.h"
 
@@ -215,6 +216,14 @@ struct classic_impl : public security::ISecurityManagerListener {
       }
       return kIllegalConnectionHandle;
     }
+    Address get_address(uint16_t handle) const {
+      std::unique_lock<std::mutex> lock(acl_connections_guard_);
+      auto connection = acl_connections_.find(handle);
+      if (connection == acl_connections_.end()) {
+        return Address::kEmpty;
+      }
+      return connection->second.address_with_type_.GetAddress();
+    }
     bool is_classic_link_already_connected(const Address& address) const {
       std::unique_lock<std::mutex> lock(acl_connections_guard_);
       for (const auto& connection : acl_connections_) {
@@ -310,7 +319,11 @@ struct classic_impl : public security::ISecurityManagerListener {
       LOG_ERROR("Failed to create connection, reporting failure and continuing");
       ASSERT(client_callbacks_ != nullptr);
       client_handler_->Post(common::BindOnce(
-          &ConnectionCallbacks::OnConnectFail, common::Unretained(client_callbacks_), address, status.GetStatus()));
+          &ConnectionCallbacks::OnConnectFail,
+          common::Unretained(client_callbacks_),
+          address,
+          status.GetStatus(),
+          true /* locally initiated */));
       acl_scheduler_->ReportOutgoingAclConnectionFailure();
     } else {
       // everything is good, resume when a connection_complete event arrives
@@ -333,7 +346,11 @@ struct classic_impl : public security::ISecurityManagerListener {
     }
     if (status != ErrorCode::SUCCESS) {
       client_handler_->Post(common::BindOnce(
-          &ConnectionCallbacks::OnConnectFail, common::Unretained(client_callbacks_), address, status));
+          &ConnectionCallbacks::OnConnectFail,
+          common::Unretained(client_callbacks_),
+          address,
+          status,
+          initiator == Initiator::LOCALLY_INITIATED));
       return;
     }
     uint16_t handle = connection_complete.GetConnectionHandle();
@@ -401,7 +418,11 @@ struct classic_impl : public security::ISecurityManagerListener {
         address,
         handler_->BindOnceOn(this, &classic_impl::actually_cancel_connect, address),
         client_handler_->BindOnceOn(
-            client_callbacks_, &ConnectionCallbacks::OnConnectFail, address, ErrorCode::UNKNOWN_CONNECTION));
+            client_callbacks_,
+            &ConnectionCallbacks::OnConnectFail,
+            address,
+            ErrorCode::UNKNOWN_CONNECTION,
+            true /* locally initiated */));
   }
 
   void actually_cancel_connect(Address address) {
@@ -413,6 +434,8 @@ struct classic_impl : public security::ISecurityManagerListener {
   static constexpr bool kRemoveConnectionAfterwards = true;
   void on_classic_disconnect(uint16_t handle, ErrorCode reason) {
     bool event_also_routes_to_other_receivers = connections.crash_on_unknown_handle_;
+    bluetooth::os::LogMetricBluetoothDisconnectionReasonReported(
+        static_cast<uint32_t>(reason), connections.get_address(handle), handle);
     connections.crash_on_unknown_handle_ = false;
     connections.execute(
         handle,
@@ -606,6 +629,8 @@ struct classic_impl : public security::ISecurityManagerListener {
     auto view = ReadRemoteSupportedFeaturesCompleteView::Create(packet);
     ASSERT_LOG(view.IsValid(), "Read remote supported features packet invalid");
     uint16_t handle = view.GetConnectionHandle();
+    bluetooth::os::LogMetricBluetoothRemoteSupportedFeatures(
+        connections.get_address(handle), 0, view.GetLmpFeatures(), handle);
     connections.execute(handle, [=](ConnectionManagementCallbacks* callbacks) {
       callbacks->OnReadRemoteSupportedFeaturesComplete(view.GetLmpFeatures());
     });
@@ -615,6 +640,8 @@ struct classic_impl : public security::ISecurityManagerListener {
     auto view = ReadRemoteExtendedFeaturesCompleteView::Create(packet);
     ASSERT_LOG(view.IsValid(), "Read remote extended features packet invalid");
     uint16_t handle = view.GetConnectionHandle();
+    bluetooth::os::LogMetricBluetoothRemoteSupportedFeatures(
+        connections.get_address(handle), view.GetPageNumber(), view.GetExtendedLmpFeatures(), handle);
     connections.execute(handle, [=](ConnectionManagementCallbacks* callbacks) {
       callbacks->OnReadRemoteExtendedFeaturesComplete(
           view.GetPageNumber(), view.GetMaximumPageNumber(), view.GetExtendedLmpFeatures());
