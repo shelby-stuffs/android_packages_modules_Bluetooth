@@ -44,6 +44,7 @@
 #include "btif/include/btif_profile_queue.h"
 #include "btif/include/btif_rc.h"
 #include "btif/include/btif_util.h"
+#include "btif/include/stack_manager.h"
 #include "btif_metrics_logging.h"
 #include "common/metrics.h"
 #include "common/state_machine.h"
@@ -792,6 +793,10 @@ const char* dump_av_sm_event_name(btif_av_sm_event_t event) {
   }
 }
 
+const char* dump_av_sm_event_name(int event) {
+  return dump_av_sm_event_name(static_cast<btif_av_sm_event_t>(event));
+}
+
 BtifAvEvent::BtifAvEvent(uint32_t event, const void* p_data, size_t data_length)
     : event_(event), data_(nullptr), data_length_(0) {
   DeepCopy(event, p_data, data_length);
@@ -994,13 +999,8 @@ bt_status_t BtifAvSource::Init(
   max_connected_peers_ = max_connected_audio_devices;
 
   /* A2DP OFFLOAD */
-  char value_sup[PROPERTY_VALUE_MAX] = {'\0'};
-  char value_dis[PROPERTY_VALUE_MAX] = {'\0'};
-  osi_property_get("ro.bluetooth.a2dp_offload.supported", value_sup, "false");
-  osi_property_get("persist.bluetooth.a2dp_offload.disabled", value_dis,
-                   "false");
   a2dp_offload_enabled_ =
-      (strcmp(value_sup, "true") == 0) && (strcmp(value_dis, "false") == 0);
+      GetInterfaceToProfiles()->config->isA2DPOffloadEnabled();
   BTIF_TRACE_DEBUG("a2dp_offload.enable = %d", a2dp_offload_enabled_);
 
   callbacks_ = callbacks;
