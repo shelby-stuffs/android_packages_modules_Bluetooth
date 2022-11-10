@@ -38,6 +38,7 @@
 #include "btif/include/stack_manager.h"
 #include "device/include/controller.h"
 #include "device/include/interop.h"
+#include "gd/common/init_flags.h"
 #include "main/shim/acl_api.h"
 #include "main/shim/btm_api.h"
 #include "main/shim/dumpsys.h"
@@ -924,6 +925,10 @@ void bta_dm_discover(tBTA_DM_MSG* p_data) {
   bta_dm_search_cb.transport = p_data->discover.transport;
 
   bta_dm_search_cb.name_discover_done = false;
+
+  LOG_INFO("bta_dm_discovery: starting service discovery to %s , transport: %s",
+           PRIVATE_ADDRESS(p_data->discover.bd_addr),
+           bt_transport_text(p_data->discover.transport).c_str());
   bta_dm_discover_device(p_data->discover.bd_addr);
 }
 
@@ -1145,7 +1150,8 @@ void bta_dm_sdp_result(tBTA_DM_MSG* p_data) {
                   BD_NAME_LEN + 1);
 
           result.disc_ble_res.services = &gatt_uuids;
-          bta_dm_search_cb.p_search_cback(BTA_DM_DISC_BLE_RES_EVT, &result);
+          bta_dm_search_cb.p_search_cback(BTA_DM_GATT_OVER_SDP_RES_EVT,
+                                          &result);
         }
       } else {
         /* SDP_DB_FULL means some records with the
@@ -1373,7 +1379,7 @@ void bta_dm_search_cmpl() {
 
   LOG_INFO("GATT services discovered using LE Transport");
   // send all result back to app
-  bta_dm_search_cb.p_search_cback(BTA_DM_DISC_BLE_RES_EVT, &result);
+  bta_dm_search_cb.p_search_cback(BTA_DM_GATT_OVER_LE_RES_EVT, &result);
 
   bta_dm_search_cb.p_search_cback(BTA_DM_DISC_CMPL_EVT, nullptr);
 
@@ -1400,10 +1406,15 @@ void bta_dm_search_cmpl() {
 void bta_dm_disc_result(tBTA_DM_MSG* p_data) {
   APPL_TRACE_EVENT("%s", __func__);
 
+  /* disc_res.device_type is set only when GATT discovery is finished in
+   * bta_dm_gatt_disc_complete */
+  bool is_gatt_over_ble = ((p_data->disc_result.result.disc_res.device_type &
+                            BT_DEVICE_TYPE_BLE) != 0);
+
   /* if any BR/EDR service discovery has been done, report the event */
-  if ((bta_dm_search_cb.services &
-       ((BTA_ALL_SERVICE_MASK | BTA_USER_SERVICE_MASK) &
-        ~BTA_BLE_SERVICE_MASK)))
+  if (!is_gatt_over_ble && (bta_dm_search_cb.services &
+                            ((BTA_ALL_SERVICE_MASK | BTA_USER_SERVICE_MASK) &
+                             ~BTA_BLE_SERVICE_MASK)))
     bta_dm_search_cb.p_search_cback(BTA_DM_DISC_RES_EVT,
                                     &p_data->disc_result.result);
 
@@ -1506,6 +1517,9 @@ void bta_dm_queue_disc(tBTA_DM_MSG* p_data) {
   tBTA_DM_MSG* p_pending_discovery =
       (tBTA_DM_MSG*)osi_malloc(sizeof(tBTA_DM_API_DISCOVER));
   memcpy(p_pending_discovery, p_data, sizeof(tBTA_DM_API_DISCOVER));
+
+  LOG_INFO("bta_dm_discovery: queuing service discovery to %s",
+           p_pending_discovery->discover.bd_addr.ToString().c_str());
   fixed_queue_enqueue(bta_dm_search_cb.pending_discovery_queue,
                       p_pending_discovery);
 }
@@ -1558,7 +1572,10 @@ bool bta_dm_is_search_request_queued() {
  ******************************************************************************/
 void bta_dm_search_clear_queue() {
   osi_free_and_reset((void**)&bta_dm_search_cb.p_pending_search);
-  fixed_queue_flush(bta_dm_search_cb.pending_discovery_queue, osi_free);
+  if (bluetooth::common::InitFlags::
+          IsBtmDmFlushDiscoveryQueueOnSearchCancel()) {
+    fixed_queue_flush(bta_dm_search_cb.pending_discovery_queue, osi_free);
+  }
 }
 
 /*******************************************************************************
@@ -1798,6 +1815,8 @@ static void bta_dm_discover_device(const RawAddress& remote_bd_addr) {
 
       if (transport == BT_TRANSPORT_LE) {
         if (bta_dm_search_cb.services_to_search & BTA_BLE_SERVICE_MASK) {
+          LOG_INFO("bta_dm_discovery: starting GATT discovery on %s",
+                   PRIVATE_ADDRESS(bta_dm_search_cb.peer_bdaddr));
           // set the raw data buffer here
           memset(g_disc_raw_data_buf, 0, sizeof(g_disc_raw_data_buf));
           /* start GATT for service discovery */
@@ -1805,6 +1824,8 @@ static void bta_dm_discover_device(const RawAddress& remote_bd_addr) {
           return;
         }
       } else {
+        LOG_INFO("bta_dm_discovery: starting SDP discovery on %s",
+                 PRIVATE_ADDRESS(bta_dm_search_cb.peer_bdaddr));
         bta_dm_search_cb.sdp_results = false;
         bta_dm_find_services(bta_dm_search_cb.peer_bdaddr);
         return;

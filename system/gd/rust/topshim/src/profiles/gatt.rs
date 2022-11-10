@@ -8,6 +8,7 @@ use crate::profiles::gatt::bindings::{
     BleAdvertiserInterface, BleScannerInterface,
 };
 use crate::topstack::get_dispatchers;
+use crate::utils::LTCheckedPtr;
 use crate::{cast_to_ffi_address, ccall, deref_ffi_address, mutcxxcall};
 
 use num_traits::cast::{FromPrimitive, ToPrimitive};
@@ -514,6 +515,26 @@ impl Default for LePhy {
     }
 }
 
+#[derive(Clone, Copy, Debug, FromPrimitive, ToPrimitive, PartialEq, PartialOrd)]
+#[repr(u32)]
+pub enum AdvertisingStatus {
+    Success = 0x0,
+    DataTooLarge = 0x1,
+    TooManyAdvertisers = 0x2,
+    AlreadyStarted = 0x3,
+    InternalError = 0x4,
+    FeatureUnsupported = 0x5,
+}
+
+impl From<u8> for AdvertisingStatus {
+    fn from(item: u8) -> Self {
+        match AdvertisingStatus::from_u8(item) {
+            Some(s) => s,
+            None => AdvertisingStatus::InternalError,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum GattClientCallbacks {
     RegisterClient(GattStatus, i32, Uuid),
@@ -949,28 +970,28 @@ u8, *const ffi::RustRawAddress, {
 #[derive(Debug)]
 pub enum GattAdvCallbacks {
     /// Params: Reg Id, Advertiser Id, Tx Power, Status
-    OnAdvertisingSetStarted(i32, u8, i8, GattStatus),
+    OnAdvertisingSetStarted(i32, u8, i8, AdvertisingStatus),
 
     /// Params: Advertiser Id, Enabled, Status
-    OnAdvertisingEnabled(u8, bool, GattStatus),
+    OnAdvertisingEnabled(u8, bool, AdvertisingStatus),
 
     /// Params: Advertiser Id, Status
-    OnAdvertisingDataSet(u8, GattStatus),
+    OnAdvertisingDataSet(u8, AdvertisingStatus),
 
     /// Params: Advertiser Id, Status
-    OnScanResponseDataSet(u8, GattStatus),
+    OnScanResponseDataSet(u8, AdvertisingStatus),
 
     /// Params: Advertiser Id, Tx Power, Status
-    OnAdvertisingParametersUpdated(u8, i8, GattStatus),
+    OnAdvertisingParametersUpdated(u8, i8, AdvertisingStatus),
 
     /// Params: Advertiser Id, Status
-    OnPeriodicAdvertisingParametersUpdated(u8, GattStatus),
+    OnPeriodicAdvertisingParametersUpdated(u8, AdvertisingStatus),
 
     /// Params: Advertiser Id, Status
-    OnPeriodicAdvertisingDataSet(u8, GattStatus),
+    OnPeriodicAdvertisingDataSet(u8, AdvertisingStatus),
 
     /// Params: Advertiser Id, Enabled, Status
-    OnPeriodicAdvertisingEnabled(u8, bool, GattStatus),
+    OnPeriodicAdvertisingEnabled(u8, bool, AdvertisingStatus),
 
     /// Params: Advertiser Id, Address Type, Address
     OnOwnAddressRead(u8, u8, RawAddress),
@@ -984,28 +1005,28 @@ type GDAdvCb = Arc<Mutex<GattAdvCallbacksDispatcher>>;
 
 cb_variant!(GDAdvCb,
     gdadv_on_advertising_set_started -> GattAdvCallbacks::OnAdvertisingSetStarted,
-    i32, u8, i8, u8 -> GattStatus);
+    i32, u8, i8, u8 -> AdvertisingStatus);
 cb_variant!(GDAdvCb,
     gdadv_on_advertising_enabled -> GattAdvCallbacks::OnAdvertisingEnabled,
-    u8, bool, u8 -> GattStatus);
+    u8, bool, u8 -> AdvertisingStatus);
 cb_variant!(GDAdvCb,
     gdadv_on_advertising_data_set -> GattAdvCallbacks::OnAdvertisingDataSet,
-    u8, u8 -> GattStatus);
+    u8, u8 -> AdvertisingStatus);
 cb_variant!(GDAdvCb,
     gdadv_on_scan_response_data_set -> GattAdvCallbacks::OnScanResponseDataSet,
-    u8, u8 -> GattStatus);
+    u8, u8 -> AdvertisingStatus);
 cb_variant!(GDAdvCb,
     gdadv_on_advertising_parameters_updated -> GattAdvCallbacks::OnAdvertisingParametersUpdated,
-    u8, i8, u8 -> GattStatus);
+    u8, i8, u8 -> AdvertisingStatus);
 cb_variant!(GDAdvCb,
     gdadv_on_periodic_advertising_parameters_updated -> GattAdvCallbacks::OnPeriodicAdvertisingParametersUpdated,
-    u8, u8 -> GattStatus);
+    u8, u8 -> AdvertisingStatus);
 cb_variant!(GDAdvCb,
     gdadv_on_periodic_advertising_data_set -> GattAdvCallbacks::OnPeriodicAdvertisingDataSet,
-    u8, u8 -> GattStatus);
+    u8, u8 -> AdvertisingStatus);
 cb_variant!(GDAdvCb,
     gdadv_on_periodic_advertising_enabled -> GattAdvCallbacks::OnPeriodicAdvertisingEnabled,
-    u8, bool, u8 -> GattStatus);
+    u8, bool, u8 -> AdvertisingStatus);
 cb_variant!(GDAdvCb,
 gdadv_on_own_address_read -> GattAdvCallbacks::OnOwnAddressRead, u8, u8,
 *const ffi::RustRawAddress, {
@@ -1121,12 +1142,8 @@ impl GattClient {
     }
 
     pub fn search_service(&self, conn_id: i32, filter_uuid: Option<Uuid>) -> BtStatus {
-        let filter_uuid_ptr = match filter_uuid {
-            None => std::ptr::null(),
-            Some(uuid) => &uuid,
-        };
-
-        BtStatus::from(ccall!(self, search_service, conn_id, filter_uuid_ptr))
+        let filter_uuid_ptr = LTCheckedPtr::from(&filter_uuid);
+        BtStatus::from(ccall!(self, search_service, conn_id, filter_uuid_ptr.into()))
     }
 
     pub fn btif_gattc_discover_service_by_uuid(&self, conn_id: i32, uuid: &Uuid) {
@@ -1164,6 +1181,7 @@ impl GattClient {
         auth_req: i32,
         value: &[u8],
     ) -> BtStatus {
+        let value_ptr = LTCheckedPtr::from(value);
         BtStatus::from(ccall!(
             self,
             write_characteristic,
@@ -1171,7 +1189,7 @@ impl GattClient {
             handle,
             write_type,
             auth_req,
-            value.as_ptr(),
+            value_ptr.into(),
             value.len()
         ))
     }
@@ -1187,13 +1205,14 @@ impl GattClient {
         auth_req: i32,
         value: &[u8],
     ) -> BtStatus {
+        let value_ptr = LTCheckedPtr::from(value);
         BtStatus::from(ccall!(
             self,
             write_descriptor,
             conn_id,
             handle,
             auth_req,
-            value.as_ptr(),
+            value_ptr.into(),
             value.len()
         ))
     }
@@ -1320,7 +1339,8 @@ impl GattServer {
     }
 
     pub fn add_service(&self, server_if: i32, service: &[BtGattDbElement]) -> BtStatus {
-        BtStatus::from(ccall!(self, add_service, server_if, service.as_ptr(), service.len()))
+        let service_ptr = LTCheckedPtr::from(service);
+        BtStatus::from(ccall!(self, add_service, server_if, service_ptr.into(), service.len()))
     }
 
     pub fn stop_service(&self, server_if: i32, service_handle: i32) -> BtStatus {
@@ -1339,6 +1359,7 @@ impl GattServer {
         confirm: i32,
         value: &[u8],
     ) -> BtStatus {
+        let value_ptr = LTCheckedPtr::from(value);
         BtStatus::from(ccall!(
             self,
             send_indication,
@@ -1346,7 +1367,7 @@ impl GattServer {
             attribute_handle,
             conn_id,
             confirm,
-            value.as_ptr(),
+            value_ptr.into(),
             value.len()
         ))
     }
@@ -1727,7 +1748,7 @@ impl Gatt {
             panic!("Tried to set dispatcher for GattAdvCallbacks but it already existed");
         }
 
-        let mut gatt_client_callbacks = Box::new(btgatt_client_callbacks_t {
+        let gatt_client_callbacks = Box::new(btgatt_client_callbacks_t {
             register_client_cb: Some(gc_register_client_cb),
             open_cb: Some(gc_open_cb),
             close_cb: Some(gc_close_cb),
@@ -1753,7 +1774,7 @@ impl Gatt {
             subrate_chg_cb: None,
         });
 
-        let mut gatt_server_callbacks = Box::new(btgatt_server_callbacks_t {
+        let gatt_server_callbacks = Box::new(btgatt_server_callbacks_t {
             register_server_cb: Some(gs_register_server_cb),
             connection_cb: Some(gs_connection_cb),
             service_added_cb: Some(gs_service_added_cb),
@@ -1773,23 +1794,23 @@ impl Gatt {
             subrate_chg_cb : None,
         });
 
-        let mut gatt_scanner_callbacks = Box::new(btgatt_scanner_callbacks_t {
+        let gatt_scanner_callbacks = Box::new(btgatt_scanner_callbacks_t {
             scan_result_cb: None,
             batchscan_reports_cb: None,
             batchscan_threshold_cb: None,
             track_adv_event_cb: None,
         });
 
-        let mut callbacks = Box::new(btgatt_callbacks_t {
+        let callbacks = Box::new(btgatt_callbacks_t {
             size: std::mem::size_of::<btgatt_callbacks_t>(),
-            client: &mut *gatt_client_callbacks,
-            server: &mut *gatt_server_callbacks,
-            scanner: &mut *gatt_scanner_callbacks,
+            client: &*gatt_client_callbacks,
+            server: &*gatt_server_callbacks,
+            scanner: &*gatt_scanner_callbacks,
         });
 
-        let rawcb = &mut *callbacks;
+        let cb_ptr = LTCheckedPtr::from(&callbacks);
 
-        let init = ccall!(self, init, rawcb);
+        let init = ccall!(self, init, cb_ptr.into());
         self.is_init = init == 0;
         self.callbacks = Some(callbacks);
         self.gatt_client_callbacks = Some(gatt_client_callbacks);
