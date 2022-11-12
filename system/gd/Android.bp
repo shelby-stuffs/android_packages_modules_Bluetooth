@@ -59,7 +59,7 @@ cc_defaults {
     name: "gd_clang_file_coverage",
     target: {
         glibc: {
-            clang_cflags: [
+            cflags: [
                 "-fprofile-instr-generate",
                 "-fcoverage-mapping",
             ],
@@ -189,6 +189,7 @@ cc_defaults {
         ":BluetoothShimSources",
         ":BluetoothSecuritySources",
         ":BluetoothStorageSources",
+        ":BluetoothSyspropsSources",
     ],
     generated_headers: [
         "BluetoothGeneratedBundlerSchema_h_bfbs",
@@ -198,6 +199,9 @@ cc_defaults {
     shared_libs: [
         "libcrypto",
         "libflatbuffers-cpp",
+    ],
+    whole_static_libs: [
+        "libc++fs",
     ],
     static_libs: [
         "libbluetooth-dumpsys",
@@ -225,10 +229,11 @@ cc_library {
         "libbluetooth_gd_defaults",
     ],
     srcs: [
-        ":BluetoothOsSources_fuzz",
+        ":BluetoothOsSources_fake_timer",
     ],
     cflags: [
         "-DFUZZ_TARGET",
+        "-DUSE_FAKE_TIMERS",
     ],
 }
 
@@ -486,6 +491,7 @@ cc_defaults {
     ],
     cflags: [
         "-DFUZZ_TARGET",
+        "-DUSE_FAKE_TIMERS",
     ],
     target: {
         android: {
@@ -610,7 +616,25 @@ rust_library {
     ],
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
+    ],
+    min_sdk_version: "30",
+}
+
+rust_library {
+    name: "libbt_packets_nonapex",
+    defaults: ["gd_rust_defaults"],
+    crate_name: "bt_packets",
+    srcs: ["rust/packets/lib.rs", ":BluetoothGeneratedPackets_rust"],
+    edition: "2018",
+    vendor_available : true,
+    host_supported: true,
+    proc_macros: ["libnum_derive"],
+    rustlibs: [
+        "libbytes",
+        "libnum_traits",
+        "libthiserror",
+        "liblog_rust",
     ],
     min_sdk_version: "30",
 }

@@ -563,7 +563,7 @@ bt_status_t btif_hh_connect(const RawAddress* bd_addr) {
     BTIF_TRACE_WARNING(
         "%s: Error, exceeded the maximum supported HID device number %d",
         __func__, BTIF_HH_MAX_HID);
-    return BT_STATUS_FAIL;
+    return BT_STATUS_NOMEM;
   }
 
   for (int i = 0; i < BTIF_HH_MAX_ADDED_DEV; i++) {
@@ -582,7 +582,7 @@ bt_status_t btif_hh_connect(const RawAddress* bd_addr) {
                  << " added but addition failed";
       added_dev->bd_addr = RawAddress::kEmpty;
       added_dev->dev_handle = BTA_HH_INVALID_HANDLE;
-      return BT_STATUS_FAIL;
+      return BT_STATUS_NOMEM;
     }
   }
 
@@ -601,10 +601,13 @@ bt_status_t btif_hh_connect(const RawAddress* bd_addr) {
   btif_hh_cb.pending_conn_address = *bd_addr;
   BTA_HhOpen(*bd_addr);
 
-  // TODO(jpawlowski); make cback accept const and remove tmp!
-  auto tmp = *bd_addr;
-  HAL_CBACK(bt_hh_callbacks, connection_state_cb, &tmp,
-            BTHH_CONN_STATE_CONNECTING);
+  do_in_jni_thread(
+      base::Bind(
+          [](RawAddress *bd_addr) {
+            HAL_CBACK(bt_hh_callbacks, connection_state_cb, bd_addr,
+                BTHH_CONN_STATE_CONNECTING);
+          },
+          (RawAddress*)bd_addr));
   return BT_STATUS_SUCCESS;
 }
 

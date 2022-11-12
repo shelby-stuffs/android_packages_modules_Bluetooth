@@ -37,6 +37,7 @@
 #include "main/shim/shim.h"
 #include "main/shim/stack.h"
 #include "osi/include/allocator.h"
+#include "stack/btm/btm_ble_int.h"
 #include "stack/btm/btm_int_types.h"
 #include "stack/btm/btm_sec.h"
 #include "stack/include/bt_hdr.h"
@@ -1348,14 +1349,24 @@ tBTM_STATUS bluetooth::shim::BTM_ClearFilterAcceptList() {
 }
 
 tBTM_STATUS bluetooth::shim::BTM_DisconnectAllAcls() {
-  for (uint16_t i = 0; i < 0xfffe; i++) {
-    btm_sec_disconnect(i, HCI_SUCCESS, "");
-  }
+  Stack::GetInstance()->GetAcl()->Shutdown();
   return BTM_SUCCESS;
 }
 
 tBTM_STATUS bluetooth::shim::BTM_LeRand(LeRandCallback cb) {
   controller_get_interface()->le_rand(cb);
+  return BTM_SUCCESS;
+}
+
+tBTM_STATUS bluetooth::shim::BTM_SetEventFilterConnectionSetupAllDevices() {
+  // Autoplumbed
+  controller_get_interface()->set_event_filter_connection_setup_all_devices();
+  return BTM_SUCCESS;
+}
+
+tBTM_STATUS bluetooth::shim::BTM_AllowWakeByHid() {
+  // Autoplumbed
+  controller_get_interface()->allow_wake_by_hid();
   return BTM_SUCCESS;
 }
 
@@ -1374,5 +1385,10 @@ tBTM_STATUS bluetooth::shim::BTM_SetDefaultEventMask() {
 tBTM_STATUS bluetooth::shim::BTM_SetEventFilterInquiryResultAllDevices() {
   // Autoplumbed
   controller_get_interface()->set_event_filter_inquiry_result_all_devices();
+  return BTM_SUCCESS;
+}
+
+tBTM_STATUS bluetooth::shim::BTM_BleResetId() {
+  btm_ble_reset_id();
   return BTM_SUCCESS;
 }

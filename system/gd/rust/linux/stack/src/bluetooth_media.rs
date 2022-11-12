@@ -29,7 +29,10 @@ use crate::bluetooth::{Bluetooth, BluetoothDevice, IBluetooth};
 use crate::callbacks::Callbacks;
 use crate::{Message, RPCProxy};
 
-const DEFAULT_PROFILE_DISCOVERY_TIMEOUT_SEC: u64 = 5;
+// The timeout we have to wait for all supported profiles to connect after we
+// receive the first profile connected event. In the worst scenario, we'll have
+// 2 * PROFILE_DISCOVERY_TIMEOUT_SEC of waiting time.
+const PROFILE_DISCOVERY_TIMEOUT_SEC: u64 = 5;
 
 pub trait IBluetoothMedia {
     ///
@@ -60,7 +63,14 @@ pub trait IBluetoothMedia {
     fn set_hfp_volume(&mut self, volume: u8, address: String);
     fn start_audio_request(&mut self);
     fn stop_audio_request(&mut self);
-    fn get_a2dp_audio_started(&mut self) -> bool;
+
+    /// Returns non-zero value iff A2DP audio has started.
+    fn get_a2dp_audio_started(&mut self, address: String) -> u8;
+
+    /// Returns the negotiated codec (CVSD=1, mSBC=2) to use if HFP audio has started.
+    /// Returns 0 if HFP audio hasn't started.
+    fn get_hfp_audio_started(&mut self, address: String) -> u8;
+
     fn get_presentation_position(&mut self) -> PresentationPosition;
 
     fn start_sco_call(&mut self, address: String);
@@ -128,9 +138,10 @@ pub struct BluetoothMedia {
     a2dp: Option<A2dp>,
     avrcp: Option<Avrcp>,
     a2dp_states: HashMap<RawAddress, BtavConnectionState>,
-    a2dp_audio_state: BtavAudioState,
+    a2dp_audio_state: HashMap<RawAddress, BtavAudioState>,
     hfp: Option<Hfp>,
     hfp_states: HashMap<RawAddress, BthfConnectionState>,
+    hfp_audio_state: HashMap<RawAddress, BthfAudioState>,
     selectable_caps: HashMap<RawAddress, Vec<A2dpCodecConfig>>,
     hfp_caps: HashMap<RawAddress, HfpCodecCapability>,
     device_added_tasks: Arc<Mutex<HashMap<RawAddress, Option<JoinHandle<()>>>>>,
@@ -151,9 +162,10 @@ impl BluetoothMedia {
             a2dp: None,
             avrcp: None,
             a2dp_states: HashMap::new(),
-            a2dp_audio_state: BtavAudioState::RemoteSuspend,
+            a2dp_audio_state: HashMap::new(),
             hfp: None,
             hfp_states: HashMap::new(),
+            hfp_audio_state: HashMap::new(),
             selectable_caps: HashMap::new(),
             hfp_caps: HashMap::new(),
             device_added_tasks: Arc::new(Mutex::new(HashMap::new())),
@@ -180,7 +192,7 @@ impl BluetoothMedia {
                         self.a2dp_states.insert(addr, state);
                     }
                     BtavConnectionState::Disconnected => {
-                        self.a2dp_audio_state = BtavAudioState::RemoteSuspend;
+                        self.a2dp_audio_state.remove(&addr);
                         match self.a2dp_states.remove(&addr) {
                             Some(_) => self.notify_media_capability_removed(addr),
                             None => {
@@ -193,8 +205,8 @@ impl BluetoothMedia {
                     }
                 }
             }
-            A2dpCallbacks::AudioState(_addr, state) => {
-                self.a2dp_audio_state = state;
+            A2dpCallbacks::AudioState(addr, state) => {
+                self.a2dp_audio_state.insert(addr, state);
             }
             A2dpCallbacks::AudioConfig(addr, _config, _local_caps, selectable_caps) => {
                 self.selectable_caps.insert(addr, selectable_caps);
@@ -205,17 +217,45 @@ impl BluetoothMedia {
 
     pub fn dispatch_avrcp_callbacks(&mut self, cb: AvrcpCallbacks) {
         match cb {
-            AvrcpCallbacks::AvrcpAbsoluteVolumeEnabled(supported) => {
+            AvrcpCallbacks::AvrcpDeviceConnected(addr, supported) => {
+                if self.absolute_volume == supported {
+                    return;
+                }
+
                 self.absolute_volume = supported;
-                self.callbacks.lock().unwrap().for_all_callbacks(|callback| {
-                    callback.on_absolute_volume_supported_changed(supported);
-                });
+                let mut guard = self.device_added_tasks.lock().unwrap();
+                if let Some(task) = guard.get(&addr) {
+                    match task {
+                        // There is a device added event waiting for other
+                        // profiles (A2DP or HFP) to connect. We need to cancel
+                        // the pending event to update the absolute volume
+                        // capability.
+                        // This refreshes the timeout waiting for potential
+                        // profile connection and makes the worst case total
+                        // waiting time to 2 * PROFILE_DISCOVERY_TIMEOUT_SEC.
+                        Some(handler) => {
+                            handler.abort();
+                            guard.remove(&addr);
+                            drop(guard);
+                            self.notify_media_capability_added(addr);
+                        }
+                        // This addr has been added so trigger the absolute
+                        // volume supported changed callback.
+                        None => self.callbacks.lock().unwrap().for_all_callbacks(|callback| {
+                            callback.on_absolute_volume_supported_changed(supported);
+                        }),
+                    }
+                } else {
+                    info!("[{}]: Device's avrcp connected before a2dp and hfp", addr.to_string());
+                }
             }
+            AvrcpCallbacks::AvrcpDeviceDisconnected(_addr) => {}
             AvrcpCallbacks::AvrcpAbsoluteVolumeUpdate(volume) => {
                 self.callbacks.lock().unwrap().for_all_callbacks(|callback| {
                     callback.on_absolute_volume_changed(volume);
                 });
             }
+            AvrcpCallbacks::AvrcpSendKeyEvent(_key, _value) => {}
         }
     }
 
@@ -240,15 +280,17 @@ impl BluetoothMedia {
                     }
                     BthfConnectionState::SlcConnected => {
                         info!("[{}]: hfp slc connected.", addr.to_string());
-                        let mut hfp_caps = HfpCodecCapability::CVSD;
-                        if self.hfp.as_mut().unwrap().get_wbs_supported() {
-                            hfp_caps = hfp_caps | HfpCodecCapability::MSBC;
+                        // The device may not support codec-negotiation,
+                        // in which case we shall assume it supports CVSD at this point.
+                        if !self.hfp_caps.contains_key(&addr) {
+                            self.hfp_caps.insert(addr, HfpCodecCapability::CVSD);
                         }
-                        self.hfp_caps.insert(addr, hfp_caps);
                         self.notify_media_capability_added(addr);
                     }
                     BthfConnectionState::Disconnected => {
                         info!("[{}]: hfp disconnected.", addr.to_string());
+                        self.hfp_caps.remove(&addr);
+                        self.hfp_audio_state.remove(&addr);
                         match self.hfp_states.remove(&addr) {
                             Some(_) => self.notify_media_capability_removed(addr),
                             None => {
@@ -274,6 +316,7 @@ impl BluetoothMedia {
                     warn!("[{}]: Unknown address hfp or slc not ready", addr.to_string());
                     return;
                 }
+
                 match state {
                     BthfAudioState::Connected => {
                         info!("[{}]: hfp audio connected.", addr.to_string());
@@ -288,11 +331,21 @@ impl BluetoothMedia {
                         info!("[{}]: hfp audio disconnecting.", addr.to_string());
                     }
                 }
+
+                self.hfp_audio_state.insert(addr, state);
             }
             HfpCallbacks::VolumeUpdate(volume, addr) => {
                 self.callbacks.lock().unwrap().for_all_callbacks(|callback| {
                     callback.on_hfp_volume_changed(volume, addr.to_string());
                 });
+            }
+            HfpCallbacks::CapsUpdate(wbs_supported, addr) => {
+                let hfp_caps = match wbs_supported {
+                    true => HfpCodecCapability::CVSD | HfpCodecCapability::MSBC,
+                    false => HfpCodecCapability::CVSD,
+                };
+
+                self.hfp_caps.insert(addr, hfp_caps);
             }
         }
     }
@@ -385,7 +438,7 @@ impl BluetoothMedia {
                         absolute_volume,
                     );
                     let task = topstack::get_runtime().spawn(async move {
-                        sleep(Duration::from_secs(DEFAULT_PROFILE_DISCOVERY_TIMEOUT_SEC)).await;
+                        sleep(Duration::from_secs(PROFILE_DISCOVERY_TIMEOUT_SEC)).await;
                         if dedup_added_cb(device_added_tasks, addr, callbacks, device, true) {
                             warn!(
                                 "[{}]: Add a device with only hfp or a2dp capability after timeout.",
@@ -616,10 +669,42 @@ impl IBluetoothMedia for BluetoothMedia {
         }
     }
 
-    fn get_a2dp_audio_started(&mut self) -> bool {
-        match self.a2dp_audio_state {
-            BtavAudioState::Started => true,
-            _ => false,
+    fn get_a2dp_audio_started(&mut self, address: String) -> u8 {
+        if let Some(addr) = RawAddress::from_string(address.clone()) {
+            match self.a2dp_audio_state.get(&addr) {
+                Some(BtavAudioState::Started) => 1,
+                _ => 0,
+            }
+        } else {
+            warn!("Invalid device string {}", address);
+            0
+        }
+    }
+
+    fn get_hfp_audio_started(&mut self, address: String) -> u8 {
+        if let Some(addr) = RawAddress::from_string(address.clone()) {
+            match self.hfp_audio_state.get(&addr) {
+                Some(BthfAudioState::Connected) => match self.hfp_caps.get(&addr) {
+                    Some(caps)
+                        if (*caps & HfpCodecCapability::MSBC) == HfpCodecCapability::MSBC =>
+                    {
+                        2
+                    }
+                    Some(caps)
+                        if (*caps & HfpCodecCapability::CVSD) == HfpCodecCapability::CVSD =>
+                    {
+                        1
+                    }
+                    _ => {
+                        warn!("hfp_caps not found, fallback to CVSD.");
+                        1
+                    }
+                },
+                _ => 0,
+            }
+        } else {
+            warn!("Invalid device string {}", address);
+            0
         }
     }
 

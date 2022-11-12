@@ -548,7 +548,7 @@ enum {
 
 #ifndef BTA_DM_PM_PARK_IDX
 #define BTA_DM_PM_PARK_IDX \
-  6 /* the actual index to bta_dm_pm_md[] for PARK mode */
+  7 /* the actual index to bta_dm_pm_md[] for PARK mode */
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_A2DP_IDX
@@ -1225,6 +1225,28 @@ extern void BTA_DmLeRand(LeRandCallback cb);
 
 /*******************************************************************************
  *
+ * Function        BTA_DmSetEventFilterConnectionSetupAllDevices
+ *
+ * Description    Tell the controller to allow all devices
+ *
+ * Parameters
+ *
+ *******************************************************************************/
+extern void BTA_DmSetEventFilterConnectionSetupAllDevices();
+
+/*******************************************************************************
+ *
+ * Function        BTA_DmAllowWakeByHid
+ *
+ * Description    Allow the device to be woken by HID devices
+ *
+ * Parameters
+ *
+ *******************************************************************************/
+extern void BTA_DmAllowWakeByHid();
+
+/*******************************************************************************
+ *
  * Function        BTA_DmRestoreFilterAcceptList
  *
  * Description    Floss: Restore the state of the for the filter accept list
@@ -1255,5 +1277,16 @@ extern void BTA_DmSetDefaultEventMask();
  *
  *******************************************************************************/
 extern void BTA_DmSetEventFilterInquiryResultAllDevices();
+
+/*******************************************************************************
+ *
+ * Function         BTA_DmBleResetId
+ *
+ * Description      This function resets the ble keys such as IRK
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+extern void BTA_DmBleResetId(void);
 
 #endif /* BTA_API_H */

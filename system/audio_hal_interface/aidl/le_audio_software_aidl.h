@@ -76,6 +76,8 @@ class LeAudioTransport {
 
   void StopRequest();
 
+  void SetLowLatency(bool is_low_latency);
+
   bool GetPresentationPosition(uint64_t* remote_delay_report_ns,
                                uint64_t* total_bytes_processed,
                                timespec* data_position);
@@ -96,6 +98,11 @@ class LeAudioTransport {
                                       uint8_t channels_count,
                                       uint32_t data_interval);
 
+  void LeAudioSetBroadcastConfig(
+      const ::le_audio::broadcast_offload_config& offload_config);
+
+  const LeAudioBroadcastConfiguration& LeAudioGetBroadcastConfig();
+
   bool IsPendingStartStream(void);
   void ClearPendingStartStream(void);
 
@@ -106,6 +113,7 @@ class LeAudioTransport {
   uint64_t total_bytes_processed_;
   timespec data_position_;
   PcmConfiguration pcm_config_;
+  LeAudioBroadcastConfiguration broadcast_config_;
   bool is_pending_start_request_;
 };
 
@@ -122,6 +130,8 @@ class LeAudioSinkTransport
   BluetoothAudioCtrlAck SuspendRequest() override;
 
   void StopRequest() override;
+
+  void SetLowLatency(bool is_low_latency) override;
 
   bool GetPresentationPosition(uint64_t* remote_delay_report_ns,
                                uint64_t* total_bytes_read,
@@ -142,6 +152,11 @@ class LeAudioSinkTransport
   void LeAudioSetSelectedHalPcmConfig(uint32_t sample_rate_hz, uint8_t bit_rate,
                                       uint8_t channels_count,
                                       uint32_t data_interval);
+
+  void LeAudioSetBroadcastConfig(
+      const ::le_audio::broadcast_offload_config& offload_config);
+
+  const LeAudioBroadcastConfiguration& LeAudioGetBroadcastConfig();
 
   bool IsPendingStartStream(void);
   void ClearPendingStartStream(void);
@@ -169,6 +184,8 @@ class LeAudioSourceTransport
   BluetoothAudioCtrlAck SuspendRequest() override;
 
   void StopRequest() override;
+
+  void SetLowLatency(bool is_low_latency) override;
 
   bool GetPresentationPosition(uint64_t* remote_delay_report_ns,
                                uint64_t* total_bytes_written,

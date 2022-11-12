@@ -11,7 +11,9 @@ use crate::callbacks::{
     BtCallback, BtConnectionCallback, BtManagerCallback, ScannerCallback, SuspendCallback,
 };
 use crate::command_handler::CommandHandler;
-use crate::dbus_iface::{BluetoothDBus, BluetoothGattDBus, BluetoothManagerDBus, SuspendDBus};
+use crate::dbus_iface::{
+    BluetoothDBus, BluetoothGattDBus, BluetoothManagerDBus, BluetoothQADBus, SuspendDBus,
+};
 use crate::editor::AsyncEditor;
 use bt_topshim::topstack;
 use btstack::bluetooth::{BluetoothDevice, IBluetooth};
@@ -55,6 +57,9 @@ pub(crate) struct ClientContext {
     /// session starts so that previous results don't pollute current search.
     pub(crate) found_devices: HashMap<String, BluetoothDevice>,
 
+    /// List of bonded devices.
+    pub(crate) bonded_devices: HashMap<String, BluetoothDevice>,
+
     /// If set, the registered GATT client id. None otherwise.
     pub(crate) gatt_client_id: Option<i32>,
 
@@ -63,6 +68,9 @@ pub(crate) struct ClientContext {
 
     /// Proxy for adapter interface. Only exists when the default adapter is enabled.
     pub(crate) adapter_dbus: Option<BluetoothDBus>,
+
+    /// Proxy for adapter QA interface. Only exists when the default adapter is enabled.
+    pub(crate) qa_dbus: Option<BluetoothQADBus>,
 
     /// Proxy for GATT interface.
     pub(crate) gatt_dbus: Option<BluetoothGattDBus>,
@@ -102,9 +110,11 @@ impl ClientContext {
             bonding_attempt: None,
             discovering_state: false,
             found_devices: HashMap::new(),
+            bonded_devices: HashMap::new(),
             gatt_client_id: None,
             manager_dbus,
             adapter_dbus: None,
+            qa_dbus: None,
             gatt_dbus: None,
             suspend_dbus: None,
             fg: tx,
@@ -141,6 +151,7 @@ impl ClientContext {
 
         let dbus = BluetoothDBus::new(conn.clone(), idx);
         self.adapter_dbus = Some(dbus);
+        self.qa_dbus = Some(BluetoothQADBus::new(conn.clone(), idx));
 
         let gatt_dbus = BluetoothGattDBus::new(conn.clone(), idx);
         self.gatt_dbus = Some(gatt_dbus);
@@ -163,6 +174,15 @@ impl ClientContext {
         address
     }
 
+    // Foreground-only: Updates bonded devices.
+    fn update_bonded_devices(&mut self) {
+        let bonded_devices = self.adapter_dbus.as_ref().unwrap().get_bonded_devices();
+
+        for device in bonded_devices {
+            self.bonded_devices.insert(device.address.clone(), device.clone());
+        }
+    }
+
     fn connect_all_enabled_profiles(&mut self, device: BluetoothDevice) {
         let fg = self.fg.clone();
         tokio::spawn(async move {
@@ -175,6 +195,23 @@ impl ClientContext {
         tokio::spawn(async move {
             let _ = fg.send(ForegroundActions::RunCallback(callback)).await;
         });
+    }
+
+    fn get_devices(&self) -> Vec<String> {
+        let mut result: Vec<String> = vec![];
+
+        result.extend(
+            self.found_devices.keys().map(|key| String::from(key)).collect::<Vec<String>>(),
+        );
+        result.extend(
+            self.bonded_devices
+                .keys()
+                .filter(|key| !self.found_devices.contains_key(&String::from(*key)))
+                .map(|key| String::from(key))
+                .collect::<Vec<String>>(),
+        );
+
+        result
     }
 }
 
@@ -282,14 +319,15 @@ async fn start_interactive_shell(
     mut rx: mpsc::Receiver<ForegroundActions>,
     context: Arc<Mutex<ClientContext>>,
 ) {
-    let command_list = handler.get_command_list().clone();
+    let command_rule_list = handler.get_command_rule_list().clone();
+    let context_for_closure = context.clone();
 
     let semaphore_fg = Arc::new(tokio::sync::Semaphore::new(1));
 
     // Async task to keep reading new lines from user
     let semaphore = semaphore_fg.clone();
     tokio::spawn(async move {
-        let editor = AsyncEditor::new(command_list);
+        let editor = AsyncEditor::new(command_rule_list, context_for_closure);
 
         loop {
             // Wait until ForegroundAction::Readline finishes its task.
@@ -338,6 +376,8 @@ async fn start_interactive_shell(
                     format!("/org/chromium/bluetooth/client/{}/bluetooth_conn_callback", adapter);
                 let suspend_cb_objpath: String =
                     format!("/org/chromium/bluetooth/client/{}/suspend_callback", adapter);
+                let scanner_cb_objpath: String =
+                    format!("/org/chromium/bluetooth/client/{}/scanner_callback", adapter);
 
                 let dbus_connection = context.lock().unwrap().dbus_connection.clone();
                 let dbus_crossroads = context.lock().unwrap().dbus_crossroads.clone();
@@ -382,7 +422,7 @@ async fn start_interactive_shell(
                     .unwrap()
                     .rpc
                     .register_scanner_callback(Box::new(ScannerCallback::new(
-                        cb_objpath.clone(),
+                        scanner_cb_objpath.clone(),
                         context.clone(),
                         dbus_connection.clone(),
                         dbus_crossroads.clone(),
@@ -403,6 +443,8 @@ async fn start_interactive_shell(
 
                 context.lock().unwrap().adapter_ready = true;
                 let adapter_address = context.lock().unwrap().update_adapter_address();
+                context.lock().unwrap().update_bonded_devices();
+
                 print_info!("Adapter {} is ready", adapter_address);
             }
             ForegroundActions::Readline(result) => match result {

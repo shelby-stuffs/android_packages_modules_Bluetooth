@@ -37,7 +37,7 @@ rust_library {
     ],
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     min_sdk_version: "30",
     target: {
@@ -104,7 +104,7 @@ genrule {
 
 cc_library_static {
     name: "libbt_hidl_hal_cxx",
-    defaults: ["gd_ffi_defaults"],
+    defaults: ["rust_static_cc_lib_defaults", "gd_ffi_defaults"],
     srcs: ["src/hal/ffi/hidl.cc"],
     local_include_dirs: ["src/hal/ffi"],
     include_dirs: ["packages/modules/Bluetooth/system"],
@@ -118,7 +118,7 @@ cc_library_static {
     ],
     apex_available: [
         "//apex_available:platform",
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     min_sdk_version: "30",
 }

@@ -36,6 +36,7 @@ import android.bluetooth.BluetoothUuid;
 import android.bluetooth.IBluetoothLeAudio;
 import android.bluetooth.IBluetoothLeAudioCallback;
 import android.bluetooth.IBluetoothLeBroadcastCallback;
+import android.bluetooth.IBluetoothVolumeControl;
 import android.content.AttributionSource;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -158,20 +159,20 @@ public class LeAudioService extends ProfileService {
     private final Map<BluetoothDevice, Integer> mDeviceGroupIdMap = new ConcurrentHashMap<>();
     private final Map<BluetoothDevice, Integer> mDeviceAudioLocationMap = new ConcurrentHashMap<>();
 
-    private final int mContextSupportingInputAudio =
-            BluetoothLeAudio.CONTEXT_TYPE_COMMUNICATION | BluetoothLeAudio.CONTEXT_TYPE_MAN_MACHINE;
+    private final int mContextSupportingInputAudio = BluetoothLeAudio.CONTEXT_TYPE_CONVERSATIONAL
+            | BluetoothLeAudio.CONTEXT_TYPE_VOICE_ASSISTANTS;
 
-    private final int mContextSupportingOutputAudio = BluetoothLeAudio.CONTEXT_TYPE_COMMUNICATION |
-            BluetoothLeAudio.CONTEXT_TYPE_MEDIA |
-            BluetoothLeAudio.CONTEXT_TYPE_INSTRUCTIONAL |
-            BluetoothLeAudio.CONTEXT_TYPE_ATTENTION_SEEKING |
-            BluetoothLeAudio.CONTEXT_TYPE_IMMEDIATE_ALERT |
-            BluetoothLeAudio.CONTEXT_TYPE_MAN_MACHINE |
-            BluetoothLeAudio.CONTEXT_TYPE_EMERGENCY_ALERT |
-            BluetoothLeAudio.CONTEXT_TYPE_RINGTONE |
-            BluetoothLeAudio.CONTEXT_TYPE_TV |
-            BluetoothLeAudio.CONTEXT_TYPE_LIVE |
-            BluetoothLeAudio.CONTEXT_TYPE_GAME;
+    private final int mContextSupportingOutputAudio = BluetoothLeAudio.CONTEXT_TYPE_CONVERSATIONAL
+            | BluetoothLeAudio.CONTEXT_TYPE_MEDIA
+            | BluetoothLeAudio.CONTEXT_TYPE_GAME
+            | BluetoothLeAudio.CONTEXT_TYPE_INSTRUCTIONAL
+            | BluetoothLeAudio.CONTEXT_TYPE_VOICE_ASSISTANTS
+            | BluetoothLeAudio.CONTEXT_TYPE_LIVE
+            | BluetoothLeAudio.CONTEXT_TYPE_SOUND_EFFECTS
+            | BluetoothLeAudio.CONTEXT_TYPE_NOTIFICATIONS
+            | BluetoothLeAudio.CONTEXT_TYPE_RINGTONE
+            | BluetoothLeAudio.CONTEXT_TYPE_ALERTS
+            | BluetoothLeAudio.CONTEXT_TYPE_EMERGENCY_ALARM;
 
     private BroadcastReceiver mBondStateChangedReceiver;
     private BroadcastReceiver mConnectionStateChangedReceiver;
@@ -414,10 +415,10 @@ public class LeAudioService extends ProfileService {
     private int getGroupVolume(int groupId) {
         if (mVolumeControlService == null) {
             mVolumeControlService = mServiceFactory.getVolumeControlService();
-        }
-        if (mVolumeControlService == null) {
-            Log.e(TAG, "Volume control service is not available");
-            return -1;
+            if (mVolumeControlService == null) {
+                Log.e(TAG, "Volume control service is not available");
+                return IBluetoothVolumeControl.VOLUME_CONTROL_UNKNOWN_VOLUME;
+            }
         }
 
         return mVolumeControlService.getGroupVolume(groupId);
@@ -632,7 +633,11 @@ public class LeAudioService extends ProfileService {
     private Integer getAudioDirectionsFromActiveContextsMap(Integer activeContexts) {
         Integer supportedAudioDirections = 0;
 
-        if ((activeContexts & mContextSupportingInputAudio) != 0) {
+        if (((activeContexts & mContextSupportingInputAudio) != 0)
+                || (Utils.isPtsTestMode()
+                && (activeContexts
+                & (BluetoothLeAudio.CONTEXT_TYPE_RINGTONE
+                | BluetoothLeAudio.CONTEXT_TYPE_MEDIA)) != 0)) {
             supportedAudioDirections |= AUDIO_DIRECTION_INPUT_BIT;
         }
         if ((activeContexts & mContextSupportingOutputAudio) != 0) {
@@ -663,6 +668,15 @@ public class LeAudioService extends ProfileService {
             Log.w(TAG, "Native interface not available.");
             return;
         }
+        boolean isEncrypted = (broadcastCode != null) && (broadcastCode.length != 0);
+        if (isEncrypted) {
+            if ((broadcastCode.length > 16) || (broadcastCode.length < 4)) {
+                Log.e(TAG, "Invalid broadcast code length. Should be from 4 to 16 octets long.");
+                return;
+            }
+        }
+
+        Log.i(TAG, "createBroadcast: isEncrypted=" + (isEncrypted ? "true" : "false"));
         mLeAudioBroadcasterNativeInterface.createBroadcast(metadata.getRawMetadata(),
                 broadcastCode);
     }
@@ -907,7 +921,7 @@ public class LeAudioService extends ProfileService {
                         + previousOutDevice + ", mActiveOutDevice: " + mActiveAudioOutDevice
                         + " isLeOutput: true");
             }
-            int volume = -1;
+            int volume = IBluetoothVolumeControl.VOLUME_CONTROL_UNKNOWN_VOLUME;
             if (mActiveAudioOutDevice != null) {
                 volume = getGroupVolume(groupId);
             }
@@ -1835,6 +1849,11 @@ public class LeAudioService extends ProfileService {
     }
 
     private void handleGroupNodeRemoved(BluetoothDevice device, int groupId) {
+        LeAudioGroupDescriptor descriptor = getGroupDescriptor(groupId);
+        if (Objects.equals(device, descriptor.mLostLeadDeviceWhileStreaming)) {
+            clearLostDevicesWhileStreaming(descriptor);
+        }
+
         synchronized (mGroupLock) {
             mDeviceGroupIdMap.remove(device);
             if (!mDeviceGroupIdMap.containsValue(groupId)) {

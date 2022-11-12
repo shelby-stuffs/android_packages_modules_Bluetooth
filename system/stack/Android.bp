@@ -55,6 +55,7 @@ cc_library_static {
         "external/aac/libSYS/include",
         "external/libldac/inc",
         "external/libldac/abr/inc",
+        "external/libopus/include",
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/vnd/include",
@@ -85,6 +86,9 @@ cc_library_static {
         "a2dp/a2dp_vendor_ldac.cc",
         "a2dp/a2dp_vendor_ldac_decoder.cc",
         "a2dp/a2dp_vendor_ldac_encoder.cc",
+        "a2dp/a2dp_vendor_opus.cc",
+        "a2dp/a2dp_vendor_opus_encoder.cc",
+        "a2dp/a2dp_vendor_opus_decoder.cc",
         "avct/avct_api.cc",
         "avct/avct_bcb_act.cc",
         "avct/avct_ccb.cc",
@@ -252,6 +256,7 @@ cc_test {
         "libtinyxml2",
         "libz",
         "libcrypto",
+        "libPlatformProperties",
     ],
     static_libs: [
         "android.hardware.bluetooth.a2dp@1.0",
@@ -271,6 +276,7 @@ cc_test {
         "libbtdevice",
         "libg722codec",
         "liblc3",
+        "libopus",
         "libosi",
         "libudrv-uipc",
         "libbt-protos-lite",
@@ -1191,6 +1197,7 @@ cc_test {
         "libbt-common",
         "libbt-protos-lite",
         "libbtdevice",
+        "libflatbuffers-cpp",
         "libgmock",
         "liblog",
         "libosi",
@@ -1198,9 +1205,15 @@ cc_test {
     shared_libs: [
         "libbinder_ndk",
         "libcrypto",
-        "libflatbuffers-cpp",
         "libprotobuf-cpp-lite",
     ],
+    target: {
+        android: {
+            shared_libs: [
+                "libPlatformProperties",
+            ],
+        },
+    },
     sanitize: {
         address: true,
         all_undefined: true,
@@ -1261,6 +1274,7 @@ cc_test {
     static_libs: [
         "libbt-common",
         "libbt-protos-lite",
+        "libflatbuffers-cpp",
         "libgmock",
         "liblog",
         "libosi",
@@ -1268,7 +1282,6 @@ cc_test {
     shared_libs: [
         "libbinder_ndk",
         "libcrypto",
-        "libflatbuffers-cpp",
         "libprotobuf-cpp-lite",
     ],
     sanitize: {

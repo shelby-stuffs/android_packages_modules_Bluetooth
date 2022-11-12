@@ -47,6 +47,7 @@
 #include "osi/include/fixed_queue.h"
 #include "osi/include/log.h"
 #include "osi/include/osi.h"
+#include "osi/include/properties.h"
 #include "stack/btm/btm_ble_int.h"
 #include "stack/btm/btm_dev.h"
 #include "stack/btm/btm_sec.h"
@@ -152,6 +153,11 @@ static void bta_dm_ctrl_features_rd_cmpl_cback(tHCI_STATUS result);
 /* Switch delay timer (in milliseconds) */
 #ifndef BTA_DM_SWITCH_DELAY_TIMER_MS
 #define BTA_DM_SWITCH_DELAY_TIMER_MS 500
+#endif
+
+/* Sysprop path for page timeout */
+#ifndef PROPERTY_PAGE_TIMEOUT
+#define PROPERTY_PAGE_TIMEOUT "bluetooth.core.classic.page_timeout"
 #endif
 
 namespace {
@@ -387,7 +393,8 @@ void BTA_dm_on_hw_on() {
     get_btm_client_interface().security.BTM_SecRegister(&bta_security);
   }
 
-  BTM_WritePageTimeout(p_bta_dm_cfg->page_timeout);
+  BTM_WritePageTimeout(osi_property_get_int32(PROPERTY_PAGE_TIMEOUT,
+                                              p_bta_dm_cfg->page_timeout));
 
 #if (BLE_VND_INCLUDED == TRUE)
   BTM_BleReadControllerFeatures(bta_dm_ctrl_features_rd_cmpl_cback);
@@ -626,6 +633,15 @@ void bta_dm_remove_device(const RawAddress& bd_addr) {
   if (other_address == bd_addr) other_address = other_address2;
 
   if (other_address_connected) {
+    // Get real transport
+    if (other_transport == BT_TRANSPORT_AUTO) {
+      bool connected_with_br_edr =
+          BTM_IsAclConnectionUp(other_address, BT_TRANSPORT_BR_EDR);
+      other_transport =
+          connected_with_br_edr ? BT_TRANSPORT_BR_EDR : BT_TRANSPORT_LE;
+    }
+    LOG_INFO("other_address %s with transport %d connected",
+             PRIVATE_ADDRESS(other_address), other_transport);
     /* Take the link down first, and mark the device for removal when
      * disconnected */
     for (int i = 0; i < bta_dm_cb.device_list.count; i++) {
@@ -633,6 +649,7 @@ void bta_dm_remove_device(const RawAddress& bd_addr) {
       if (peer_device.peer_bdaddr == other_address &&
           peer_device.transport == other_transport) {
         peer_device.conn_state = BTA_DM_UNPAIRING;
+        LOG_INFO("Remove ACL of address %s", PRIVATE_ADDRESS(other_address));
 
         /* Make sure device is not in acceptlist before we disconnect */
         GATT_CancelConnect(0, bd_addr, false);
@@ -651,13 +668,6 @@ void bta_dm_remove_device(const RawAddress& bd_addr) {
   /* Delete the other paired device too */
   if (!other_address_connected && !other_address.IsEmpty()) {
     bta_dm_process_remove_device(other_address);
-  }
-
-  /* Check the length of the paired devices, and if 0 then reset IRK */
-  auto paired_devices = btif_config_get_paired_devices();
-  if (paired_devices.empty()) {
-    LOG_INFO("Last paired device removed, resetting IRK");
-    btm_ble_reset_id();
   }
 }
 
@@ -873,11 +883,9 @@ void bta_dm_search_start(tBTA_DM_MSG* p_data) {
  ******************************************************************************/
 void bta_dm_search_cancel() {
   if (BTM_IsInquiryActive()) {
-    LOG_DEBUG("Cancelling search with inquiry active");
-    BTM_CancelInquiryNotifyWhenComplete([]() {
-      bta_dm_search_cancel_notify();
-      bta_dm_search_cmpl();
-    });
+    BTM_CancelInquiry();
+    bta_dm_search_cancel_notify();
+    bta_dm_search_cmpl();
   }
   /* If no Service Search going on then issue cancel remote name in case it is
      active */
@@ -966,7 +974,7 @@ static bool bta_dm_read_remote_device_name(const RawAddress& bd_addr,
 
     /* Remote name discovery is on going now so BTM cannot notify through
      * "bta_dm_remname_cback" */
-    /* adding callback to get notified that current reading remore name done */
+    /* adding callback to get notified that current reading remote name done */
 
     if (bluetooth::shim::is_gd_security_enabled()) {
       bluetooth::shim::BTM_SecAddRmtNameNotifyCallback(
@@ -1879,8 +1887,10 @@ static void bta_dm_service_search_remname_cback(const RawAddress& bd_addr,
 
   APPL_TRACE_DEBUG("%s name=<%s>", __func__, bd_name);
 
+
   /* if this is what we are looking for */
   if (bta_dm_search_cb.peer_bdaddr == bd_addr) {
+    rem_name.bd_addr = bd_addr;
     rem_name.length = strlcpy((char*)rem_name.remote_bd_name, (char*)bd_name,
                               BD_NAME_LEN + 1);
     if (rem_name.length > BD_NAME_LEN) {
@@ -1902,6 +1912,9 @@ static void bta_dm_service_search_remname_cback(const RawAddress& bd_addr,
       APPL_TRACE_WARNING("%s: BTM_ReadRemoteDeviceName returns 0x%02X",
                          __func__, btm_status);
 
+      // needed so our response is not ignored, since this corresponds to the
+      // actual peer_bdaddr
+      rem_name.bd_addr = bta_dm_search_cb.peer_bdaddr;
       rem_name.length = 0;
       rem_name.remote_bd_name[0] = 0;
       rem_name.status = btm_status;
@@ -1924,11 +1937,6 @@ static void bta_dm_remname_cback(void* p) {
   APPL_TRACE_DEBUG("bta_dm_remname_cback len = %d name=<%s>",
                    p_remote_name->length, p_remote_name->remote_bd_name);
 
-  /* remote name discovery is done but it could be failed */
-  bta_dm_search_cb.name_discover_done = true;
-  strlcpy((char*)bta_dm_search_cb.peer_name,
-          (char*)p_remote_name->remote_bd_name, BD_NAME_LEN + 1);
-
   if (bta_dm_search_cb.peer_bdaddr == p_remote_name->bd_addr) {
     if (bluetooth::shim::is_gd_security_enabled()) {
       bluetooth::shim::BTM_SecDeleteRmtNameNotifyCallback(
@@ -1936,7 +1944,18 @@ static void bta_dm_remname_cback(void* p) {
     } else {
       BTM_SecDeleteRmtNameNotifyCallback(&bta_dm_service_search_remname_cback);
     }
+  } else {
+    // if we got a different response, ignore it
+    // we will have made a request directly from BTM_ReadRemoteDeviceName so we
+    // expect a dedicated response for us
+    LOG_INFO("ignoring remote name response in DM callback since it's for the wrong bd_addr");
+    return;
   }
+
+  /* remote name discovery is done but it could be failed */
+  bta_dm_search_cb.name_discover_done = true;
+  strlcpy((char*)bta_dm_search_cb.peer_name,
+          (char*)p_remote_name->remote_bd_name, BD_NAME_LEN + 1);
 
   if (bta_dm_search_cb.transport == BT_TRANSPORT_LE) {
     GAP_BleReadPeerPrefConnParams(bta_dm_search_cb.peer_bdaddr);
@@ -4081,6 +4100,34 @@ void bta_dm_le_rand(LeRandCallback cb) {
 
 /*******************************************************************************
  *
+ * Function        BTA_DmSetEventFilterConnectionSetupAllDevices
+ *
+ * Description    Tell the controller to allow all devices
+ *
+ * Parameters
+ *
+ *******************************************************************************/
+void bta_dm_set_event_filter_connection_setup_all_devices() {
+  // Autoplumbed
+  bluetooth::shim::BTM_SetEventFilterConnectionSetupAllDevices();
+}
+
+/*******************************************************************************
+ *
+ * Function        BTA_DmAllowWakeByHid
+ *
+ * Description    Allow the device to be woken by HID devices
+ *
+ * Parameters
+ *
+ *******************************************************************************/
+void bta_dm_allow_wake_by_hid() {
+  // Autoplumbed
+  bluetooth::shim::BTM_AllowWakeByHid();
+}
+
+/*******************************************************************************
+ *
  * Function        BTA_DmRestoreFilterAcceptList
  *
  * Description    Floss: Restore the state of the for the filter accept list
@@ -4119,6 +4166,20 @@ void bta_dm_set_default_event_mask() {
 void bta_dm_set_event_filter_inquiry_result_all_devices() {
   // Autoplumbed
   bluetooth::shim::BTM_SetEventFilterInquiryResultAllDevices();
+}
+
+/*******************************************************************************
+ *
+ * Function         bta_dm_ble_reset_id
+ *
+ * Description      Reset the local adapter BLE keys.
+ *
+ * Parameters:
+ *
+ ******************************************************************************/
+void bta_dm_ble_reset_id(void) {
+  VLOG(1) << "bta_dm_ble_reset_id in bta_dm_act";
+  bluetooth::shim::BTM_BleResetId();
 }
 
 /*******************************************************************************

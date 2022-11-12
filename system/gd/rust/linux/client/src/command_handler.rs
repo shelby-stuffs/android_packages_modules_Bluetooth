@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use crate::callbacks::BtGattCallback;
 use crate::ClientContext;
 use crate::{console_red, console_yellow, print_error, print_info};
-use bt_topshim::btif::BtTransport;
-use btstack::bluetooth::{BluetoothDevice, IBluetooth};
+use bt_topshim::btif::{BtConnectionState, BtTransport};
+use btstack::bluetooth::{BluetoothDevice, IBluetooth, IBluetoothQA};
 use btstack::bluetooth_gatt::IBluetoothGatt;
 use btstack::uuid::{Profile, UuidHelper, UuidWrapper};
 use manager_service::iface_bluetooth_manager::IBluetoothManager;
@@ -25,6 +25,7 @@ fn _noop(_handler: &mut CommandHandler, _args: &Vec<String>) {
 }
 
 pub struct CommandOption {
+    rules: Vec<String>,
     description: String,
     function_pointer: CommandFunction,
 }
@@ -84,9 +85,11 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("adapter"),
         CommandOption {
+            rules: vec![String::from("adapter <enable|disable|show|discoverable|connectable>")],
             description: String::from(
                 "Enable/Disable/Show default bluetooth adapter. (e.g. adapter enable)\n
-                 Discoverable On/Off (e.g. adapter discoverable on)",
+                 Discoverable On/Off (e.g. adapter discoverable on)\n
+                 Connectable On/Off (e.g. adapter connectable on)",
             ),
             function_pointer: CommandHandler::cmd_adapter,
         },
@@ -94,6 +97,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("bond"),
         CommandOption {
+            rules: vec![String::from("bond <add|remove|cancel> <address>")],
             description: String::from("Creates a bond with a device."),
             function_pointer: CommandHandler::cmd_bond,
         },
@@ -101,6 +105,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("device"),
         CommandOption {
+            rules: vec![String::from("device <connect|disconnect|info|set-alias> <address>")],
             description: String::from("Take action on a remote device. (i.e. info)"),
             function_pointer: CommandHandler::cmd_device,
         },
@@ -108,6 +113,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("discovery"),
         CommandOption {
+            rules: vec![String::from("discovery <start|stop>")],
             description: String::from("Start and stop device discovery. (e.g. discovery start)"),
             function_pointer: CommandHandler::cmd_discovery,
         },
@@ -115,6 +121,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("floss"),
         CommandOption {
+            rules: vec![String::from("floss <enable|disable>")],
             description: String::from("Enable or disable Floss for dogfood."),
             function_pointer: CommandHandler::cmd_floss,
         },
@@ -122,6 +129,14 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("gatt"),
         CommandOption {
+            rules: vec![
+                String::from("gatt register-client"),
+                String::from("gatt client-connect <address>"),
+                String::from("gatt client-read-phy <address>"),
+                String::from("gatt client-discover-services <address>"),
+                String::from("gatt client-disconnect <address>"),
+                String::from("gatt configure-mtu <address> <mtu>"),
+            ],
             description: String::from("GATT tools"),
             function_pointer: CommandHandler::cmd_gatt,
         },
@@ -129,6 +144,10 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("le-scan"),
         CommandOption {
+            rules: vec![
+                String::from("le-scan register-scanner"),
+                String::from("le-scan unregister-scanner <scanner-id>"),
+            ],
             description: String::from("LE scanning utilities."),
             function_pointer: CommandHandler::cmd_le_scan,
         },
@@ -136,6 +155,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("get-address"),
         CommandOption {
+            rules: vec![String::from("get-address")],
             description: String::from("Gets the local device address."),
             function_pointer: CommandHandler::cmd_get_address,
         },
@@ -143,6 +163,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("help"),
         CommandOption {
+            rules: vec![String::from("help")],
             description: String::from("Shows this menu."),
             function_pointer: CommandHandler::cmd_help,
         },
@@ -150,6 +171,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("list"),
         CommandOption {
+            rules: vec![String::from("list <bonded|found|connected>")],
             description: String::from(
                 "List bonded or found remote devices. Use: list <bonded|found>",
             ),
@@ -159,6 +181,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
     command_options.insert(
         String::from("quit"),
         CommandOption {
+            rules: vec![String::from("quit")],
             description: String::from("Quit out of the interactive shell."),
             function_pointer: _noop,
         },
@@ -252,7 +275,7 @@ impl CommandHandler {
         }
 
         let default_adapter = self.context.lock().unwrap().default_adapter;
-        enforce_arg_len(args, 1, "adapter <enable|disable|show|discoverable>", || {
+        enforce_arg_len(args, 1, "adapter <enable|disable|show|discoverable|connectable>", || {
             match &args[0][0..] {
                 "enable" => {
                     self.context.lock().unwrap().manager_dbus.start(default_adapter);
@@ -273,9 +296,11 @@ impl CommandHandler {
                     };
                     let context = self.context.lock().unwrap();
                     let adapter_dbus = context.adapter_dbus.as_ref().unwrap();
+                    let qa_dbus = context.qa_dbus.as_ref().unwrap();
                     let name = adapter_dbus.get_name();
                     let uuids = adapter_dbus.get_uuids();
                     let is_discoverable = adapter_dbus.get_discoverable();
+                    let is_connectable = qa_dbus.get_connectable();
                     let discoverable_timeout = adapter_dbus.get_discoverable_timeout();
                     let cod = adapter_dbus.get_bluetooth_class();
                     let multi_adv_supported = adapter_dbus.is_multi_advertisement_supported();
@@ -292,6 +317,7 @@ impl CommandHandler {
                     print_info!("State: {}", if enabled { "enabled" } else { "disabled" });
                     print_info!("Discoverable: {}", is_discoverable);
                     print_info!("DiscoverableTimeout: {}s", discoverable_timeout);
+                    print_info!("Connectable: {}", is_connectable);
                     print_info!("Class: {:#06x}", cod);
                     print_info!("IsMultiAdvertisementSupported: {}", multi_adv_supported);
                     print_info!("IsLeExtendedAdvertisingSupported: {}", le_ext_adv_supported);
@@ -301,7 +327,7 @@ impl CommandHandler {
                         DisplayList(
                             uuids
                                 .iter()
-                                .map(|&x| UuidHelper::to_string(&x))
+                                .map(|&x| uuid_helper.known_uuid_to_string(&x))
                                 .collect::<Vec<String>>()
                         )
                     );
@@ -337,6 +363,38 @@ impl CommandHandler {
                     }
                     _ => println!("Invalid argument for adapter discoverable '{}'", args[1]),
                 },
+                "connectable" => match &args[1][0..] {
+                    "on" => {
+                        let ret = self
+                            .context
+                            .lock()
+                            .unwrap()
+                            .qa_dbus
+                            .as_mut()
+                            .unwrap()
+                            .set_connectable(true);
+                        print_info!(
+                            "Set connectable on {}",
+                            if ret { "succeeded" } else { "failed" }
+                        );
+                    }
+                    "off" => {
+                        let ret = self
+                            .context
+                            .lock()
+                            .unwrap()
+                            .qa_dbus
+                            .as_mut()
+                            .unwrap()
+                            .set_connectable(false);
+                        print_info!(
+                            "Set connectable off {}",
+                            if ret { "succeeded" } else { "failed" }
+                        );
+                    }
+                    _ => println!("Invalid argument for adapter connectable '{}'", args[1]),
+                },
+
                 _ => {
                     println!("Invalid argument '{}'", args[0]);
                 }
@@ -494,7 +552,7 @@ impl CommandHandler {
                         name: String::from("Classic Device"),
                     };
 
-                    let (name, alias, device_type, class, bonded, connected, uuids) = {
+                    let (name, alias, device_type, class, bonded, connection_state, uuids) = {
                         let ctx = self.context.lock().unwrap();
                         let adapter = ctx.adapter_dbus.as_ref().unwrap();
 
@@ -503,31 +561,36 @@ impl CommandHandler {
                         let alias = adapter.get_remote_alias(device.clone());
                         let class = adapter.get_remote_class(device.clone());
                         let bonded = adapter.get_bond_state(device.clone());
-                        let connected = adapter.get_connection_state(device.clone());
+                        let connection_state = match adapter.get_connection_state(device.clone()) {
+                            BtConnectionState::NotConnected => "Not Connected",
+                            BtConnectionState::ConnectedOnly => "Connected",
+                            _ => "Connected and Paired",
+                        };
                         let uuids = adapter.get_remote_uuids(device.clone());
 
-                        (name, alias, device_type, class, bonded, connected, uuids)
+                        (name, alias, device_type, class, bonded, connection_state, uuids)
                     };
 
+                    let uuid_helper = UuidHelper::new();
                     print_info!("Address: {}", &device.address);
                     print_info!("Name: {}", name);
                     print_info!("Alias: {}", alias);
                     print_info!("Type: {:?}", device_type);
                     print_info!("Class: {}", class);
-                    print_info!("Bonded: {}", bonded);
-                    print_info!("Connected: {}", connected);
+                    print_info!("Bond State: {:?}", bonded);
+                    print_info!("Connection State: {}", connection_state);
                     print_info!(
                         "Uuids: {}",
                         DisplayList(
                             uuids
                                 .iter()
-                                .map(|&x| UuidHelper::to_string(&x))
+                                .map(|&x| uuid_helper.known_uuid_to_string(&x))
                                 .collect::<Vec<String>>()
                         )
                     );
                 }
                 "set-alias" => {
-                    if args.len() < 3 {
+                    if args.len() < 4 {
                         println!("usage: device set-alias <address> <new-alias>");
                         return;
                     }
@@ -601,7 +664,7 @@ impl CommandHandler {
                 );
             }
             "client-connect" => {
-                if args.len() < 2 {
+                if args.len() < 3 {
                     println!("usage: gatt client-connect <addr>");
                     return;
                 }
@@ -622,8 +685,29 @@ impl CommandHandler {
                     1,
                 );
             }
+            "client-disconnect" => {
+                if args.len() < 3 {
+                    println!("usage: gatt client-disconnect <addr>");
+                    return;
+                }
+
+                let client_id = self.context.lock().unwrap().gatt_client_id;
+                if client_id.is_none() {
+                    println!("GATT client is not yet registered.");
+                    return;
+                }
+
+                let addr = String::from(&args[1]);
+                self.context
+                    .lock()
+                    .unwrap()
+                    .gatt_dbus
+                    .as_ref()
+                    .unwrap()
+                    .client_disconnect(client_id.unwrap(), addr);
+            }
             "client-read-phy" => {
-                if args.len() < 2 {
+                if args.len() < 3 {
                     println!("usage: gatt client-read-phy <addr>");
                     return;
                 }
@@ -644,7 +728,7 @@ impl CommandHandler {
                     .client_read_phy(client_id.unwrap(), addr);
             }
             "client-discover-services" => {
-                if args.len() < 2 {
+                if args.len() < 3 {
                     println!("usage: gatt client-discover-services <addr>");
                     return;
                 }
@@ -663,6 +747,30 @@ impl CommandHandler {
                     .as_ref()
                     .unwrap()
                     .discover_services(client_id.unwrap(), addr);
+            }
+            "configure-mtu" => {
+                if args.len() < 4 {
+                    println!("usage: gatt configure-mtu <addr> <mtu>");
+                    return;
+                }
+
+                let client_id = self.context.lock().unwrap().gatt_client_id;
+                if client_id.is_none() {
+                    println!("GATT client is not yet registered.");
+                    return;
+                }
+
+                let addr = String::from(&args[1]);
+                let mtu = String::from(&args[2]).parse::<i32>();
+                if let Ok(m) = mtu {
+                    self.context.lock().unwrap().gatt_dbus.as_ref().unwrap().configure_mtu(
+                        client_id.unwrap(),
+                        addr,
+                        m,
+                    );
+                } else {
+                    print_error!("Failed parsing mtu");
+                }
             }
             _ => {
                 println!("Invalid argument '{}'", args[0]);
@@ -694,7 +802,7 @@ impl CommandHandler {
                 }
             }
             "unregister-scanner" => {
-                if args.len() < 2 {
+                if args.len() < 3 {
                     println!("usage: le-scan unregister-scanner <scanner-id>");
                     return;
                 }
@@ -713,9 +821,9 @@ impl CommandHandler {
         });
     }
 
-    /// Get the list of currently supported commands
-    pub fn get_command_list(&self) -> Vec<String> {
-        self.command_options.keys().map(|key| String::from(key)).collect::<Vec<String>>()
+    /// Get the list of rules of supported commands
+    pub fn get_command_rule_list(&self) -> Vec<String> {
+        self.command_options.values().flat_map(|cmd| cmd.rules.clone()).collect()
     }
 
     fn cmd_list_devices(&mut self, args: &Vec<String>) {
@@ -724,7 +832,7 @@ impl CommandHandler {
             return;
         }
 
-        enforce_arg_len(args, 1, "list <bonded|found>", || match &args[0][0..] {
+        enforce_arg_len(args, 1, "list <bonded|found|connected>", || match &args[0][0..] {
             "bonded" => {
                 print_info!("Known bonded devices:");
                 let devices = self
@@ -743,6 +851,20 @@ impl CommandHandler {
                 print_info!("Devices found in most recent discovery session:");
                 for (key, val) in self.context.lock().unwrap().found_devices.iter() {
                     print_info!("[{:17}] {}", key, val.name);
+                }
+            }
+            "connected" => {
+                print_info!("Connected devices:");
+                let devices = self
+                    .context
+                    .lock()
+                    .unwrap()
+                    .adapter_dbus
+                    .as_ref()
+                    .unwrap()
+                    .get_connected_devices();
+                for device in devices.iter() {
+                    print_info!("[{:17}] {}", device.address, device.name);
                 }
             }
             _ => {
