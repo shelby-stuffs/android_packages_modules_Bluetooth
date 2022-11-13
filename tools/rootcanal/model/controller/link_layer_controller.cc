@@ -254,6 +254,22 @@ ErrorCode LinkLayerController::LeSetRandomAddress(Address random_address) {
   return ErrorCode::SUCCESS;
 }
 
+// HCI LE Set Host Feature command (Vol 4, Part E § 7.8.45).
+ErrorCode LinkLayerController::LeSetResolvablePrivateAddressTimeout(
+    uint16_t rpa_timeout) {
+  // Note: no documented status code for this case.
+  if (rpa_timeout < 0x1 || rpa_timeout > 0x0e10) {
+    LOG_INFO(
+        "rpa_timeout (0x%04x) is outside the range of supported values "
+        " 0x1 - 0x0e10",
+        rpa_timeout);
+    return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
+  }
+
+  resolvable_private_address_timeout_ = seconds(rpa_timeout);
+  return ErrorCode::SUCCESS;
+}
+
 // HCI LE Set Host Feature command (Vol 4, Part E § 7.8.115).
 ErrorCode LinkLayerController::LeSetHostFeature(uint8_t bit_number,
                                                 uint8_t bit_value) {
@@ -609,6 +625,7 @@ ErrorCode LinkLayerController::LeSetScanEnable(bool enable,
 
   if (!enable) {
     scanner_.scan_enable = false;
+    scanner_.history.clear();
     return ErrorCode::SUCCESS;
   }
 
@@ -633,7 +650,9 @@ ErrorCode LinkLayerController::LeSetScanEnable(bool enable,
   }
 
   scanner_.scan_enable = true;
+  scanner_.history.clear();
   scanner_.timeout = {};
+  scanner_.periodical_timeout = {};
   scanner_.filter_duplicates = filter_duplicates
                                    ? bluetooth::hci::FilterDuplicates::ENABLED
                                    : bluetooth::hci::FilterDuplicates::DISABLED;
@@ -760,6 +779,7 @@ ErrorCode LinkLayerController::LeSetExtendedScanEnable(
 
   if (!enable) {
     scanner_.scan_enable = false;
+    scanner_.history.clear();
     return ErrorCode::SUCCESS;
   }
 
@@ -780,10 +800,13 @@ ErrorCode LinkLayerController::LeSetExtendedScanEnable(
     return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
   }
 
+  auto duration_ms = std::chrono::milliseconds(10 * duration);
+  auto period_ms = std::chrono::milliseconds(1280 * period);
+
   // If both the Duration and Period parameters are non-zero and the Duration is
   // greater than or equal to the Period, the Controller shall return the
   // error code Invalid HCI Command Parameters (0x12).
-  if (period != 0 && duration != 0 && duration >= period) {
+  if (period != 0 && duration != 0 && duration_ms >= period_ms) {
     LOG_INFO("the period is greater than or equal to the duration");
     return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
   }
@@ -809,15 +832,22 @@ ErrorCode LinkLayerController::LeSetExtendedScanEnable(
   }
 
   scanner_.scan_enable = true;
+  scanner_.history.clear();
   scanner_.timeout = {};
+  scanner_.periodical_timeout = {};
   scanner_.filter_duplicates = filter_duplicates;
-  scanner_.duration = slots(duration);
-  scanner_.period = slots(period);
+  scanner_.duration = duration_ms;
+  scanner_.period = period_ms;
+
+  auto now = std::chrono::steady_clock::now();
 
   // At the end of a single scan (Duration non-zero but Period zero), an
   // HCI_LE_Scan_Timeout event shall be generated.
-  if (duration != 0 && period == 0) {
-    scanner_.timeout = std::chrono::steady_clock::now() + scanner_.duration;
+  if (duration != 0) {
+    scanner_.timeout = now + scanner_.duration;
+  }
+  if (period != 0) {
+    scanner_.periodical_timeout = now + scanner_.period;
   }
 
   return ErrorCode::SUCCESS;
@@ -1300,11 +1330,23 @@ void LinkLayerController::SetSecureConnectionsSupport(bool enable) {
   }
 }
 
-void LinkLayerController::SetName(std::vector<uint8_t> const& name) {
-  name_.fill(0);
-  for (size_t i = 0; i < 248 && i < name.size(); i++) {
-    name_[i] = name[i];
-  }
+void LinkLayerController::SetLocalName(
+    std::array<uint8_t, 248> const& local_name) {
+  std::copy(local_name.begin(), local_name.end(), local_name_.begin());
+}
+
+void LinkLayerController::SetLocalName(std::vector<uint8_t> const& local_name) {
+  ASSERT(local_name.size() <= local_name_.size());
+  local_name_.fill(0);
+  std::copy(local_name.begin(), local_name.end(), local_name_.begin());
+}
+
+void LinkLayerController::SetExtendedInquiryResponse(
+    std::vector<uint8_t> const& extended_inquiry_response) {
+  ASSERT(extended_inquiry_response.size() <= extended_inquiry_response_.size());
+  extended_inquiry_response_.fill(0);
+  std::copy(extended_inquiry_response.begin(), extended_inquiry_response.end(),
+            extended_inquiry_response_.begin());
 }
 
 void LinkLayerController::SendLeLinkLayerPacketWithRssi(
@@ -1865,7 +1907,7 @@ void LinkLayerController::IncomingRemoteNameRequest(
   ASSERT(view.IsValid());
 
   SendLinkLayerPacket(model::packets::RemoteNameRequestResponseBuilder::Create(
-      packet.GetDestinationAddress(), packet.GetSourceAddress(), name_));
+      packet.GetDestinationAddress(), packet.GetSourceAddress(), local_name_));
 }
 
 void LinkLayerController::IncomingRemoteNameRequestResponse(
@@ -2124,7 +2166,7 @@ void LinkLayerController::IncomingInquiryPacket(
               GetAddress(), peer,
               static_cast<uint8_t>(GetPageScanRepetitionMode()),
               class_of_device_, GetClockOffset(), rssi,
-              extended_inquiry_data_));
+              extended_inquiry_response_));
 
     } break;
     default:
@@ -2199,7 +2241,8 @@ void LinkLayerController::IncomingInquiryResponsePacket(
               inquiry_response.GetPageScanRepetitionMode()),
           inquiry_response.GetClassOfDevice(),
           inquiry_response.GetClockOffset(), inquiry_response.GetRssi(),
-          inquiry_response.GetExtendedData()));
+          std::vector<uint8_t>(extended_inquiry_response_.begin(),
+                               extended_inquiry_response_.end())));
     } break;
     default:
       LOG_WARN("Unhandled Incoming Inquiry Response of type %d",
@@ -2728,8 +2771,19 @@ void LinkLayerController::ScanIncomingLeLegacyAdvertisingPdu(
     }
   }
 
+  bool should_send_advertising_report = true;
+  if (scanner_.filter_duplicates !=
+      bluetooth::hci::FilterDuplicates::DISABLED) {
+    if (scanner_.IsPacketInHistory(pdu)) {
+      should_send_advertising_report = false;
+    } else {
+      scanner_.AddPacketToHistory(pdu);
+    }
+  }
+
   // Legacy scanning, directed advertising.
-  if (LegacyAdvertising() && should_send_directed_advertising_report &&
+  if (LegacyAdvertising() && should_send_advertising_report &&
+      should_send_directed_advertising_report &&
       IsLeEventUnmasked(SubeventCode::DIRECTED_ADVERTISING_REPORT)) {
     bluetooth::hci::LeDirectedAdvertisingResponse response;
     response.event_type_ =
@@ -2748,7 +2802,8 @@ void LinkLayerController::ScanIncomingLeLegacyAdvertisingPdu(
   }
 
   // Legacy scanning, un-directed advertising.
-  if (LegacyAdvertising() && !should_send_directed_advertising_report &&
+  if (LegacyAdvertising() && should_send_advertising_report &&
+      !should_send_directed_advertising_report &&
       IsLeEventUnmasked(SubeventCode::ADVERTISING_REPORT)) {
     bluetooth::hci::LeAdvertisingResponseRaw response;
     response.address_type_ = resolved_advertising_address.GetAddressType();
@@ -2779,7 +2834,7 @@ void LinkLayerController::ScanIncomingLeLegacyAdvertisingPdu(
   }
 
   // Extended scanning.
-  if (ExtendedAdvertising() &&
+  if (ExtendedAdvertising() && should_send_advertising_report &&
       IsLeEventUnmasked(SubeventCode::EXTENDED_ADVERTISING_REPORT)) {
     bluetooth::hci::LeExtendedAdvertisingResponseRaw response;
     response.connectable_ = connectable_advertising;
@@ -2833,6 +2888,12 @@ void LinkLayerController::ScanIncomingLeLegacyAdvertisingPdu(
     LOG_VERB(
         "Not sending LE Scan request to advertising address %s(%hhx) because "
         "an LE Scan request is already pending",
+        advertising_address.ToString().c_str(),
+        advertising_address.GetAddressType());
+  } else if (!should_send_advertising_report) {
+    LOG_VERB(
+        "Not sending LE Scan request to advertising address %s(%hhx) because "
+        "the advertising message was filtered",
         advertising_address.ToString().c_str(),
         advertising_address.GetAddressType());
   } else {
@@ -3137,13 +3198,6 @@ void LinkLayerController::ScanIncomingLeExtendedAdvertisingPdu(
       break;
   }
 
-  // When the Scanning_Filter_Policy is set to 0x02 or 0x03 (see Section 7.8.10)
-  // and a directed advertisement was received where the advertiser used a
-  // resolvable private address which the Controller is unable to resolve, an
-  // HCI_LE_Directed_Advertising_Report event shall be generated instead of an
-  // HCI_LE_Advertising_Report event.
-  bool should_send_directed_advertising_report = false;
-
   if (directed_advertising) {
     switch (scanner_.scan_filter_policy) {
       // In both basic scanner filter policy modes, a directed advertising PDU
@@ -3181,13 +3235,22 @@ void LinkLayerController::ScanIncomingLeExtendedAdvertisingPdu(
               target_address.GetAddressType());
           return;
         }
-        should_send_directed_advertising_report =
-            target_address.IsRpa() && !resolved_target_address;
         break;
     }
   }
 
-  if (IsLeEventUnmasked(SubeventCode::EXTENDED_ADVERTISING_REPORT)) {
+  bool should_send_advertising_report = true;
+  if (scanner_.filter_duplicates !=
+      bluetooth::hci::FilterDuplicates::DISABLED) {
+    if (scanner_.IsPacketInHistory(pdu)) {
+      should_send_advertising_report = false;
+    } else {
+      scanner_.AddPacketToHistory(pdu);
+    }
+  }
+
+  if (should_send_advertising_report &&
+      IsLeEventUnmasked(SubeventCode::EXTENDED_ADVERTISING_REPORT)) {
     bluetooth::hci::LeExtendedAdvertisingResponseRaw response;
     response.connectable_ = connectable_advertising;
     response.scannable_ = scannable_advertising;
@@ -3240,6 +3303,12 @@ void LinkLayerController::ScanIncomingLeExtendedAdvertisingPdu(
     LOG_VERB(
         "Not sending LE Scan request to advertising address %s(%hhx) because "
         "an LE Scan request is already pending",
+        advertising_address.ToString().c_str(),
+        advertising_address.GetAddressType());
+  } else if (!should_send_advertising_report) {
+    LOG_VERB(
+        "Not sending LE Scan request to advertising address %s(%hhx) because "
+        "the advertising message was filtered",
         advertising_address.ToString().c_str(),
         advertising_address.GetAddressType());
   } else {
@@ -3514,7 +3583,7 @@ void LinkLayerController::IncomingScoConnectionRequest(
 
   // Send connection request event and wait for Accept or Reject command.
   send_event_(bluetooth::hci::ConnectionRequestBuilder::Create(
-      address, ClassOfDevice(),
+      address, request.GetClassOfDevice(),
       extended ? bluetooth::hci::ConnectionRequestLinkType::ESCO
                : bluetooth::hci::ConnectionRequestLinkType::SCO));
 }
@@ -4383,7 +4452,17 @@ void LinkLayerController::IncomingLeScanResponsePacket(
 
   scanner_.pending_scan_request = {};
 
-  if (LegacyAdvertising() &&
+  bool should_send_advertising_report = true;
+  if (scanner_.filter_duplicates !=
+      bluetooth::hci::FilterDuplicates::DISABLED) {
+    if (scanner_.IsPacketInHistory(incoming)) {
+      should_send_advertising_report = false;
+    } else {
+      scanner_.AddPacketToHistory(incoming);
+    }
+  }
+
+  if (LegacyAdvertising() && should_send_advertising_report &&
       IsLeEventUnmasked(SubeventCode::ADVERTISING_REPORT)) {
     bluetooth::hci::LeAdvertisingResponseRaw response;
     response.event_type_ = bluetooth::hci::AdvertisingEventType::SCAN_RESPONSE;
@@ -4395,7 +4474,7 @@ void LinkLayerController::IncomingLeScanResponsePacket(
         bluetooth::hci::LeAdvertisingReportRawBuilder::Create({response}));
   }
 
-  if (ExtendedAdvertising() &&
+  if (ExtendedAdvertising() && should_send_advertising_report &&
       IsLeEventUnmasked(SubeventCode::EXTENDED_ADVERTISING_REPORT)) {
     bluetooth::hci::LeExtendedAdvertisingResponseRaw response;
     response.address_ = resolved_advertising_address.GetAddress();
@@ -4417,6 +4496,10 @@ void LinkLayerController::IncomingLeScanResponsePacket(
 }
 
 void LinkLayerController::LeScanning() {
+  if (!scanner_.IsEnabled()) {
+    return;
+  }
+
   std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
   // Extended Scanning Timeout
@@ -4425,16 +4508,34 @@ void LinkLayerController::LeScanning() {
   // events with Advertising Timeout error code when the advertising
   // type is ADV_DIRECT_IND and the connection failed to be established.
 
-  if (scanner_.IsEnabled() && scanner_.timeout &&
+  if (scanner_.timeout.has_value() &&
+      !scanner_.periodical_timeout.has_value() &&
       now >= scanner_.timeout.value()) {
     // At the end of a single scan (Duration non-zero but Period zero),
     // an HCI_LE_Scan_Timeout event shall be generated.
     LOG_INFO("Extended Scan Timeout");
-    scanner_.Disable();
-
+    scanner_.scan_enable = false;
+    scanner_.history.clear();
     if (IsLeEventUnmasked(SubeventCode::SCAN_TIMEOUT)) {
       send_event_(bluetooth::hci::LeScanTimeoutBuilder::Create());
     }
+  }
+
+  // End of duration with scan enabled
+  if (scanner_.timeout.has_value() && scanner_.periodical_timeout.has_value() &&
+      now >= scanner_.timeout.value()) {
+    scanner_.timeout = {};
+  }
+
+  // End of period
+  if (!scanner_.timeout.has_value() &&
+      scanner_.periodical_timeout.has_value() &&
+      now >= scanner_.periodical_timeout.value()) {
+    if (scanner_.filter_duplicates == FilterDuplicates::RESET_EACH_PERIOD) {
+      scanner_.history.clear();
+    }
+    scanner_.timeout = now + scanner_.duration;
+    scanner_.periodical_timeout = now + scanner_.period;
   }
 }
 
@@ -6072,7 +6173,7 @@ ErrorCode LinkLayerController::AddScoConnection(uint16_t connection_handle,
       connection_parameters.receive_bandwidth,
       connection_parameters.max_latency, connection_parameters.voice_setting,
       connection_parameters.retransmission_effort,
-      connection_parameters.packet_type));
+      connection_parameters.packet_type, class_of_device_));
   return ErrorCode::SUCCESS;
 }
 
@@ -6105,7 +6206,7 @@ ErrorCode LinkLayerController::SetupSynchronousConnection(
   // Send eSCO connection request to peer.
   SendLinkLayerPacket(model::packets::ScoConnectionRequestBuilder::Create(
       GetAddress(), bd_addr, transmit_bandwidth, receive_bandwidth, max_latency,
-      voice_setting, retransmission_effort, packet_types));
+      voice_setting, retransmission_effort, packet_types, class_of_device_));
   return ErrorCode::SUCCESS;
 }
 

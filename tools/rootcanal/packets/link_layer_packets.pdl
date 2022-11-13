@@ -122,7 +122,7 @@ packet InquiryResponseWithRssi : BasicInquiryResponse (inquiry_type = RSSI)  {
 
 packet ExtendedInquiryResponse : BasicInquiryResponse (inquiry_type = EXTENDED)  {
   rssi: 8,
-  extended_data : 8[],
+  extended_inquiry_response : 8[240],
 }
 
 packet IoCapabilityRequest : LinkLayerPacket (type = IO_CAPABILITY_REQUEST) {
@@ -429,6 +429,7 @@ packet ScoConnectionRequest : LinkLayerPacket (type = SCO_CONNECTION_REQUEST) {
   _reserved_ : 6,
   retransmission_effort : 8,
   packet_type : 16,
+  class_of_device : ClassOfDevice,
 }
 
 packet ScoConnectionResponse : LinkLayerPacket (type = SCO_CONNECTION_RESPONSE) {
