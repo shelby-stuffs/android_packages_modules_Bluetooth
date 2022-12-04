@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,29 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#ifndef SWVERSION_H
+#define SWVERSION_H
 
-#include "gd/rust/topshim/common/utils.h"
+static const char* const swversion = "1.0.0";
 
-#include "src/btif.rs.h"
-
-using bluetooth::topshim::rust::RustRawAddress;
-
-namespace bluetooth {
-namespace topshim {
-namespace rust {
-
-RustRawAddress CopyToRustAddress(const RawAddress& address) {
-  RustRawAddress raddr;
-  std::copy(std::begin(address.address), std::end(address.address), std::begin(raddr.address));
-  return raddr;
-}
-
-RawAddress CopyFromRustAddress(const RustRawAddress& rust_address) {
-  RawAddress addr;
-  addr.FromOctets(rust_address.address.data());
-  return addr;
-}
-
-}  // namespace rust
-}  // namespace topshim
-}  // namespace bluetooth
+#endif  // SWVERSION_H

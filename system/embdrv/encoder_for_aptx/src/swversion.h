@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,22 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef GD_RUST_TOPSHIM_COMMON_UTILS_H
-#define GD_RUST_TOPSHIM_COMMON_UTILS_H
+#ifndef SWVERSION_H
+#define SWVERSION_H
 
-#include "types/raw_address.h"
+static const char* const swversion = "1.0.0";
 
-namespace bluetooth {
-namespace topshim {
-namespace rust {
-
-struct RustRawAddress;
-
-RustRawAddress CopyToRustAddress(const RawAddress& address);
-RawAddress CopyFromRustAddress(const RustRawAddress& rust_address);
-
-}  // namespace rust
-}  // namespace topshim
-}  // namespace bluetooth
-
-#endif  // GD_RUST_TOPSHIM_COMMON_UTILS_H
+#endif  // SWVERSION_H

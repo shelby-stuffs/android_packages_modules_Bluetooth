@@ -854,6 +854,10 @@ struct Controller::impl {
       OP_CODE_MAPPING(READ_LOCAL_SUPPORTED_CONTROLLER_DELAY)
       OP_CODE_MAPPING(CONFIGURE_DATA_PATH)
       OP_CODE_MAPPING(ENHANCED_FLUSH)
+      OP_CODE_MAPPING(LE_SET_DATA_RELATED_ADDRESS_CHANGES)
+      OP_CODE_MAPPING(LE_SET_DEFAULT_SUBRATE)
+      OP_CODE_MAPPING(LE_SUBRATE_REQUEST)
+      OP_CODE_MAPPING(SET_MIN_ENCRYPTION_KEY_SIZE)
 
       // deprecated
       case OpCode::ADD_SCO_CONNECTION:
@@ -878,6 +882,13 @@ struct Controller::impl {
         return vendor_capabilities_.a2dp_source_offload_capability_mask_ != 0x00;
       case OpCode::CONTROLLER_BQR:
         return vendor_capabilities_.bluetooth_quality_report_support_ == 0x01;
+      // Before MSFT extension is fully supported, return false for the following MSFT_OPCODE_XXXX for now.
+      case OpCode::MSFT_OPCODE_INTEL:
+        return false;
+      case OpCode::MSFT_OPCODE_MEDIATEK:
+        return false;
+      case OpCode::MSFT_OPCODE_QUALCOMM:
+        return false;
       // undefined in local_supported_commands_
       case OpCode::READ_LOCAL_SUPPORTED_COMMANDS:
         return true;
