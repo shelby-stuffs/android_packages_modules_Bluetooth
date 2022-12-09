@@ -1714,7 +1714,10 @@ impl IBluetooth for Bluetooth {
                                 }
                             }
 
-                            Profile::A2dpSink | Profile::A2dpSource | Profile::Hfp => {
+                            Profile::A2dpSink
+                            | Profile::A2dpSource
+                            | Profile::Hfp
+                            | Profile::AvrcpController => {
                                 let txl = self.tx.clone();
                                 let address = device.address.clone();
                                 topstack::get_runtime().spawn(async move {
@@ -1736,6 +1739,13 @@ impl IBluetooth for Bluetooth {
         // If SDP isn't completed yet, we wait for it to complete and retry the connection again.
         // Otherwise, this connection request is done, no retry is required.
         self.wait_to_connect = !has_enabled_uuids;
+        if self.wait_to_connect {
+            warn!(
+                "[{}] SDP hasn't completed for device, wait to connect.",
+                addr.unwrap().to_string()
+            );
+        }
+
         return true;
     }
 
@@ -1771,7 +1781,10 @@ impl IBluetooth for Bluetooth {
                                 self.hh.as_ref().unwrap().disconnect(&mut addr.unwrap());
                             }
 
-                            Profile::A2dpSink | Profile::A2dpSource | Profile::Hfp => {
+                            Profile::A2dpSink
+                            | Profile::A2dpSource
+                            | Profile::Hfp
+                            | Profile::AvrcpController => {
                                 let txl = self.tx.clone();
                                 let address = device.address.clone();
                                 topstack::get_runtime().spawn(async move {
@@ -1860,11 +1873,18 @@ impl BtifHHCallbacks for Bluetooth {
         );
     }
 
-    fn get_report(&mut self, address: RawAddress, status: BthhStatus, _data: Vec<u8>, size: i32) {
+    fn get_report(
+        &mut self,
+        mut address: RawAddress,
+        status: BthhStatus,
+        mut data: Vec<u8>,
+        size: i32,
+    ) {
         debug!(
             "Hid host got report: Address({:?}) Status({:?}) Report Size({:?})",
             address, status, size
         );
+        self.hh.as_ref().unwrap().get_report_reply(&mut address, status, &mut data, size as u16);
     }
 
     fn handshake(&mut self, address: RawAddress, status: BthhStatus) {

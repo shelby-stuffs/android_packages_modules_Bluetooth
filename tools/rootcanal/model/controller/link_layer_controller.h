@@ -149,6 +149,10 @@ class LinkLayerController {
   AsyncTaskId ScheduleTask(std::chrono::milliseconds delay_ms,
                            const TaskCallback& task);
 
+  AsyncTaskId SchedulePeriodicTask(std::chrono::milliseconds delay_ms,
+                                   std::chrono::milliseconds period_ms,
+                                   const TaskCallback& callback);
+
   void CancelScheduledTask(AsyncTaskId task);
 
   // Set the callbacks for sending packets to the HCI.
@@ -344,11 +348,13 @@ class LinkLayerController {
   void ReadLocalOobData();
   void ReadLocalOobExtendedData();
 
-  ErrorCode AddScoConnection(uint16_t connection_handle, uint16_t packet_type);
+  ErrorCode AddScoConnection(uint16_t connection_handle, uint16_t packet_type,
+                             ScoDatapath datapath);
   ErrorCode SetupSynchronousConnection(
       uint16_t connection_handle, uint32_t transmit_bandwidth,
       uint32_t receive_bandwidth, uint16_t max_latency, uint16_t voice_setting,
-      uint8_t retransmission_effort, uint16_t packet_types);
+      uint8_t retransmission_effort, uint16_t packet_types,
+      ScoDatapath datapath);
   ErrorCode AcceptSynchronousConnection(
       Address bd_addr, uint32_t transmit_bandwidth, uint32_t receive_bandwidth,
       uint16_t max_latency, uint16_t voice_setting,
@@ -525,12 +531,12 @@ class LinkLayerController {
           initiating_phy_parameters);
 
  protected:
-  void SendLeLinkLayerPacketWithRssi(
-      Address source, Address dest, uint8_t rssi,
+  void SendLinkLayerPacket(
       std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet);
   void SendLeLinkLayerPacket(
       std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet);
-  void SendLinkLayerPacket(
+  void SendLeLinkLayerPacketWithRssi(
+      Address source_address, Address destination_address, uint8_t rssi,
       std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet);
 
   void IncomingAclPacket(model::packets::LinkLayerPacketView packet);
@@ -767,20 +773,22 @@ class LinkLayerController {
     le_suggested_max_tx_time_ = max_tx_time;
   }
 
+  AsyncTaskId StartScoStream(Address address);
+
  private:
   const Address& address_;
   const ControllerProperties& properties_;
 
   // Host Supported Features (Vol 2, Part C § 3.3 Feature Mask Definition).
   // Page 1 of the LMP feature mask.
-  uint64_t host_supported_features_;
+  uint64_t host_supported_features_{0};
   bool le_host_support_{false};
   bool secure_simple_pairing_host_support_{false};
   bool secure_connections_host_support_{false};
 
   // Le Host Supported Features (Vol 4, Part E § 7.8.3).
   // Specifies the bits indicating Host support.
-  uint64_t le_host_supported_features_;
+  uint64_t le_host_supported_features_{0};
   bool connected_isochronous_stream_host_support_{false};
   bool connection_subrating_host_support_{false};
 
@@ -816,10 +824,11 @@ class LinkLayerController {
   uint16_t voice_setting_{0x0060};
 
   // Authentication Enable (Vol 4, Part E § 6.16).
-  AuthenticationEnable authentication_enable_;
+  AuthenticationEnable authentication_enable_{
+      AuthenticationEnable::NOT_REQUIRED};
 
   // Default Link Policy Settings (Vol 4, Part E § 6.18).
-  uint8_t default_link_policy_settings_;
+  uint8_t default_link_policy_settings_{0x0000};
 
   // Synchronous Flow Control Enable (Vol 4, Part E § 6.22).
   bool sco_flow_control_enable_{false};
@@ -881,8 +890,8 @@ class LinkLayerController {
                      Phy::Type phy_type)>
       send_to_remote_;
 
-  uint32_t oob_id_ = 1;
-  uint32_t key_id_ = 1;
+  uint32_t oob_id_{1};
+  uint32_t key_id_{1};
 
   struct FilterAcceptListEntry {
     FilterAcceptListAddressType address_type;

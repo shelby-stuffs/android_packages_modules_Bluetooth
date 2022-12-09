@@ -1349,17 +1349,6 @@ void LinkLayerController::SetExtendedInquiryResponse(
             extended_inquiry_response_.begin());
 }
 
-void LinkLayerController::SendLeLinkLayerPacketWithRssi(
-    Address source, Address dest, uint8_t rssi,
-    std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet) {
-  std::shared_ptr<model::packets::RssiWrapperBuilder> shared_packet =
-      model::packets::RssiWrapperBuilder::Create(source, dest, rssi,
-                                                 std::move(packet));
-  ScheduleTask(kNoDelayMs, [this, shared_packet]() {
-    send_to_remote_(shared_packet, Phy::Type::LOW_ENERGY);
-  });
-}
-
 #ifdef ROOTCANAL_LMP
 LinkLayerController::LinkLayerController(const Address& address,
                                          const ControllerProperties& properties)
@@ -1442,6 +1431,17 @@ void LinkLayerController::SendLinkLayerPacket(
       std::move(packet);
   ScheduleTask(kNoDelayMs, [this, shared_packet]() {
     send_to_remote_(shared_packet, Phy::Type::BR_EDR);
+  });
+}
+
+void LinkLayerController::SendLeLinkLayerPacketWithRssi(
+    Address source_address, Address destination_address, uint8_t rssi,
+    std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet) {
+  std::shared_ptr<model::packets::RssiWrapperBuilder> shared_packet =
+      model::packets::RssiWrapperBuilder::Create(
+          source_address, destination_address, rssi, std::move(packet));
+  ScheduleTask(kNoDelayMs, [this, shared_packet]() {
+    send_to_remote_(shared_packet, Phy::Type::LOW_ENERGY);
   });
 }
 
@@ -2073,7 +2073,7 @@ void LinkLayerController::IncomingDisconnectPacket(
 #ifdef ROOTCANAL_LMP
   auto is_br_edr = connections_.GetPhyType(handle) == Phy::Type::BR_EDR;
 #endif
-  ASSERT_LOG(connections_.Disconnect(handle),
+  ASSERT_LOG(connections_.Disconnect(handle, cancel_task_),
              "GetHandle() returned invalid handle %hx", handle);
 
   uint8_t reason = disconnect.GetReason();
@@ -3579,7 +3579,8 @@ void LinkLayerController::IncomingScoConnectionRequest(
   connections_.CreateScoConnection(
       address, connection_parameters,
       extended ? ScoState::SCO_STATE_SENT_ESCO_CONNECTION_REQUEST
-               : ScoState::SCO_STATE_SENT_SCO_CONNECTION_REQUEST);
+               : ScoState::SCO_STATE_SENT_SCO_CONNECTION_REQUEST,
+      ScoDatapath::NORMAL);
 
   // Send connection request event and wait for Accept or Reject command.
   send_event_(bluetooth::hci::ConnectionRequestBuilder::Create(
@@ -3610,7 +3611,12 @@ void LinkLayerController::IncomingScoConnectionResponse(
         response.GetAirMode(),
         extended,
     };
-    connections_.AcceptPendingScoConnection(address, link_parameters);
+
+    connections_.AcceptPendingScoConnection(
+        address, link_parameters, [this, address] {
+          return LinkLayerController::StartScoStream(address);
+        });
+
     if (is_legacy) {
       send_event_(bluetooth::hci::ConnectionCompleteBuilder::Create(
           ErrorCode::SUCCESS, connections_.GetScoHandle(address), address,
@@ -3659,7 +3665,7 @@ void LinkLayerController::IncomingScoDisconnect(
       incoming.GetSourceAddress().ToString().c_str());
 
   if (handle != kReservedHandle) {
-    connections_.Disconnect(handle);
+    connections_.Disconnect(handle, cancel_task_);
     SendDisconnectionCompleteEvent(handle, ErrorCode(reason));
   }
 }
@@ -4268,11 +4274,14 @@ void LinkLayerController::ProcessIncomingLegacyScanRequest(
   // device address (AdvA field) in the SCAN_RSP PDU shall be the same as
   // the advertiser’s device address (AdvA field) in the SCAN_REQ PDU to
   // which it is responding.
-  SendLeLinkLayerPacket(model::packets::LeScanResponseBuilder::Create(
+  SendLeLinkLayerPacketWithRssi(
       advertising_address.GetAddress(), scanning_address.GetAddress(),
-      static_cast<model::packets::AddressType>(
-          advertising_address.GetAddressType()),
-      legacy_advertiser_.scan_response_data));
+      properties_.le_advertising_physical_channel_tx_power,
+      model::packets::LeScanResponseBuilder::Create(
+          advertising_address.GetAddress(), scanning_address.GetAddress(),
+          static_cast<model::packets::AddressType>(
+              advertising_address.GetAddressType()),
+          legacy_advertiser_.scan_response_data));
 }
 
 void LinkLayerController::ProcessIncomingExtendedScanRequest(
@@ -4350,11 +4359,14 @@ void LinkLayerController::ProcessIncomingExtendedScanRequest(
   // device address (AdvA field) in the SCAN_RSP PDU shall be the same as
   // the advertiser’s device address (AdvA field) in the SCAN_REQ PDU to
   // which it is responding.
-  SendLeLinkLayerPacket(model::packets::LeScanResponseBuilder::Create(
+  SendLeLinkLayerPacketWithRssi(
       advertising_address.GetAddress(), scanning_address.GetAddress(),
-      static_cast<model::packets::AddressType>(
-          advertising_address.GetAddressType()),
-      advertiser.scan_response_data));
+      advertiser.advertising_tx_power,
+      model::packets::LeScanResponseBuilder::Create(
+          advertising_address.GetAddress(), scanning_address.GetAddress(),
+          static_cast<model::packets::AddressType>(
+              advertising_address.GetAddressType()),
+          advertiser.scan_response_data));
 }
 
 void LinkLayerController::IncomingLeScanPacket(
@@ -4809,6 +4821,17 @@ AsyncTaskId LinkLayerController::ScheduleTask(milliseconds delay_ms,
   } else if (delay_ms == milliseconds::zero()) {
     callback();
     return 0;
+  } else {
+    LOG_ERROR("Unable to schedule task on delay");
+    return 0;
+  }
+}
+
+AsyncTaskId LinkLayerController::SchedulePeriodicTask(
+    milliseconds delay_ms, milliseconds period_ms,
+    const TaskCallback& callback) {
+  if (schedule_periodic_task_) {
+    return schedule_periodic_task_(delay_ms, period_ms, callback);
   } else {
     LOG_ERROR("Unable to schedule task on delay");
     return 0;
@@ -5322,8 +5345,10 @@ ErrorCode LinkLayerController::AcceptConnectionRequest(const Address& bd_addr,
     ScoConnectionParameters connection_parameters =
         connections_.GetScoConnectionParameters(bd_addr);
 
-    if (!connections_.AcceptPendingScoConnection(bd_addr,
-                                                 connection_parameters)) {
+    if (!connections_.AcceptPendingScoConnection(
+            bd_addr, connection_parameters, [this, bd_addr] {
+              return LinkLayerController::StartScoStream(bd_addr);
+            })) {
       connections_.CancelPendingScoConnection(bd_addr);
       status = ErrorCode::SCO_INTERVAL_REJECTED;  // TODO: proper status code
     } else {
@@ -5456,7 +5481,7 @@ ErrorCode LinkLayerController::Disconnect(uint16_t handle, ErrorCode reason) {
     SendLinkLayerPacket(model::packets::ScoDisconnectBuilder::Create(
         GetAddress(), remote, static_cast<uint8_t>(reason)));
 
-    connections_.Disconnect(handle);
+    connections_.Disconnect(handle, cancel_task_);
     SendDisconnectionCompleteEvent(handle, reason);
     return ErrorCode::SUCCESS;
   }
@@ -5476,7 +5501,7 @@ ErrorCode LinkLayerController::Disconnect(uint16_t handle, ErrorCode reason) {
       SendLinkLayerPacket(model::packets::ScoDisconnectBuilder::Create(
           GetAddress(), remote.GetAddress(), static_cast<uint8_t>(reason)));
 
-      connections_.Disconnect(sco_handle);
+      connections_.Disconnect(sco_handle, cancel_task_);
       SendDisconnectionCompleteEvent(sco_handle, reason);
     }
 
@@ -5490,7 +5515,7 @@ ErrorCode LinkLayerController::Disconnect(uint16_t handle, ErrorCode reason) {
         static_cast<uint8_t>(reason)));
   }
 
-  connections_.Disconnect(handle);
+  connections_.Disconnect(handle, cancel_task_);
   SendDisconnectionCompleteEvent(handle, ErrorCode(reason));
 #ifdef ROOTCANAL_LMP
   if (is_br_edr) {
@@ -6048,33 +6073,74 @@ ErrorCode LinkLayerController::LeLongTermKeyRequestNegativeReply(
 }
 
 void LinkLayerController::Reset() {
+  host_supported_features_ = 0;
+  le_host_support_ = false;
+  secure_simple_pairing_host_support_ = false;
+  secure_connections_host_support_ = false;
+  le_host_supported_features_ = 0;
+  connected_isochronous_stream_host_support_ = false;
+  connection_subrating_host_support_ = false;
+  random_address_ = Address::kEmpty;
+  page_scan_enable_ = false;
+  inquiry_scan_enable_ = false;
+  inquiry_scan_interval_ = 0x1000;
+  inquiry_scan_window_ = 0x0012;
+  page_timeout_ = 0x2000;
+  connection_accept_timeout_ = 0x1FA0;
+  page_scan_interval_ = 0x0800;
+  page_scan_window_ = 0x0012;
+  voice_setting_ = 0x0060;
+  authentication_enable_ = AuthenticationEnable::NOT_REQUIRED;
+  default_link_policy_settings_ = 0x0000;
+  sco_flow_control_enable_ = false;
+  local_name_.fill(0);
+  extended_inquiry_response_.fill(0);
+  class_of_device_ = ClassOfDevice({0, 0, 0});
+  min_encryption_key_size_ = 16;
+  event_mask_ = 0x00001fffffffffff;
+  event_mask_page_2_ = 0x0;
+  le_event_mask_ = 0x01f;
+  le_suggested_max_tx_octets_ = 0x001b;
+  le_suggested_max_tx_time_ = 0x0148;
+  resolvable_private_address_timeout_ = std::chrono::seconds(0x0384);
+  page_scan_repetition_mode_ = PageScanRepetitionMode::R0;
   connections_ = AclConnectionHandler();
+  oob_id_ = 1;
+  key_id_ = 1;
   le_filter_accept_list_.clear();
   le_resolving_list_.clear();
   le_resolving_list_enabled_ = false;
-  if (inquiry_timer_task_id_ != kInvalidTaskId) {
-    CancelScheduledTask(inquiry_timer_task_id_);
-    inquiry_timer_task_id_ = kInvalidTaskId;
-  }
+  legacy_advertising_in_use_ = false;
+  extended_advertising_in_use_ = false;
+  legacy_advertiser_ = LegacyAdvertiser{};
+  extended_advertisers_.clear();
+  scanner_ = Scanner{};
+  initiator_ = Initiator{};
   last_inquiry_ = steady_clock::now();
-  page_scan_enable_ = false;
-  inquiry_scan_enable_ = false;
+  inquiry_mode_ = InquiryType::STANDARD;
+  inquiry_lap_ = 0;
+  inquiry_max_responses_ = 0;
 
   bluetooth::hci::Lap general_iac;
   general_iac.lap_ = 0x33;  // 0x9E8B33
   current_iac_lap_list_.clear();
   current_iac_lap_list_.emplace_back(general_iac);
 
+  if (inquiry_timer_task_id_ != kInvalidTaskId) {
+    CancelScheduledTask(inquiry_timer_task_id_);
+    inquiry_timer_task_id_ = kInvalidTaskId;
+  }
+
+  if (page_timeout_task_id_ != kInvalidTaskId) {
+    CancelScheduledTask(page_timeout_task_id_);
+    page_timeout_task_id_ = kInvalidTaskId;
+  }
+
 #ifdef ROOTCANAL_LMP
   lm_.reset(link_manager_create(ops_));
+#else
+  security_manager_ = SecurityManager(10);
 #endif
-  legacy_advertising_in_use_ = false;
-  extended_advertising_in_use_ = false;
-
-  extended_advertisers_.clear();
-  legacy_advertiser_ = LegacyAdvertiser{};
-  scanner_ = Scanner{};
-  initiator_ = Initiator{};
 }
 
 void LinkLayerController::StartInquiry(milliseconds timeout) {
@@ -6135,7 +6201,8 @@ void LinkLayerController::SetPageTimeout(uint16_t page_timeout) {
 }
 
 ErrorCode LinkLayerController::AddScoConnection(uint16_t connection_handle,
-                                                uint16_t packet_type) {
+                                                uint16_t packet_type,
+                                                ScoDatapath datapath) {
   if (!connections_.HasHandle(connection_handle)) {
     return ErrorCode::UNKNOWN_CONNECTION;
   }
@@ -6165,7 +6232,7 @@ ErrorCode LinkLayerController::AddScoConnection(uint16_t connection_handle,
                      NO_3_EV5_ALLOWED)};
   connections_.CreateScoConnection(
       connections_.GetAddress(connection_handle).GetAddress(),
-      connection_parameters, SCO_STATE_PENDING, true);
+      connection_parameters, SCO_STATE_PENDING, datapath, true);
 
   // Send SCO connection request to peer.
   SendLinkLayerPacket(model::packets::ScoConnectionRequestBuilder::Create(
@@ -6180,7 +6247,8 @@ ErrorCode LinkLayerController::AddScoConnection(uint16_t connection_handle,
 ErrorCode LinkLayerController::SetupSynchronousConnection(
     uint16_t connection_handle, uint32_t transmit_bandwidth,
     uint32_t receive_bandwidth, uint16_t max_latency, uint16_t voice_setting,
-    uint8_t retransmission_effort, uint16_t packet_types) {
+    uint8_t retransmission_effort, uint16_t packet_types,
+    ScoDatapath datapath) {
   if (!connections_.HasHandle(connection_handle)) {
     return ErrorCode::UNKNOWN_CONNECTION;
   }
@@ -6201,7 +6269,7 @@ ErrorCode LinkLayerController::SetupSynchronousConnection(
       voice_setting,      retransmission_effort, packet_types};
   connections_.CreateScoConnection(
       connections_.GetAddress(connection_handle).GetAddress(),
-      connection_parameters, SCO_STATE_PENDING);
+      connection_parameters, SCO_STATE_PENDING, datapath);
 
   // Send eSCO connection request to peer.
   SendLinkLayerPacket(model::packets::ScoConnectionRequestBuilder::Create(
@@ -6229,8 +6297,10 @@ ErrorCode LinkLayerController::AcceptSynchronousConnection(
       transmit_bandwidth, receive_bandwidth,     max_latency,
       voice_setting,      retransmission_effort, packet_types};
 
-  if (!connections_.AcceptPendingScoConnection(bd_addr,
-                                               connection_parameters)) {
+  if (!connections_.AcceptPendingScoConnection(
+          bd_addr, connection_parameters, [this, bd_addr] {
+            return LinkLayerController::StartScoStream(bd_addr);
+          })) {
     connections_.CancelPendingScoConnection(bd_addr);
     status = ErrorCode::STATUS_UNKNOWN;  // TODO: proper status code
   } else {
@@ -6325,4 +6395,22 @@ void LinkLayerController::IncomingPingRequest(
       packet.GetDestinationAddress(), packet.GetSourceAddress()));
 }
 
+AsyncTaskId LinkLayerController::StartScoStream(Address address) {
+  auto sco_builder = bluetooth::hci::ScoBuilder::Create(
+      connections_.GetScoHandle(address), PacketStatusFlag::CORRECTLY_RECEIVED,
+      {0, 0, 0, 0, 0});
+
+  auto bytes = std::make_shared<std::vector<uint8_t>>();
+  bluetooth::packet::BitInserter bit_inserter(*bytes);
+  sco_builder->Serialize(bit_inserter);
+  auto raw_view =
+      bluetooth::hci::PacketView<bluetooth::hci::kLittleEndian>(bytes);
+  auto sco_view = bluetooth::hci::ScoView::Create(raw_view);
+  ASSERT(sco_view.IsValid());
+
+  return SchedulePeriodicTask(0ms, 20ms, [this, address, sco_view]() {
+    LOG_INFO("SCO sending...");
+    SendScoToRemote(sco_view);
+  });
+}
 }  // namespace rootcanal

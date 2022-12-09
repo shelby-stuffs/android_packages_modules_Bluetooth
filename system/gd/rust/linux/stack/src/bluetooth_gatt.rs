@@ -1734,22 +1734,17 @@ impl BtifGattClientCallbacks for BluetoothGatt {
         client_id: i32,
         addr: RawAddress,
     ) {
-        self.context_map.remove_connection(client_id, conn_id);
         let client = self.context_map.get_by_client_id(client_id);
         if let Some(c) = client {
             let cbid = c.cbid;
             self.context_map.get_callback_from_callback_id(cbid).and_then(
                 |cb: &mut GattClientCallback| {
-                    cb.on_client_connection_state(
-                        status,
-                        client_id,
-                        status == GattStatus::Success,
-                        addr.to_string(),
-                    );
+                    cb.on_client_connection_state(status, client_id, false, addr.to_string());
                     Some(())
                 },
             );
         }
+        self.context_map.remove_connection(client_id, conn_id);
     }
 
     fn search_complete_cb(&mut self, conn_id: i32, _status: GattStatus) {
@@ -1774,7 +1769,7 @@ impl BtifGattClientCallbacks for BluetoothGatt {
             self.context_map.get_callback_from_callback_id(cbid).and_then(
                 |cb: &mut GattClientCallback| {
                     cb.on_notify(
-                        RawAddress { val: data.bda.address }.to_string(),
+                        data.bda.to_string(),
                         data.handle as i32,
                         data.value[0..data.len as usize].to_vec(),
                     );
