@@ -27,14 +27,14 @@
  ***********************************************************************************/
 #define LOG_TAG "BTIF_HD"
 
+#include "btif/include/btif_hd.h"
+
 #include <cstdint>
 
 #include "bt_target.h"  // Must be first to define build configuration
-
 #include "bta/include/bta_hd_api.h"
 #include "btif/include/btif_common.h"
-#include "btif/include/btif_hd.h"
-#include "btif/include/btif_storage.h"
+#include "btif/include/btif_profile_storage.h"
 #include "btif/include/btif_util.h"
 #include "include/hardware/bt_hd.h"
 #include "osi/include/allocator.h"
@@ -200,7 +200,7 @@ static void btif_hd_upstreams_evt(uint16_t event, char* p_param) {
     case BTA_HD_OPEN_EVT: {
       RawAddress* addr = (RawAddress*)&p_data->conn.bda;
       BTIF_TRACE_WARNING("BTA_HD_OPEN_EVT, address=%s",
-                         addr->ToString().c_str());
+                         ADDRESS_TO_LOGGABLE_CSTR(*addr));
       /* Check if the connection is from hid host and not hid device */
       if (check_cod_hid(addr)) {
         /* Incoming connection from hid device, reject it */
