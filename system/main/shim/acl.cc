@@ -30,6 +30,7 @@
 #include <unordered_set>
 
 #include "btif/include/btif_hh.h"
+#include "common/interfaces/ILoggable.h"
 #include "device/include/controller.h"
 #include "gd/common/bidi_queue.h"
 #include "gd/common/bind.h"
@@ -76,18 +77,29 @@ bt_status_t do_in_main_thread(const base::Location& from_here,
 
 using namespace bluetooth;
 
-class ConnectAddressWithType {
+class ConnectAddressWithType : public bluetooth::common::IRedactableLoggable {
  public:
   explicit ConnectAddressWithType(hci::AddressWithType address_with_type)
       : address_(address_with_type.GetAddress()),
         type_(address_with_type.ToFilterAcceptListAddressType()) {}
 
+  // TODO: remove this method
   std::string const ToString() const {
     std::stringstream ss;
-    ss << address_ << "[" << FilterAcceptListAddressTypeText(type_) << "]";
+    ss << address_.ToString() << "[" << FilterAcceptListAddressTypeText(type_)
+       << "]";
     return ss.str();
   }
 
+  std::string ToStringForLogging() const override {
+    return ToString();
+  }
+  std::string ToRedactedStringForLogging() const override {
+    std::stringstream ss;
+    ss << address_.ToRedactedStringForLogging() << "["
+       << FilterAcceptListAddressTypeText(type_) << "]";
+    return ss.str();
+  }
   bool operator==(const ConnectAddressWithType& rhs) const {
     return address_ == rhs.address_ && type_ == rhs.type_;
   }
@@ -850,15 +862,15 @@ struct shim::legacy::Acl::impl {
     }
 
     // Since this is a suspend disconnect, we immediately also call
-    // |OnDisconnection| without waiting for it to happen. We want the stack
-    // to clean up ahead of the link layer (since we will mask away that
-    // event). The reason we do this in a separate loop is that this will also
-    // remove the handle from the connection map.
+    // |OnClassicSuspendInitiatedDisconnect| without waiting for it to happen.
+    // We want the stack to clean up ahead of the link layer (since we will mask
+    // away that event). The reason we do this in a separate loop is that this
+    // will also remove the handle from the connection map.
     for (auto& handle : disconnect_handles) {
       auto found = handle_to_classic_connection_map_.find(handle);
       if (found != handle_to_classic_connection_map_.end()) {
-        found->second->OnDisconnection(
-            hci::ErrorCode::CONNECTION_TERMINATED_BY_LOCAL_HOST);
+        GetAclManager()->OnClassicSuspendInitiatedDisconnect(
+            found->first, hci::ErrorCode::CONNECTION_TERMINATED_BY_LOCAL_HOST);
       }
     }
 
@@ -884,15 +896,15 @@ struct shim::legacy::Acl::impl {
     }
 
     // Since this is a suspend disconnect, we immediately also call
-    // |OnDisconnection| without waiting for it to happen. We want the stack
-    // to clean up ahead of the link layer (since we will mask away that
-    // event). The reason we do this in a separate loop is that this will also
-    // remove the handle from the connection map.
+    // |OnLeSuspendInitiatedDisconnect| without waiting for it to happen. We
+    // want the stack to clean up ahead of the link layer (since we will mask
+    // away that event). The reason we do this in a separate loop is that this
+    // will also remove the handle from the connection map.
     for (auto& handle : disconnect_handles) {
       auto found = handle_to_le_connection_map_.find(handle);
       if (found != handle_to_le_connection_map_.end()) {
-        found->second->OnDisconnection(
-            hci::ErrorCode::CONNECTION_TERMINATED_BY_LOCAL_HOST);
+        GetAclManager()->OnLeSuspendInitiatedDisconnect(
+            found->first, hci::ErrorCode::CONNECTION_TERMINATED_BY_LOCAL_HOST);
       }
     }
     promise.set_value();
@@ -1094,7 +1106,7 @@ struct shim::legacy::Acl::impl {
               acceptlist.size(),
               controller_get_interface()->get_ble_acceptlist_size());
     for (auto& entry : acceptlist) {
-      LOG_DEBUG("acceptlist:%s", entry.ToString().c_str());
+      LOG_DEBUG("acceptlist:%s", ADDRESS_TO_LOGGABLE_CSTR(entry));
     }
   }
 
@@ -1127,7 +1139,7 @@ struct shim::legacy::Acl::impl {
                 controller_get_interface()->get_ble_acceptlist_size());
     unsigned cnt = 0;
     for (auto& entry : acceptlist) {
-      LOG_DUMPSYS(fd, "  %03u %s", ++cnt, entry.ToString().c_str());
+      LOG_DUMPSYS(fd, "  %03u %s", ++cnt, ADDRESS_TO_LOGGABLE_CSTR(entry));
     }
     auto address_resolution_list = shadow_address_resolution_list_.GetCopy();
     LOG_DUMPSYS(fd,
@@ -1137,7 +1149,7 @@ struct shim::legacy::Acl::impl {
                 controller_get_interface()->get_ble_resolving_list_max_size());
     cnt = 0;
     for (auto& entry : address_resolution_list) {
-      LOG_DUMPSYS(fd, "  %03u %s", ++cnt, entry.ToString().c_str());
+      LOG_DUMPSYS(fd, "  %03u %s", ++cnt, ADDRESS_TO_LOGGABLE_CSTR(entry));
     }
   }
 #undef DUMPSYS_TAG
@@ -1180,7 +1192,7 @@ void DumpsysAcl(int fd) {
     if (!link.in_use) continue;
 
     LOG_DUMPSYS(fd, "remote_addr:%s handle:0x%04x transport:%s",
-                link.remote_addr.ToString().c_str(), link.hci_handle,
+                ADDRESS_TO_LOGGABLE_CSTR(link.remote_addr), link.hci_handle,
                 bt_transport_text(link.transport).c_str());
     LOG_DUMPSYS(fd, "    link_up_issued:%5s",
                 (link.link_up_issued) ? "true" : "false");
@@ -1212,10 +1224,10 @@ void DumpsysAcl(int fd) {
                   bd_features_text(link.peer_le_features).c_str());
 
       LOG_DUMPSYS(fd, "    [le] active_remote_addr:%s[%s]",
-                  link.active_remote_addr.ToString().c_str(),
+                  ADDRESS_TO_LOGGABLE_CSTR(link.active_remote_addr),
                   AddressTypeText(link.active_remote_addr_type).c_str());
       LOG_DUMPSYS(fd, "    [le] conn_addr:%s[%s]",
-                  link.conn_addr.ToString().c_str(),
+                  ADDRESS_TO_LOGGABLE_CSTR(link.conn_addr),
                   AddressTypeText(link.conn_addr_type).c_str());
     }
   }
@@ -1258,6 +1270,7 @@ void DumpsysRecord(int fd) {
        node = list_next(node)) {
     tBTM_SEC_DEV_REC* p_dev_rec =
         static_cast<tBTM_SEC_DEV_REC*>(list_node(node));
+    // TODO: handle in tBTM_SEC_DEV_REC.ToString
     LOG_DUMPSYS(fd, "%03u %s", ++cnt, p_dev_rec->ToString().c_str());
   }
 }

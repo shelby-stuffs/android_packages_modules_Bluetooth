@@ -17,6 +17,7 @@
 
 #include "abstract_message_loop.h"
 #include "connection_handler.h"
+#include "os/logging/log_adapter.h"
 #include "packet/avrcp/avrcp_reject_packet.h"
 #include "packet/avrcp/general_reject_packet.h"
 #include "packet/avrcp/get_play_status_packet.h"
@@ -26,13 +27,13 @@
 #include "stack_config.h"
 #include "types/raw_address.h"
 
-#include <base/logging.h>
-
 namespace bluetooth {
 namespace avrcp {
 
-#define DEVICE_LOG(LEVEL) LOG(LEVEL) << address_.ToString() << " : "
-#define DEVICE_VLOG(LEVEL) VLOG(LEVEL) << address_.ToString() << " : "
+#define DEVICE_LOG(LEVEL) \
+  LOG(LEVEL) << ADDRESS_TO_LOGGABLE_STR(address_) << " : "
+#define DEVICE_VLOG(LEVEL) \
+  VLOG(LEVEL) << ADDRESS_TO_LOGGABLE_STR(address_) << " : "
 
 #define VOL_NOT_SUPPORTED -1
 #define VOL_REGISTRATION_FAILED -2
@@ -510,7 +511,7 @@ void Device::PlaybackStatusNotificationResponse(uint8_t label, bool interim,
   if (!interim && state_to_send == last_play_status_.state) {
     DEVICE_VLOG(0) << __func__
                    << ": Not sending notification due to no state update "
-                   << address_.ToString();
+                   << ADDRESS_TO_LOGGABLE_STR(address_);
     return;
   }
 
@@ -539,7 +540,7 @@ void Device::PlaybackPosNotificationResponse(uint8_t label, bool interim,
   }
 
   if (!interim && last_play_status_.position == status.position) {
-    DEVICE_LOG(WARNING) << address_.ToString()
+    DEVICE_LOG(WARNING) << ADDRESS_TO_LOGGABLE_STR(address_)
                         << ": No update to play position";
     return;
   }
@@ -705,7 +706,7 @@ void Device::MessageReceived(uint8_t label, std::shared_ptr<Packet> pkt) {
               if (!d) return;
 
               if (!d->IsActive()) {
-                LOG(INFO) << "Setting " << d->address_.ToString()
+                LOG(INFO) << "Setting " << ADDRESS_TO_LOGGABLE_STR(d->address_)
                           << " to be the active device";
                 d->media_interface_->SetActiveDevice(d->address_);
 
@@ -1507,10 +1508,10 @@ static std::string volumeToStr(int8_t volume) {
 }
 
 std::ostream& operator<<(std::ostream& out, const Device& d) {
-  out << d.address_.ToString();
+  // TODO: whether this should be turned into LOGGABLE STRING?
+  out << ADDRESS_TO_LOGGABLE_STR(d.address_);
   if (d.IsActive()) out << " <Active>";
   out << std::endl;
-
   ScopedIndent indent(out);
   out << "Current Volume: " << volumeToStr(d.volume_) << std::endl;
   out << "Current Browsed Player ID: " << d.curr_browsed_player_id_
