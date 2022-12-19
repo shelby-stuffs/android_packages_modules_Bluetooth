@@ -24,6 +24,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
@@ -79,6 +81,23 @@ public class BluetoothMethodProxy {
             final String[] projection, final String selection, final String[] selectionArgs,
             final String sortOrder) {
         return contentResolver.query(contentUri, projection, selection, selectionArgs, sortOrder);
+    }
+
+    /**
+     * Proxies {@link ContentResolver#query(Uri, String[], Bundle, CancellationSignal)}.
+     */
+    public Cursor contentResolverQuery(ContentResolver contentResolver, final Uri contentUri,
+            final String[] projection, final Bundle queryArgs,
+            final CancellationSignal cancellationSignal) {
+        return contentResolver.query(contentUri, projection, queryArgs, cancellationSignal);
+    }
+
+    /**
+     * Proxies {@link ContentResolver#insert(Uri, ContentValues)}.
+     */
+    public Uri contentResolverInsert(ContentResolver contentResolver, final Uri contentUri,
+            final ContentValues contentValues) {
+        return contentResolver.insert(contentUri, contentValues);
     }
 
     /**

@@ -52,6 +52,12 @@ class BleScannerInterfaceImpl : public ::BleScannerInterface,
                      FilterConfigCallback cb) override;
   void ScanFilterClear(int filter_index, FilterConfigCallback cb) override;
   void ScanFilterEnable(bool enable, EnableCallback cb) override;
+  void MsftAdvMonitorAdd(MsftAdvMonitor monitor,
+                         MsftAdvMonitorAddCallback cb) override;
+  void MsftAdvMonitorRemove(uint8_t monitor_handle,
+                            MsftAdvMonitorRemoveCallback cb) override;
+  void MsftAdvMonitorEnable(bool enable,
+                            MsftAdvMonitorEnableCallback cb) override;
   void SetScanParameters(int scanner_id, std::vector<uint32_t> scan_interval,
                          std::vector<uint32_t> scan_window,
                          Callback cb) override;
