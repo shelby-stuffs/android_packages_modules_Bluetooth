@@ -70,7 +70,7 @@ import java.util.concurrent.TimeoutException;
  */
 public final class BluetoothHeadset implements BluetoothProfile {
     private static final String TAG = "BluetoothHeadset";
-    private static final boolean DBG = true;
+    private static final boolean DBG = Log.isLoggable(TAG, Log.DEBUG);
     private static final boolean VDBG = false;
 
     /**
@@ -495,7 +495,12 @@ public final class BluetoothHeadset implements BluetoothProfile {
                 Log.e(TAG, "", re);
             }
         }
-        mServiceListener = null;
+
+        if (mServiceListener != null) {
+            ServiceListener listener = mServiceListener;
+            mServiceListener = null;
+            listener.onServiceDisconnected(BluetoothProfile.HEADSET);
+        }
         doUnbind();
         mCloseGuard.close();
     }
@@ -542,7 +547,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
         } else if (isEnabled() && isValidDevice(device)) {
             try {
                 final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.connectWithAttribution(device, mAttributionSource, recv);
+                service.connect(device, mAttributionSource, recv);
                 return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
             } catch (RemoteException | TimeoutException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
@@ -587,7 +592,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
         } else if (isEnabled() && isValidDevice(device)) {
             try {
                 final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.disconnectWithAttribution(device, mAttributionSource, recv);
+                service.disconnect(device, mAttributionSource, recv);
                 return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
             } catch (RemoteException | TimeoutException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
@@ -604,29 +609,30 @@ public final class BluetoothHeadset implements BluetoothProfile {
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     public List<BluetoothDevice> getConnectedDevices() {
         if (VDBG) log("getConnectedDevices()");
+        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         try {
             mServiceLock.readLock().lock();
             final IBluetoothHeadset service = mService;
-            final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
             if (service == null) {
                 Log.w(TAG, "Proxy not attached to service");
                 if (DBG) log(Log.getStackTraceString(new Throwable()));
             } else if (isEnabled()) {
-            try {
+                try {
                     final SynchronousResultReceiver<List<BluetoothDevice>> recv =
                             SynchronousResultReceiver.get();
-                    service.getConnectedDevicesWithAttribution(mAttributionSource, recv);
+                    service.getConnectedDevices(mAttributionSource, recv);
                     return Attributable.setAttributionSource(
                             recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
-                             mAttributionSource);
+                            mAttributionSource);
                 } catch (RemoteException | TimeoutException e) {
                     Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
                 }
+                return defaultValue;
             }
-            return defaultValue;
         } finally {
             mServiceLock.readLock().unlock();
         }
+        return defaultValue;
     }
 
     /**
@@ -673,7 +679,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
         } else if (isEnabled() && isValidDevice(device)) {
             try {
                 final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getConnectionStateWithAttribution(device, mAttributionSource, recv);
+                service.getConnectionState(device, mAttributionSource, recv);
                 return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
             } catch (RemoteException | TimeoutException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));

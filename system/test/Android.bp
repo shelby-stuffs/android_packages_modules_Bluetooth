@@ -192,6 +192,13 @@ filegroup {
 }
 
 filegroup {
+    name: "TestMockStackA2dpApi",
+    srcs: [
+      "mock/mock_stack_a2dp_api.cc",
+    ],
+}
+
+filegroup {
     name: "TestMockStackL2cap",
     srcs: [
       "mock/mock_stack_l2cap_*.cc",
@@ -355,6 +362,13 @@ filegroup {
 }
 
 filegroup {
+  name: "TestMockStackEatt",
+  srcs: [
+      "mock/mock_stack_eatt*.cc",
+  ],
+}
+
+filegroup {
   name: "TestMockStackGatt",
   srcs: [
       "mock/mock_stack_gatt*.cc",
@@ -428,6 +442,20 @@ filegroup {
   name: "TestCommonStackConfig",
   srcs: [
       "common/stack_config.cc",
+  ],
+}
+
+filegroup {
+  name: "TestCommonCoreInterface",
+  srcs: [
+      "common/core_interface.cc",
+  ],
+}
+
+filegroup {
+  name: "TestCommonLogMsg",
+  srcs: [
+      "common/log_msg.cc",
   ],
 }
 

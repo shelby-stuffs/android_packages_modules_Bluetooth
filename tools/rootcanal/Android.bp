@@ -16,14 +16,12 @@ package {
 cc_defaults {
     name: "rootcanal_defaults",
     defaults: [
+        "fluoride_common_options",
         "gd_defaults",
         "gd_clang_tidy",
         "gd_clang_tidy_ignore_android",
     ],
     cflags: [
-        "-Wall",
-        "-Wextra",
-        "-Werror",
         "-fvisibility=hidden",
         "-DROOTCANAL_LMP",
     ],
@@ -31,7 +29,6 @@ cc_defaults {
         "include",
     ],
     include_dirs: [
-        "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
     ],
     generated_headers: [
@@ -53,6 +50,7 @@ cc_library_static {
     srcs: [
         "model/controller/acl_connection.cc",
         "model/controller/acl_connection_handler.cc",
+        "model/controller/controller_properties.cc",
         "model/controller/dual_mode_controller.cc",
         "model/controller/isochronous_connection_handler.cc",
         "model/controller/le_advertiser.cc",
@@ -62,16 +60,9 @@ cc_library_static {
         "model/devices/baseband_sniffer.cc",
         "model/devices/beacon.cc",
         "model/devices/beacon_swarm.cc",
-        "model/devices/broken_adv.cc",
-        "model/devices/car_kit.cc",
-        "model/devices/classic.cc",
         "model/devices/device.cc",
-        "model/devices/device_properties.cc",
         "model/devices/hci_device.cc",
-        "model/devices/keyboard.cc",
         "model/devices/link_layer_socket_device.cc",
-        "model/devices/loopback.cc",
-        "model/devices/remote_loopback_device.cc",
         "model/devices/scripted_beacon.cc",
         "model/devices/sniffer.cc",
         "model/hci/h4_data_channel_packetizer.cc",
@@ -123,10 +114,57 @@ cc_library_static {
     srcs: ["model/devices/scripted_beacon_ble_payload.proto"],
 }
 
+cc_test_host {
+    name: "rootcanal_hci_test",
+    defaults: [
+        "clang_file_coverage",
+        "clang_coverage_bin",
+        "rootcanal_defaults",
+    ],
+    srcs: [
+        "test/controller/le/le_set_random_address_test.cc",
+        "test/controller/le/le_clear_filter_accept_list_test.cc",
+        "test/controller/le/le_add_device_to_filter_accept_list_test.cc",
+        "test/controller/le/le_remove_device_from_filter_accept_list_test.cc",
+        "test/controller/le/le_add_device_to_resolving_list_test.cc",
+        "test/controller/le/le_clear_resolving_list_test.cc",
+        "test/controller/le/le_create_connection_test.cc",
+        "test/controller/le/le_create_connection_cancel_test.cc",
+        "test/controller/le/le_extended_create_connection_test.cc",
+        "test/controller/le/le_remove_device_from_resolving_list_test.cc",
+        "test/controller/le/le_set_address_resolution_enable_test.cc",
+        "test/controller/le/le_set_advertising_parameters_test.cc",
+        "test/controller/le/le_set_advertising_enable_test.cc",
+        "test/controller/le/le_set_scan_parameters_test.cc",
+        "test/controller/le/le_set_scan_enable_test.cc",
+        "test/controller/le/le_set_extended_scan_parameters_test.cc",
+        "test/controller/le/le_set_extended_scan_enable_test.cc",
+        "test/controller/le/le_set_extended_advertising_parameters_test.cc",
+        "test/controller/le/le_set_extended_advertising_data_test.cc",
+        "test/controller/le/le_set_extended_scan_response_data_test.cc",
+        "test/controller/le/le_set_extended_advertising_enable_test.cc",
+        "test/controller/le/le_scanning_filter_duplicates_test.cc",
+    ],
+    header_libs: [
+        "libbluetooth_headers",
+    ],
+    local_include_dirs: [
+        ".",
+    ],
+    shared_libs: [
+        "liblog",
+    ],
+    static_libs: [
+        "libbt-rootcanal",
+        "libjsoncpp",
+    ],
+}
+
 // test-vendor unit tests for host
 cc_test_host {
     name: "rootcanal_test_host",
     defaults: [
+        "fluoride_common_options",
         "clang_file_coverage",
         "clang_coverage_bin",
     ],
@@ -145,7 +183,6 @@ cc_test_host {
         "include",
     ],
     include_dirs: [
-        "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
     ],
     shared_libs: [
@@ -155,9 +192,6 @@ cc_test_host {
         "libbt-rootcanal",
     ],
     cflags: [
-        "-Wall",
-        "-Wextra",
-        "-Werror",
         "-fvisibility=hidden",
         "-DLOG_NDEBUG=1",
     ],
@@ -272,7 +306,6 @@ cc_library_static {
         "libbt_init_flags_bridge_header",
     ],
     include_dirs: [
-        "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
     ],
 }

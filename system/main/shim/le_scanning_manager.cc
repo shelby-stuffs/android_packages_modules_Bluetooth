@@ -51,10 +51,11 @@ using bluetooth::ToRawAddress;
 
 namespace {
 constexpr char kBtmLogTag[] = "SCAN";
-constexpr uint16_t kAllowAllFilter = 0x00;
-constexpr uint16_t kListLogicOr = 0x01;
+constexpr uint16_t kAllowADTypeFilter = 0x80;
 constexpr uint8_t kFilterLogicOr = 0x00;
 constexpr uint8_t kLowestRssiValue = 129;
+constexpr uint16_t kAllowAllFilter = 0x00;
+constexpr uint16_t kListLogicOr = 0x01;
 
 class DefaultScanningCallback : public ::ScanningCallbacks {
   void OnScannerRegistered(const bluetooth::Uuid app_uuid, uint8_t scanner_id,
@@ -335,6 +336,14 @@ void BleScannerInterfaceImpl::StartSync(uint8_t sid, RawAddress address,
       sid, ToAddressWithType(address, address_type), skip, timeout, reg_id);
 }
 
+void BleScannerInterfaceImpl::StartSync(uint8_t sid, RawAddress address,
+                                        uint16_t skip, uint16_t timeout,
+                                        StartSyncCb start_cb,
+                                        SyncReportCb report_cb,
+                                        SyncLostCb lost_cb) {
+  LOG(INFO) << __func__ << " in shim layer";
+}
+
 void BleScannerInterfaceImpl::StopSync(uint16_t handle) {
   LOG(INFO) << __func__ << " in shim layer";
   bluetooth::shim::GetScanning()->StopSync(handle);
@@ -363,6 +372,13 @@ void BleScannerInterfaceImpl::TransferSync(RawAddress address,
       ToGdAddress(address), service_data, sync_handle, pa_source);
 }
 
+void BleScannerInterfaceImpl::TransferSync(RawAddress address,
+                                           uint16_t service_data,
+                                           uint16_t sync_handle,
+                                           SyncTransferCb cb) {
+  LOG(INFO) << __func__ << " in shim layer";
+}
+
 void BleScannerInterfaceImpl::TransferSetInfo(RawAddress address,
                                               uint16_t service_data,
                                               uint8_t adv_handle,
@@ -380,12 +396,25 @@ void BleScannerInterfaceImpl::TransferSetInfo(RawAddress address,
       ToGdAddress(address), service_data, adv_handle, pa_source);
 }
 
+void BleScannerInterfaceImpl::TransferSetInfo(RawAddress address,
+                                              uint16_t service_data,
+                                              uint8_t adv_handle,
+                                              SyncTransferCb cb) {
+  LOG(INFO) << __func__ << " in shim layer";
+}
+
 void BleScannerInterfaceImpl::SyncTxParameters(RawAddress addr, uint8_t mode,
                                                uint16_t skip, uint16_t timeout,
                                                int reg_id) {
   LOG(INFO) << __func__ << " in shim layer";
   bluetooth::shim::GetScanning()->SyncTxParameters(ToGdAddress(addr), mode,
                                                    skip, timeout, reg_id);
+}
+
+void BleScannerInterfaceImpl::SyncTxParameters(RawAddress addr, uint8_t mode,
+                                               uint16_t skip, uint16_t timeout,
+                                               StartSyncCb start_cb) {
+  LOG(INFO) << __func__ << " in shim layer";
 }
 
 void BleScannerInterfaceImpl::RegisterCallbacks(ScanningCallbacks* callbacks) {
@@ -618,6 +647,7 @@ bool BleScannerInterfaceImpl::parse_filter_command(
   advertising_packet_content_filter_command.company = apcf_command.company;
   advertising_packet_content_filter_command.company_mask =
       apcf_command.company_mask;
+  advertising_packet_content_filter_command.ad_type = apcf_command.ad_type;
   advertising_packet_content_filter_command.data.assign(
       apcf_command.data.begin(), apcf_command.data.end());
   advertising_packet_content_filter_command.data_mask.assign(
@@ -732,6 +762,34 @@ void bluetooth::shim::init_scanning_manager() {
   static_cast<BleScannerInterfaceImpl*>(
       bluetooth::shim::get_ble_scanner_instance())
       ->Init();
+}
+
+bool bluetooth::shim::is_ad_type_filter_supported() {
+  return bluetooth::shim::GetScanning()->IsAdTypeFilterSupported();
+}
+
+void bluetooth::shim::set_ad_type_rsi_filter(bool enable) {
+  bluetooth::hci::AdvertisingFilterParameter advertising_filter_parameter;
+  bluetooth::shim::GetScanning()->ScanFilterParameterSetup(
+      bluetooth::hci::ApcfAction::DELETE, 0x00, advertising_filter_parameter);
+  if (enable) {
+    std::vector<bluetooth::hci::AdvertisingPacketContentFilterCommand> filters =
+        {};
+    bluetooth::hci::AdvertisingPacketContentFilterCommand filter{};
+    filter.filter_type = bluetooth::hci::ApcfFilterType::AD_TYPE;
+    filter.ad_type = BTM_BLE_AD_TYPE_RSI;
+    filters.push_back(filter);
+    bluetooth::shim::GetScanning()->ScanFilterAdd(0x00, filters);
+
+    advertising_filter_parameter.delivery_mode =
+        bluetooth::hci::DeliveryMode::IMMEDIATE;
+    advertising_filter_parameter.feature_selection = kAllowADTypeFilter;
+    advertising_filter_parameter.list_logic_type = kAllowADTypeFilter;
+    advertising_filter_parameter.filter_logic_type = kFilterLogicOr;
+    advertising_filter_parameter.rssi_high_thresh = kLowestRssiValue;
+    bluetooth::shim::GetScanning()->ScanFilterParameterSetup(
+        bluetooth::hci::ApcfAction::ADD, 0x00, advertising_filter_parameter);
+  }
 }
 
 void bluetooth::shim::set_empty_filter(bool enable) {

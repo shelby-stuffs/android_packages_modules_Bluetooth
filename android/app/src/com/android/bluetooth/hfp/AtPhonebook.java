@@ -36,6 +36,7 @@ import com.android.bluetooth.R;
 import com.android.bluetooth.Utils;
 import com.android.bluetooth.util.DevicePolicyUtils;
 import com.android.bluetooth.util.GsmAlphabet;
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.HashMap;
 
@@ -70,7 +71,8 @@ public class AtPhonebook {
     private static final String INCOMING_CALL_WHERE = Calls.TYPE + "=" + Calls.INCOMING_TYPE;
     private static final String MISSED_CALL_WHERE = Calls.TYPE + "=" + Calls.MISSED_TYPE;
 
-    private class PhonebookResult {
+    @VisibleForTesting
+    class PhonebookResult {
         public Cursor cursor; // result set of last query
         public int numberColumn;
         public int numberPresentationColumn;
@@ -387,7 +389,8 @@ public class AtPhonebook {
      *  If force then re-query that phonebook
      *  Returns null if the cursor is not ready
      */
-    private synchronized PhonebookResult getPhonebookResult(String pb, boolean force) {
+    @VisibleForTesting
+    synchronized PhonebookResult getPhonebookResult(String pb, boolean force) {
         if (pb == null) {
             return null;
         }
@@ -469,7 +472,8 @@ public class AtPhonebook {
         mCheckingAccessPermission = false;
     }
 
-    private synchronized int getMaxPhoneBookSize(int currSize) {
+    @VisibleForTesting
+    synchronized int getMaxPhoneBookSize(int currSize) {
         // some car kits ignore the current size and request max phone book
         // size entries. Thus, it takes a long time to transfer all the
         // entries. Use a heuristic to calculate the max phone book size
@@ -632,7 +636,8 @@ public class AtPhonebook {
      * @return {@link BluetoothDevice#ACCESS_UNKNOWN}, {@link BluetoothDevice#ACCESS_ALLOWED} or
      *         {@link BluetoothDevice#ACCESS_REJECTED}.
      */
-    private int checkAccessPermission(BluetoothDevice remoteDevice) {
+    @VisibleForTesting
+    int checkAccessPermission(BluetoothDevice remoteDevice) {
         log("checkAccessPermission");
         int permission = remoteDevice.getPhonebookAccessPermission();
 

@@ -14,10 +14,12 @@
  *  limitations under the License.
  */
 
+#include <fcntl.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <cstdio>
 #include <future>
 #include <map>
 
@@ -87,7 +89,25 @@ struct bluetooth::hci::LeScanningManager::impl
 
 namespace {
 std::map<std::string, std::promise<uint16_t>> mock_function_handle_promise_map;
-}
+
+// Utility to provide a file descriptor for /dev/null when possible, but
+// defaulting to STDERR when not possible.
+class DevNullOrStdErr {
+ public:
+  DevNullOrStdErr() { fd_ = open("/dev/null", O_CLOEXEC | O_WRONLY); }
+  ~DevNullOrStdErr() {
+    if (fd_ != -1) {
+      close(fd_);
+    }
+    fd_ = -1;
+  }
+  int Fd() const { return (fd_ == -1) ? STDERR_FILENO : fd_; }
+
+ private:
+  int fd_{-1};
+};
+
+}  // namespace
 
 uint8_t mock_get_ble_acceptlist_size() { return 123; }
 
@@ -102,10 +122,12 @@ void mock_on_send_data_upwards(BT_HDR*) {}
 void mock_on_packets_completed(uint16_t handle, uint16_t num_packets) {}
 
 void mock_connection_classic_on_connected(const RawAddress& bda,
-                                          uint16_t handle, uint8_t enc_mode) {}
+                                          uint16_t handle, uint8_t enc_mode,
+                                          bool locally_initiated) {}
 
 void mock_connection_classic_on_failed(const RawAddress& bda,
-                                       tHCI_STATUS status) {}
+                                       tHCI_STATUS status,
+                                       bool locally_initiated) {}
 
 void mock_connection_classic_on_disconnected(tHCI_STATUS status,
                                              uint16_t handle,
@@ -121,7 +143,7 @@ void mock_connection_le_on_connected(
     tBLE_ADDR_TYPE peer_addr_type) {}
 void mock_connection_le_on_failed(const tBLE_BD_ADDR& address_with_type,
                                   uint16_t handle, bool enhanced,
-                                  tHCI_STATUS status) {}
+                                  tHCI_STATUS status, bool locally_initiated) {}
 static std::promise<uint16_t> mock_connection_le_on_disconnected_promise;
 void mock_connection_le_on_disconnected(tHCI_STATUS status, uint16_t handle,
                                         tHCI_STATUS reason) {
@@ -727,4 +749,8 @@ TEST_F(MainShimTestWithClassicConnection, read_extended_feature) {
   }
 
   raw_connection_->read_remote_extended_features_function_ = {};
+}
+
+TEST_F(MainShimTest, acl_dumpsys) {
+  MakeAcl()->Dump(std::make_unique<DevNullOrStdErr>()->Fd());
 }

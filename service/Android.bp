@@ -16,10 +16,20 @@ package {
     default_applicable_licenses: ["Android-Apache-2.0"],
 }
 
+genrule {
+    name: "statslog-bluetooth-java-gen",
+    tools: ["stats-log-api-gen"],
+    cmd: "$(location stats-log-api-gen) --java $(out) --module bluetooth"
+        + " --javaPackage com.android.bluetooth --javaClass BluetoothStatsLog"
+        + " --minApiLevel 33",
+    out: ["com/android/bluetooth/BluetoothStatsLog.java"],
+}
+
 filegroup {
     name: "services.bluetooth-sources",
     srcs: [
         "java/**/*.java",
+        ":statslog-bluetooth-java-gen",
     ],
     visibility: [
         "//frameworks/base/services",
@@ -60,6 +70,7 @@ java_library {
         "framework-annotations-lib",
         "framework-bluetooth-pre-jarjar",
         "app-compat-annotations",
+        "framework-statsd.stubs.module_lib",
     ],
 
     static_libs: [
@@ -132,7 +143,7 @@ java_library {
     ],
     libs: ["libprotobuf-java-nano"],
     apex_available: [
-        "com.android.bluetooth",
+        "com.android.btservices",
     ],
     lint: { strict_updatability_linting: true },
 }
@@ -152,6 +163,8 @@ java_library {
     min_sdk_version: "33",
     sdk_version: "module_current",
 }
+
+
 
 // TODO(b/244748540) re-enable
 // platform_compat_config

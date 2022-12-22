@@ -38,6 +38,7 @@
 #include "btif/include/stack_manager.h"
 #include "device/include/controller.h"
 #include "device/include/interop.h"
+#include "gd/common/init_flags.h"
 #include "main/shim/acl_api.h"
 #include "main/shim/btm_api.h"
 #include "main/shim/dumpsys.h"
@@ -59,6 +60,7 @@
 #include "stack/include/bt_types.h"
 #include "stack/include/btm_client_interface.h"
 #include "stack/include/btu.h"  // do_in_main_thread
+#include "stack/include/srvc_api.h"  // DIS_ReadDISInfo
 #include "types/bluetooth/uuid.h"
 #include "types/raw_address.h"
 
@@ -88,7 +90,8 @@ static uint8_t bta_dm_pin_cback(const RawAddress& bd_addr, DEV_CLASS dev_class,
 static uint8_t bta_dm_new_link_key_cback(const RawAddress& bd_addr,
                                          DEV_CLASS dev_class,
                                          tBTM_BD_NAME bd_name,
-                                         const LinkKey& key, uint8_t key_type);
+                                         const LinkKey& key, uint8_t key_type,
+                                         bool is_ctkd);
 static void bta_dm_authentication_complete_cback(const RawAddress& bd_addr,
                                                  DEV_CLASS dev_class,
                                                  tBTM_BD_NAME bd_name,
@@ -922,6 +925,10 @@ void bta_dm_discover(tBTA_DM_MSG* p_data) {
   bta_dm_search_cb.transport = p_data->discover.transport;
 
   bta_dm_search_cb.name_discover_done = false;
+
+  LOG_INFO("bta_dm_discovery: starting service discovery to %s , transport: %s",
+           PRIVATE_ADDRESS(p_data->discover.bd_addr),
+           bt_transport_text(p_data->discover.transport).c_str());
   bta_dm_discover_device(p_data->discover.bd_addr);
 }
 
@@ -1143,7 +1150,8 @@ void bta_dm_sdp_result(tBTA_DM_MSG* p_data) {
                   BD_NAME_LEN + 1);
 
           result.disc_ble_res.services = &gatt_uuids;
-          bta_dm_search_cb.p_search_cback(BTA_DM_DISC_BLE_RES_EVT, &result);
+          bta_dm_search_cb.p_search_cback(BTA_DM_GATT_OVER_SDP_RES_EVT,
+                                          &result);
         }
       } else {
         /* SDP_DB_FULL means some records with the
@@ -1191,6 +1199,21 @@ void bta_dm_sdp_result(tBTA_DM_MSG* p_data) {
         }
       } while (p_sdp_rec);
     }
+
+#if TARGET_FLOSS
+    tSDP_DI_GET_RECORD di_record;
+    if (SDP_GetDiRecord(1, &di_record, bta_dm_search_cb.p_sdp_db) ==
+        SDP_SUCCESS) {
+      tBTA_DM_SEARCH result;
+      result.did_res.bd_addr = bta_dm_search_cb.peer_bdaddr;
+      result.did_res.vendor_id_src = di_record.rec.vendor_id_source;
+      result.did_res.vendor_id = di_record.rec.vendor;
+      result.did_res.product_id = di_record.rec.product;
+      result.did_res.version = di_record.rec.version;
+      bta_dm_search_cb.p_search_cback(BTA_DM_DID_RES_EVT, &result);
+    }
+#endif
+
     /* if there are more services to search for */
     if (bta_dm_search_cb.services_to_search) {
       /* Free up the p_sdp_db before checking the next one */
@@ -1286,6 +1309,26 @@ void bta_dm_sdp_result(tBTA_DM_MSG* p_data) {
   }
 }
 
+/** Callback of peer's DIS reply. This is only called for floss */
+#if TARGET_FLOSS
+static void bta_dm_read_dis_cmpl(const RawAddress& addr,
+                                 tDIS_VALUE* p_dis_value) {
+  if (!p_dis_value) {
+    LOG_WARN("read DIS failed");
+  } else {
+    tBTA_DM_SEARCH result;
+    result.did_res.bd_addr = addr;
+    result.did_res.vendor_id_src = p_dis_value->pnp_id.vendor_id_src;
+    result.did_res.vendor_id = p_dis_value->pnp_id.vendor_id;
+    result.did_res.product_id = p_dis_value->pnp_id.product_id;
+    result.did_res.version = p_dis_value->pnp_id.product_version;
+    bta_dm_search_cb.p_search_cback(BTA_DM_DID_RES_EVT, &result);
+  }
+
+  bta_dm_execute_queued_request();
+}
+#endif
+
 /*******************************************************************************
  *
  * Function         bta_dm_search_cmpl
@@ -1336,9 +1379,16 @@ void bta_dm_search_cmpl() {
 
   LOG_INFO("GATT services discovered using LE Transport");
   // send all result back to app
-  bta_dm_search_cb.p_search_cback(BTA_DM_DISC_BLE_RES_EVT, &result);
+  bta_dm_search_cb.p_search_cback(BTA_DM_GATT_OVER_LE_RES_EVT, &result);
 
   bta_dm_search_cb.p_search_cback(BTA_DM_DISC_CMPL_EVT, nullptr);
+
+#if TARGET_FLOSS
+  if (DIS_ReadDISInfo(bta_dm_search_cb.peer_bdaddr, bta_dm_read_dis_cmpl,
+                      DIS_ATTR_PNP_ID_BIT)) {
+    return;
+  }
+#endif
 
   bta_dm_execute_queued_request();
 }
@@ -1356,10 +1406,15 @@ void bta_dm_search_cmpl() {
 void bta_dm_disc_result(tBTA_DM_MSG* p_data) {
   APPL_TRACE_EVENT("%s", __func__);
 
+  /* disc_res.device_type is set only when GATT discovery is finished in
+   * bta_dm_gatt_disc_complete */
+  bool is_gatt_over_ble = ((p_data->disc_result.result.disc_res.device_type &
+                            BT_DEVICE_TYPE_BLE) != 0);
+
   /* if any BR/EDR service discovery has been done, report the event */
-  if ((bta_dm_search_cb.services &
-       ((BTA_ALL_SERVICE_MASK | BTA_USER_SERVICE_MASK) &
-        ~BTA_BLE_SERVICE_MASK)))
+  if (!is_gatt_over_ble && (bta_dm_search_cb.services &
+                            ((BTA_ALL_SERVICE_MASK | BTA_USER_SERVICE_MASK) &
+                             ~BTA_BLE_SERVICE_MASK)))
     bta_dm_search_cb.p_search_cback(BTA_DM_DISC_RES_EVT,
                                     &p_data->disc_result.result);
 
@@ -1462,6 +1517,9 @@ void bta_dm_queue_disc(tBTA_DM_MSG* p_data) {
   tBTA_DM_MSG* p_pending_discovery =
       (tBTA_DM_MSG*)osi_malloc(sizeof(tBTA_DM_API_DISCOVER));
   memcpy(p_pending_discovery, p_data, sizeof(tBTA_DM_API_DISCOVER));
+
+  LOG_INFO("bta_dm_discovery: queuing service discovery to %s",
+           p_pending_discovery->discover.bd_addr.ToString().c_str());
   fixed_queue_enqueue(bta_dm_search_cb.pending_discovery_queue,
                       p_pending_discovery);
 }
@@ -1514,7 +1572,10 @@ bool bta_dm_is_search_request_queued() {
  ******************************************************************************/
 void bta_dm_search_clear_queue() {
   osi_free_and_reset((void**)&bta_dm_search_cb.p_pending_search);
-  fixed_queue_flush(bta_dm_search_cb.pending_discovery_queue, osi_free);
+  if (bluetooth::common::InitFlags::
+          IsBtmDmFlushDiscoveryQueueOnSearchCancel()) {
+    fixed_queue_flush(bta_dm_search_cb.pending_discovery_queue, osi_free);
+  }
 }
 
 /*******************************************************************************
@@ -1754,6 +1815,8 @@ static void bta_dm_discover_device(const RawAddress& remote_bd_addr) {
 
       if (transport == BT_TRANSPORT_LE) {
         if (bta_dm_search_cb.services_to_search & BTA_BLE_SERVICE_MASK) {
+          LOG_INFO("bta_dm_discovery: starting GATT discovery on %s",
+                   PRIVATE_ADDRESS(bta_dm_search_cb.peer_bdaddr));
           // set the raw data buffer here
           memset(g_disc_raw_data_buf, 0, sizeof(g_disc_raw_data_buf));
           /* start GATT for service discovery */
@@ -1761,6 +1824,8 @@ static void bta_dm_discover_device(const RawAddress& remote_bd_addr) {
           return;
         }
       } else {
+        LOG_INFO("bta_dm_discovery: starting SDP discovery on %s",
+                 PRIVATE_ADDRESS(bta_dm_search_cb.peer_bdaddr));
         bta_dm_search_cb.sdp_results = false;
         bta_dm_find_services(bta_dm_search_cb.peer_bdaddr);
         return;
@@ -2083,7 +2148,8 @@ static uint8_t bta_dm_pin_cback(const RawAddress& bd_addr, DEV_CLASS dev_class,
 static uint8_t bta_dm_new_link_key_cback(const RawAddress& bd_addr,
                                          UNUSED_ATTR DEV_CLASS dev_class,
                                          tBTM_BD_NAME bd_name,
-                                         const LinkKey& key, uint8_t key_type) {
+                                         const LinkKey& key, uint8_t key_type,
+                                         bool is_ctkd) {
   tBTA_DM_SEC sec_event;
   tBTA_DM_AUTH_CMPL* p_auth_cmpl;
   tBTA_DM_SEC_EVT event = BTA_DM_AUTH_CMPL_EVT;
@@ -2100,6 +2166,8 @@ static uint8_t bta_dm_new_link_key_cback(const RawAddress& bd_addr,
   p_auth_cmpl->key_type = key_type;
   p_auth_cmpl->success = true;
   p_auth_cmpl->key = key;
+  p_auth_cmpl->is_ctkd = is_ctkd;
+
   sec_event.auth_cmpl.fail_reason = HCI_SUCCESS;
 
   // Report the BR link key based on the BR/EDR address and type
@@ -2461,6 +2529,23 @@ void bta_dm_acl_up(const RawAddress& bd_addr, tBT_TRANSPORT transport) {
 
 void BTA_dm_acl_up(const RawAddress bd_addr, tBT_TRANSPORT transport) {
   do_in_main_thread(FROM_HERE, base::Bind(bta_dm_acl_up, bd_addr, transport));
+}
+
+static void bta_dm_acl_up_failed(const RawAddress bd_addr,
+                                 tBT_TRANSPORT transport, tHCI_STATUS status) {
+  if (bta_dm_cb.p_sec_cback) {
+    tBTA_DM_SEC conn = {};
+    conn.link_up_failed.bd_addr = bd_addr;
+    conn.link_up_failed.transport_link_type = transport;
+    conn.link_up_failed.status = status;
+    bta_dm_cb.p_sec_cback(BTA_DM_LINK_UP_FAILED_EVT, &conn);
+  }
+}
+
+void BTA_dm_acl_up_failed(const RawAddress bd_addr, tBT_TRANSPORT transport,
+                          tHCI_STATUS status) {
+  do_in_main_thread(
+      FROM_HERE, base::Bind(bta_dm_acl_up_failed, bd_addr, transport, status));
 }
 
 static void bta_dm_acl_down(const RawAddress& bd_addr,
@@ -3631,7 +3716,8 @@ static uint8_t bta_dm_ble_smp_cback(tBTM_LE_EVT event, const RawAddress& bda,
                 (static_cast<uint8_t>(p_data->complt.reason))));
 
         if (btm_sec_is_a_bonded_dev(bda) &&
-            p_data->complt.reason == SMP_CONN_TOUT) {
+            p_data->complt.reason == SMP_CONN_TOUT &&
+            !p_data->complt.smp_over_br) {
           // Bonded device failed to encrypt - to test this remove battery from
           // HID device right after connection, but before encryption is
           // established
@@ -4116,14 +4202,15 @@ void bta_dm_set_event_filter_connection_setup_all_devices() {
  *
  * Function        BTA_DmAllowWakeByHid
  *
- * Description    Allow the device to be woken by HID devices
+ * Description     Allow the device to be woken by HID devices
  *
- * Parameters
+ * Parameters      std::vector of (Address, Address Type)
  *
  *******************************************************************************/
-void bta_dm_allow_wake_by_hid() {
+void bta_dm_allow_wake_by_hid(
+    std::vector<std::pair<RawAddress, uint8_t>> le_hid_devices) {
   // Autoplumbed
-  bluetooth::shim::BTM_AllowWakeByHid();
+  bluetooth::shim::BTM_AllowWakeByHid(le_hid_devices);
 }
 
 /*******************************************************************************
@@ -4142,16 +4229,19 @@ void bta_dm_restore_filter_accept_list() {
 
 /*******************************************************************************
  *
- * Function        BTA_DmSetDefaultEventMask
+ * Function       BTA_DmSetDefaultEventMaskExcept
  *
- * Description    Floss: Set the default event mask for Classic and LE
+ * Description    Floss: Set the default event mask for Classic and LE except
+ *                the given values (they will be disabled in the final set
+ *                mask).
  *
- * Parameters
+ * Parameters     Bits set for event mask and le event mask that should be
+ *                disabled in the final value.
  *
  *******************************************************************************/
-void bta_dm_set_default_event_mask() {
+void bta_dm_set_default_event_mask_except(uint64_t mask, uint64_t le_mask) {
   // Autoplumbed
-  bluetooth::shim::BTM_SetDefaultEventMask();
+  bluetooth::shim::BTM_SetDefaultEventMaskExcept(mask, le_mask);
 }
 
 /*******************************************************************************

@@ -73,11 +73,14 @@ class InternalHciCallbacks : public IBluetoothHciCallbacks {
   }
 
   void SetCallback(HciHalCallbacks* callback) {
+    std::lock_guard<std::mutex> incoming_packet_callback_lock(incoming_packet_callback_mutex_);
     ASSERT(callback_ == nullptr && callback != nullptr);
     callback_ = callback;
   }
 
   void ResetCallback() {
+    std::lock_guard<std::mutex> incoming_packet_callback_lock(incoming_packet_callback_mutex_);
+    LOG_INFO("callbacks have been reset!");
     callback_ = nullptr;
   }
 
@@ -87,6 +90,7 @@ class InternalHciCallbacks : public IBluetoothHciCallbacks {
 
   Return<void> initializationComplete(HidlStatus status) {
     common::StopWatch stop_watch(__func__);
+    LOG_INFO("initialization complete with status: %d", status);
     ASSERT(status == HidlStatus::SUCCESS);
     init_promise_->set_value();
     return Void();
@@ -99,8 +103,11 @@ class InternalHciCallbacks : public IBluetoothHciCallbacks {
     if (common::init_flags::btaa_hci_is_enabled()) {
       btaa_logger_->Capture(received_hci_packet, SnoopLogger::PacketType::EVT);
     }
-    if (callback_ != nullptr) {
-      callback_->hciEventReceived(std::move(received_hci_packet));
+    {
+      std::lock_guard<std::mutex> incoming_packet_callback_lock(incoming_packet_callback_mutex_);
+      if (callback_ != nullptr) {
+        callback_->hciEventReceived(std::move(received_hci_packet));
+      }
     }
     return Void();
   }
@@ -112,8 +119,11 @@ class InternalHciCallbacks : public IBluetoothHciCallbacks {
     if (common::init_flags::btaa_hci_is_enabled()) {
       btaa_logger_->Capture(received_hci_packet, SnoopLogger::PacketType::ACL);
     }
-    if (callback_ != nullptr) {
-      callback_->aclDataReceived(std::move(received_hci_packet));
+    {
+      std::lock_guard<std::mutex> incoming_packet_callback_lock(incoming_packet_callback_mutex_);
+      if (callback_ != nullptr) {
+        callback_->aclDataReceived(std::move(received_hci_packet));
+      }
     }
     return Void();
   }
@@ -125,8 +135,12 @@ class InternalHciCallbacks : public IBluetoothHciCallbacks {
     if (common::init_flags::btaa_hci_is_enabled()) {
       btaa_logger_->Capture(received_hci_packet, SnoopLogger::PacketType::SCO);
     }
-    if (callback_ != nullptr) {
-      callback_->scoDataReceived(std::move(received_hci_packet));
+
+    {
+      std::lock_guard<std::mutex> incoming_packet_callback_lock(incoming_packet_callback_mutex_);
+      if (callback_ != nullptr) {
+        callback_->scoDataReceived(std::move(received_hci_packet));
+      }
     }
     return Void();
   }
@@ -135,13 +149,18 @@ class InternalHciCallbacks : public IBluetoothHciCallbacks {
     common::StopWatch stop_watch(GetTimerText(__func__, data));
     std::vector<uint8_t> received_hci_packet(data.begin(), data.end());
     btsnoop_logger_->Capture(received_hci_packet, SnoopLogger::Direction::INCOMING, SnoopLogger::PacketType::ISO);
-    if (callback_ != nullptr) {
-      callback_->isoDataReceived(std::move(received_hci_packet));
+
+    {
+      std::lock_guard<std::mutex> incoming_packet_callback_lock(incoming_packet_callback_mutex_);
+      if (callback_ != nullptr) {
+        callback_->isoDataReceived(std::move(received_hci_packet));
+      }
     }
     return Void();
   }
 
  private:
+  std::mutex incoming_packet_callback_mutex_;
   std::promise<void>* init_promise_ = nullptr;
   HciHalCallbacks* callback_ = nullptr;
   activity_attribution::ActivityAttribution* btaa_logger_ = nullptr;

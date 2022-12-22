@@ -18,9 +18,11 @@
 
 #include <atomic>
 #include <future>
+#include <mutex>
 #include <set>
 
 #include "common/bidi_queue.h"
+#include "hci/acl_manager/acl_scheduler.h"
 #include "hci/acl_manager/classic_impl.h"
 #include "hci/acl_manager/connection_management_callbacks.h"
 #include "hci/acl_manager/le_acl_connection.h"
@@ -51,6 +53,8 @@ using acl_manager::LeConnectionCallbacks;
 
 using acl_manager::RoundRobinScheduler;
 
+using acl_manager::AclScheduler;
+
 struct AclManager::impl {
   impl(const AclManager& acl_manager) : acl_manager_(acl_manager) {}
 
@@ -59,19 +63,29 @@ struct AclManager::impl {
     handler_ = acl_manager_.GetHandler();
     controller_ = acl_manager_.GetDependency<Controller>();
     round_robin_scheduler_ = new RoundRobinScheduler(handler_, controller_, hci_layer_->GetAclQueueEnd());
+    acl_scheduler_ = acl_manager_.GetDependency<AclScheduler>();
 
     hci_queue_end_ = hci_layer_->GetAclQueueEnd();
     hci_queue_end_->RegisterDequeue(
         handler_, common::Bind(&impl::dequeue_and_route_acl_packet_to_connection, common::Unretained(this)));
     bool crash_on_unknown_handle = false;
-    classic_impl_ =
-        new classic_impl(hci_layer_, controller_, handler_, round_robin_scheduler_, crash_on_unknown_handle);
-    le_impl_ = new le_impl(hci_layer_, controller_, handler_, round_robin_scheduler_, crash_on_unknown_handle);
+    {
+      const std::lock_guard<std::mutex> lock(dumpsys_mutex_);
+      classic_impl_ = new classic_impl(
+          hci_layer_, controller_, handler_, round_robin_scheduler_, crash_on_unknown_handle, acl_scheduler_);
+      le_impl_ = new le_impl(hci_layer_, controller_, handler_, round_robin_scheduler_, crash_on_unknown_handle);
+    }
   }
 
   void Stop() {
-    delete le_impl_;
-    delete classic_impl_;
+    {
+      const std::lock_guard<std::mutex> lock(dumpsys_mutex_);
+      delete le_impl_;
+      delete classic_impl_;
+      le_impl_ = nullptr;
+      classic_impl_ = nullptr;
+    }
+
     hci_queue_end_->UnregisterDequeue();
     delete round_robin_scheduler_;
     if (enqueue_registered_.exchange(false)) {
@@ -80,6 +94,7 @@ struct AclManager::impl {
     hci_queue_end_ = nullptr;
     handler_ = nullptr;
     hci_layer_ = nullptr;
+    acl_scheduler_ = nullptr;
   }
 
   // Invoked from some external Queue Reactable context 2
@@ -108,6 +123,7 @@ struct AclManager::impl {
 
   classic_impl* classic_impl_ = nullptr;
   le_impl* le_impl_ = nullptr;
+  AclScheduler* acl_scheduler_ = nullptr;
   os::Handler* handler_ = nullptr;
   Controller* controller_ = nullptr;
   HciLayer* hci_layer_ = nullptr;
@@ -115,6 +131,7 @@ struct AclManager::impl {
   common::BidiQueueEnd<AclBuilder, AclView>* hci_queue_end_ = nullptr;
   std::atomic_bool enqueue_registered_ = false;
   uint16_t default_link_policy_settings_ = 0xffff;
+  mutable std::mutex dumpsys_mutex_;
 };
 
 AclManager::AclManager() : pimpl_(std::make_unique<impl>(*this)) {}
@@ -304,6 +321,7 @@ void AclManager::ListDependencies(ModuleList* list) const {
   list->add<HciLayer>();
   list->add<Controller>();
   list->add<storage::StorageModule>();
+  list->add<AclScheduler>();
 }
 
 void AclManager::Start() {
@@ -324,9 +342,31 @@ AclManager::~AclManager() = default;
 
 void AclManager::impl::Dump(
     std::promise<flatbuffers::Offset<AclManagerData>> promise, flatbuffers::FlatBufferBuilder* fb_builder) const {
+  const std::lock_guard<std::mutex> lock(dumpsys_mutex_);
+  const auto connect_list = (le_impl_ != nullptr) ? le_impl_->connect_list : std::unordered_set<AddressWithType>();
+  const auto le_connectability_state_text =
+      (le_impl_ != nullptr) ? connectability_state_machine_text(le_impl_->connectability_state_) : "INDETERMINATE";
+  const auto le_create_connection_timeout_alarms_count =
+      (le_impl_ != nullptr) ? (int)le_impl_->create_connection_timeout_alarms_.size() : 0;
+
   auto title = fb_builder->CreateString("----- Acl Manager Dumpsys -----");
+  auto le_connectability_state = fb_builder->CreateString(le_connectability_state_text);
+
+  flatbuffers::Offset<flatbuffers::String> strings[connect_list.size()];
+
+  size_t cnt = 0;
+  for (const auto& it : connect_list) {
+    strings[cnt++] = fb_builder->CreateString(it.ToString());
+  }
+  auto vecofstrings = fb_builder->CreateVector(strings, connect_list.size());
+
   AclManagerDataBuilder builder(*fb_builder);
   builder.add_title(title);
+  builder.add_le_filter_accept_list_count(connect_list.size());
+  builder.add_le_filter_accept_list(vecofstrings);
+  builder.add_le_connectability_state(le_connectability_state);
+  builder.add_le_create_connection_timeout_alarms_count(le_create_connection_timeout_alarms_count);
+
   flatbuffers::Offset<AclManagerData> dumpsys_data = builder.Finish();
   promise.set_value(dumpsys_data);
 }

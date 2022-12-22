@@ -5,7 +5,9 @@ use bt_topshim::profiles::gatt::{
     AdvertiseParameters, Gatt, GattFilterParam, PeriodicAdvertisingParameters,
 };
 use bt_topshim::profiles::gatt::{
-    GattClientCallbacksDispatcher, GattScannerCallbacksDispatcher, GattServerCallbacksDispatcher,
+    GattAdvCallbacksDispatcher, GattAdvInbandCallbacksDispatcher, GattClientCallbacksDispatcher,
+    GattScannerCallbacksDispatcher, GattScannerInbandCallbacksDispatcher,
+    GattServerCallbacksDispatcher,
 };
 use bt_topshim_facade_protobuf::empty::Empty;
 //use bt_topshim_facade_protobuf::facade::{
@@ -67,13 +69,28 @@ impl GattServiceImpl {
                     println!("received Gatt scanner callback: {:?}", cb);
                 }),
             },
+            GattScannerInbandCallbacksDispatcher {
+                dispatch: Box::new(move |cb| {
+                    println!("received Gatt scanner inband callback: {:?}", cb);
+                }),
+            },
+            GattAdvInbandCallbacksDispatcher {
+                dispatch: Box::new(move |cb| {
+                    println!("received Gatt advertiser inband callback: {:?}", cb);
+                }),
+            },
+            GattAdvCallbacksDispatcher {
+                dispatch: Box::new(move |cb| {
+                    println!("received Gatt advertising callback: {:?}", cb);
+                }),
+            },
         );
 
         create_gatt_service(me)
     }
 
     fn create_raw_address(&self) -> RawAddress {
-        RawAddress { val: [0; 6] }
+        RawAddress { address: [0; 6] }
     }
 
     fn create_advertise_parameters(&self) -> AdvertiseParameters {
@@ -115,7 +132,7 @@ impl GattServiceImpl {
     }
 
     fn create_uuid(&self) -> Uuid {
-        Uuid { uu: [0; 16] }
+        Uuid::from([0; 16])
     }
 }
 

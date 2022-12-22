@@ -373,19 +373,18 @@ pub fn generate_dbus_interface_client(attr: TokenStream, item: TokenStream) -> T
                                         path
                                     };
                             };
-
-                            input_list = quote! {
-                                #input_list
-                                #ident,
-                            };
                         } else {
                             // Convert every parameter to its corresponding type recognized by
                             // the D-Bus library.
-                            input_list = quote! {
-                                #input_list
-                                <#arg_type as DBusArg>::to_dbus(#ident).unwrap(),
+                            object_conversions = quote! {
+                                #object_conversions
+                                    let #ident = <#arg_type as DBusArg>::to_dbus(#ident).unwrap();
                             };
                         }
+                        input_list = quote! {
+                            #input_list
+                            #ident,
+                        };
                     }
                 }
             }
@@ -843,7 +842,9 @@ pub fn generate_dbus_arg(_item: TokenStream) -> TokenStream {
         use dbus::nonblock::SyncConnection;
         use dbus::strings::BusName;
         use dbus_projection::DisconnectWatcher;
+        use dbus_projection::impl_dbus_arg_from_into;
 
+        use std::convert::{TryFrom, TryInto};
         use std::error::Error;
         use std::fmt;
         use std::hash::Hash;
@@ -981,7 +982,10 @@ pub fn generate_dbus_arg(_item: TokenStream) -> TokenStream {
                 _name: String,
             ) -> Result<Self::RustType, Box<dyn Error>> {
                 let mut vec: Vec<T> = vec![];
-                let mut iter = arg.as_iter().unwrap();
+                let mut iter = arg.as_iter().ok_or(Box::new(DBusArgError::new(format!(
+                    "Failed parsing array for `{}`",
+                    _name
+                ))))?;
                 let mut val = iter.next();
                 while !val.is_none() {
                     let arg = val.unwrap().box_clone();
@@ -1057,6 +1061,7 @@ pub fn generate_dbus_arg(_item: TokenStream) -> TokenStream {
         impl DirectDBus for u32 {}
         impl DirectDBus for i64 {}
         impl DirectDBus for u64 {}
+        impl DirectDBus for i16 {}
         impl DirectDBus for u16 {}
         impl DirectDBus for u8 {}
         impl DirectDBus for String {}
@@ -1076,6 +1081,9 @@ pub fn generate_dbus_arg(_item: TokenStream) -> TokenStream {
                 return Ok(data);
             }
         }
+
+        // Represent i8 as D-Bus's i16, since D-Bus only has unsigned type for BYTE.
+        impl_dbus_arg_from_into!(i8, i16);
 
         impl DBusArg for std::fs::File {
             type DBusType = std::fs::File;

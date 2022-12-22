@@ -1884,12 +1884,13 @@ tBTM_STATUS BTM_SetEventFilterConnectionSetupAllDevices(void);
  *
  * Function        BTM_AllowWakeByHid
  *
- * Description    Allow the device to be woken by HID devices
+ * Description     Allow the device to be woken by HID devices
  *
- * Parameters
+ * Parameters      std::vector of RawAddress
  *
  *******************************************************************************/
-tBTM_STATUS BTM_AllowWakeByHid(void);
+tBTM_STATUS BTM_AllowWakeByHid(
+    std::vector<std::pair<RawAddress, uint8_t>> le_hid_devices);
 
 /*******************************************************************************
  *
@@ -1904,14 +1905,17 @@ tBTM_STATUS BTM_RestoreFilterAcceptList(void);
 
 /*******************************************************************************
  *
- * Function        BTM_SetDefaultEventMask
+ * Function        BTM_SetDefaultEventMaskExcept
  *
- * Description    Floss: Set the default event mask for Classic and LE
+ * Description    Floss: Set the default event mask for Classic and LE except
+ *                the given values (they will be disabled in the final set
+ *                mask).
  *
- * Parameters
+ * Parameters     Bits set for event mask and le event mask that should be
+ *                disabled in the final value.
  *
  *******************************************************************************/
-tBTM_STATUS BTM_SetDefaultEventMask(void);
+tBTM_STATUS BTM_SetDefaultEventMaskExcept(uint64_t mask, uint64_t le_mask);
 
 /*******************************************************************************
  *

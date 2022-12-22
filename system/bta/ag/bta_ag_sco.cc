@@ -413,6 +413,10 @@ static void bta_ag_create_sco(tBTA_AG_SCB* p_scb, bool is_orig) {
     }
   }
 
+  /* Configure input/output data path based on HAL settings. */
+  hfp_hal_interface::set_codec_datapath(esco_codec);
+  hfp_hal_interface::update_esco_parameters(&params);
+
   /* If initiating, setup parameters to start SCO/eSCO connection */
   if (is_orig) {
     bta_ag_cb.sco.is_local = true;
@@ -1174,6 +1178,12 @@ void bta_ag_sco_open(tBTA_AG_SCB* p_scb, UNUSED_ATTR const tBTA_AG_DATA& data) {
     LOG(INFO) << __func__ << ": not opening sco, by policy";
     return;
   }
+
+  if (data.api_audio_open.force_cvsd) {
+    LOG(INFO) << __func__ << ": set to use fallback codec";
+    p_scb->codec_fallback = true;
+  }
+
   /* if another scb using sco, this is a transfer */
   if (bta_ag_cb.sco.p_curr_scb && bta_ag_cb.sco.p_curr_scb != p_scb) {
     LOG(INFO) << __func__ << ": transfer "
@@ -1346,6 +1356,10 @@ void bta_ag_sco_conn_rsp(tBTA_AG_SCB* p_scb,
   p_scb->inuse_codec = BTM_SCO_CODEC_NONE;
   /* Send pending commands to create SCO connection to peer */
   bta_ag_create_pending_sco(p_scb, bta_ag_cb.sco.is_local);
+}
+
+void bta_ag_set_sco_offload_enabled(bool value) {
+  hfp_hal_interface::enable_offload(value);
 }
 
 void bta_ag_set_sco_allowed(bool value) {

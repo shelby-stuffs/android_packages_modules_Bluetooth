@@ -17,7 +17,6 @@
 #include "le_audio_utils.h"
 
 #include "bta/le_audio/content_control_id_keeper.h"
-#include "gd/common/strings.h"
 #include "le_audio_types.h"
 #include "osi/include/log.h"
 
@@ -26,6 +25,12 @@ using le_audio::types::LeAudioContextType;
 
 namespace le_audio {
 namespace utils {
+
+/* The returned LeAudioContextType should have its entry in the
+ * AudioSetConfigurationProvider's ContextTypeToScenario mapping table.
+ * Otherwise the AudioSetConfigurationProvider will fall back
+ * to default scenario.
+ */
 LeAudioContextType AudioContentToLeAudioContext(
     audio_content_type_t content_type, audio_usage_t usage) {
   /* Check audio attribute usage of stream */
@@ -126,10 +131,10 @@ static std::string contentTypeToString(audio_content_type_t content_type) {
 }
 
 AudioContexts GetAllowedAudioContextsFromSourceMetadata(
-    const source_metadata_t& source_metadata, AudioContexts allowed_contexts) {
-  AudioContexts track_contexts(0);
-  for (auto idx = 0u; idx < source_metadata.track_count; ++idx) {
-    auto& track = source_metadata.tracks[idx];
+    const std::vector<struct playback_track_metadata>& source_metadata,
+    AudioContexts allowed_contexts) {
+  AudioContexts track_contexts;
+  for (auto& track : source_metadata) {
     if (track.content_type == 0 && track.usage == 0) continue;
 
     LOG_INFO("%s: usage=%s(%d), content_type=%s(%d), gain=%f", __func__,
@@ -137,29 +142,27 @@ AudioContexts GetAllowedAudioContextsFromSourceMetadata(
              contentTypeToString(track.content_type).c_str(),
              track.content_type, track.gain);
 
-    track_contexts |= AudioContexts(
-        static_cast<std::underlying_type<LeAudioContextType>::type>(
-            AudioContentToLeAudioContext(track.content_type, track.usage)));
+    track_contexts.set(
+        AudioContentToLeAudioContext(track.content_type, track.usage));
   }
   track_contexts &= allowed_contexts;
-  LOG_INFO("%s: allowed context=%lu", __func__, track_contexts.to_ulong());
+  LOG_INFO("%s: allowed context= %s", __func__,
+           track_contexts.to_string().c_str());
 
   return track_contexts;
 }
 
-std::vector<uint8_t> GetAllCcids(std::bitset<16> context_types) {
+std::vector<uint8_t> GetAllCcids(const AudioContexts& contexts) {
   auto ccid_keeper = ContentControlIdKeeper::GetInstance();
   std::vector<uint8_t> ccid_vec;
 
-  std::size_t bit_pos = 0;
-  while (bit_pos < context_types.size()) {
-    if (context_types.test(bit_pos)) {
-      auto ccid = ccid_keeper->GetCcid(static_cast<uint16_t>(0b1 << bit_pos));
-      if (ccid != -1) {
-        ccid_vec.push_back(static_cast<uint8_t>(ccid));
-      }
+  for (LeAudioContextType context : types::kLeAudioContextAllTypesArray) {
+    if (!contexts.test(context)) continue;
+    using T = std::underlying_type<LeAudioContextType>::type;
+    auto ccid = ccid_keeper->GetCcid(static_cast<T>(context));
+    if (ccid != -1) {
+      ccid_vec.push_back(static_cast<uint8_t>(ccid));
     }
-    ++bit_pos;
   }
 
   return ccid_vec;

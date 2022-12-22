@@ -10,6 +10,9 @@ package {
 
 cc_defaults {
     name: "gd_defaults",
+    defaults: [
+        "fluoride_common_options",
+    ],
     tidy_checks: [
         "-performance-unnecessary-value-param",
     ],
@@ -42,14 +45,12 @@ cc_defaults {
         "-fvisibility=hidden",
         "-DLOG_NDEBUG=1",
         "-DGOOGLE_PROTOBUF_NO_RTTI",
-        "-Wno-unused-parameter",
         "-Wno-unused-result",
     ],
     conlyflags: [
         "-std=c99",
     ],
     header_libs: ["jni_headers"],
-
 }
 
 // Enables code coverage for a set of source files. Must be combined with
@@ -190,6 +191,7 @@ cc_defaults {
         ":BluetoothSecuritySources",
         ":BluetoothStorageSources",
         ":BluetoothSyspropsSources",
+        ":BluetoothLogRedactionSources",
     ],
     generated_headers: [
         "BluetoothGeneratedBundlerSchema_h_bfbs",
@@ -233,6 +235,19 @@ cc_library {
     ],
     cflags: [
         "-DFUZZ_TARGET",
+        "-DUSE_FAKE_TIMERS",
+    ],
+}
+
+cc_library {
+    name: "libbluetooth_gd_unit_tests",
+    defaults: [
+        "libbluetooth_gd_defaults",
+    ],
+    srcs: [
+        ":BluetoothOsSources_fake_timer",
+    ],
+    cflags: [
         "-DUSE_FAKE_TIMERS",
     ],
 }
@@ -339,12 +354,16 @@ cc_test {
             srcs: [
                 ":BluetoothHalTestSources_hci_host",
                 ":BluetoothOsTestSources_host",
+                ":BluetoothHostTestingLogCapture",
+                ":BluetoothHostTestingLogCaptureTest",
             ],
         },
         android: {
             srcs: [
                 ":BluetoothHalTestSources_hci_android_hidl",
                 ":BluetoothOsTestSources_android",
+                ":BluetoothAndroidTestingLogCapture",
+                ":BluetoothAndroidTestingLogCaptureTest",
             ],
             static_libs: [
                 "android.system.suspend.control-V1-ndk",
@@ -389,7 +408,7 @@ cc_test {
         "libbluetooth-dumpsys-test",
         "libbluetooth-dumpsys-unittest",
         "libbluetooth-protos",
-        "libbluetooth_gd",
+        "libbluetooth_gd_unit_tests",
         "libc++fs",
         "libflatbuffers-cpp",
         "libgmock",
@@ -448,7 +467,7 @@ cc_test {
                 "libcutils",
             ],
         },
-        linux_glibc: {
+        host_linux: {
             shared_libs: [
                 "android.hardware.bluetooth@1.0",
                 "android.hardware.bluetooth@1.1",
@@ -702,6 +721,7 @@ genrule {
         "common/init_flags.fbs",
         "dumpsys_data.fbs",
         "hci/hci_acl_manager.fbs",
+        "hci/hci_controller.fbs",
         "l2cap/classic/l2cap_classic_module.fbs",
         "shim/dumpsys.fbs",
         "os/wakelock_manager.fbs",
@@ -712,6 +732,7 @@ genrule {
         "dumpsys.bfbs",
         "dumpsys_data.bfbs",
         "hci_acl_manager.bfbs",
+        "hci_controller.bfbs",
         "l2cap_classic_module.bfbs",
         "wakelock_manager.bfbs",
     ],
@@ -728,6 +749,7 @@ genrule {
         "common/init_flags.fbs",
         "dumpsys_data.fbs",
         "hci/hci_acl_manager.fbs",
+        "hci/hci_controller.fbs",
         "l2cap/classic/l2cap_classic_module.fbs",
         "shim/dumpsys.fbs",
         "os/wakelock_manager.fbs",
@@ -737,6 +759,7 @@ genrule {
         "dumpsys_data_generated.h",
         "dumpsys_generated.h",
         "hci_acl_manager_generated.h",
+        "hci_controller_generated.h",
         "init_flags_generated.h",
         "l2cap_classic_module_generated.h",
         "wakelock_manager_generated.h",

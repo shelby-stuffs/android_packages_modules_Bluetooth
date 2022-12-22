@@ -92,7 +92,7 @@ typedef enum {
   BT_STATUS_FAIL,
   BT_STATUS_NOT_READY,
   BT_STATUS_NOMEM,
-  BT_STATUS_BUSY,
+  BT_STATUS_BUSY, /* retryable error */
   BT_STATUS_DONE, /* request already completed */
   BT_STATUS_UNSUPPORTED,
   BT_STATUS_PARM_INVALID,
@@ -176,6 +176,13 @@ typedef enum {
   BT_ACL_STATE_DISCONNECTED
 } bt_acl_state_t;
 
+/** Bluetooth ACL connection direction */
+typedef enum {
+  BT_CONN_DIRECTION_UNKNOWN,
+  BT_CONN_DIRECTION_OUTGOING,
+  BT_CONN_DIRECTION_INCOMING
+} bt_conn_direction_t;
+
 /** Bluetooth SDP service record */
 typedef struct {
   bluetooth::Uuid uuid;
@@ -213,6 +220,14 @@ typedef struct {
   bool le_isochronous_broadcast_supported;
   bool le_periodic_advertising_sync_transfer_recipient_supported;
 } bt_local_le_features_t;
+
+/** Bluetooth Vendor and Product ID info */
+typedef struct {
+  uint8_t vendor_id_src;
+  uint16_t vendor_id;
+  uint16_t product_id;
+  uint16_t version;
+} bt_vendor_product_info_t;
 
 /* Stored the default/maximum/minimum buffer time for dynamic audio buffer.
  * For A2DP offload usage, the unit is millisecond.
@@ -339,6 +354,20 @@ typedef enum {
    * Data Type - bool.
    */
   BT_PROPERTY_REMOTE_IS_COORDINATED_SET_MEMBER,
+
+  /**
+   * Description - Appearance as specified in Assigned Numbers.
+   * Access mode - GET.
+   * Data Type - uint16_t.
+   */
+  BT_PROPERTY_APPEARANCE,
+
+  /**
+   * Description - Peer devices' vendor and product ID.
+   * Access mode - GET.
+   * Data Type - bt_vendor_product_info_t.
+   */
+  BT_PROPERTY_VENDOR_PRODUCT_INFO,
 
   BT_PROPERTY_REMOTE_DEVICE_TIMESTAMP = 0xFF,
 } bt_property_type_t;
@@ -470,7 +499,8 @@ typedef void (*acl_state_changed_callback)(bt_status_t status,
                                            RawAddress* remote_bd_addr,
                                            bt_acl_state_t state,
                                            int transport_link_type,
-                                           bt_hci_error_code_t hci_reason);
+                                           bt_hci_error_code_t hci_reason,
+                                           bt_conn_direction_t direction);
 
 /** Bluetooth link quality report callback */
 typedef void (*link_quality_report_callback)(
@@ -822,10 +852,11 @@ typedef struct {
 
   /**
    *
-   * Floss: Set the default event mask for Classic and LE
+   * Floss: Set the default event mask for Classic and LE except the given
+   *        values (they will be disabled in the final set mask).
    *
    */
-  int (*set_default_event_mask)();
+  int (*set_default_event_mask_except)(uint64_t mask, uint64_t le_mask);
 
   /**
    *
@@ -847,6 +878,13 @@ typedef struct {
    *
    */
   int (*set_event_filter_connection_setup_all_devices)();
+
+  /**
+   *
+   * Is wbs supported by the controller
+   *
+   */
+  bool (*get_wbs_supported)();
 } bt_interface_t;
 
 #define BLUETOOTH_INTERFACE_STRING "bluetoothInterface"

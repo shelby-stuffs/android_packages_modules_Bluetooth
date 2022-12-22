@@ -169,6 +169,7 @@ public class AdapterService extends Service {
     private static final int MIN_OFFLOADED_FILTERS = 10;
     private static final int MIN_OFFLOADED_SCAN_STORAGE_BYTES = 1024;
     private static final Duration PENDING_SOCKET_HANDOFF_TIMEOUT = Duration.ofMinutes(1);
+    private static final Duration GENERATE_LOCAL_OOB_DATA_TIMEOUT = Duration.ofSeconds(2);
 
     private final Object mEnergyInfoLock = new Object();
     private int mStackReportedState;
@@ -204,11 +205,11 @@ public class AdapterService extends Service {
     static final String LOCAL_MAC_ADDRESS_PERM = android.Manifest.permission.LOCAL_MAC_ADDRESS;
     static final String RECEIVE_MAP_PERM = android.Manifest.permission.RECEIVE_BLUETOOTH_MAP;
 
-    private static final String PHONEBOOK_ACCESS_PERMISSION_PREFERENCE_FILE =
+    static final String PHONEBOOK_ACCESS_PERMISSION_PREFERENCE_FILE =
             "phonebook_access_permission";
-    private static final String MESSAGE_ACCESS_PERMISSION_PREFERENCE_FILE =
+    static final String MESSAGE_ACCESS_PERMISSION_PREFERENCE_FILE =
             "message_access_permission";
-    private static final String SIM_ACCESS_PERMISSION_PREFERENCE_FILE = "sim_access_permission";
+    static final String SIM_ACCESS_PERMISSION_PREFERENCE_FILE = "sim_access_permission";
 
     private static final int CONTROLLER_ENERGY_UPDATE_TIMEOUT_MILLIS = 30;
 
@@ -765,8 +766,9 @@ public class AdapterService extends Service {
             nonSupportedProfiles.add(BassClientService.class);
         }
 
-        if (isLeAudioBroadcastSourceSupported()) {
-            Config.addSupportedProfile(BluetoothProfile.LE_AUDIO_BROADCAST);
+        if (!isLeAudioBroadcastSourceSupported()) {
+            Config.updateSupportedProfileMask(
+                    false, LeAudioService.class, BluetoothProfile.LE_AUDIO_BROADCAST);
         }
 
         if (!nonSupportedProfiles.isEmpty()) {
@@ -1676,18 +1678,10 @@ public class AdapterService extends Service {
         }
 
         @Override
-        public String getAddress() {
-            if (mService == null) {
-                return null;
-            }
-            return getAddressWithAttribution(Utils.getCallingAttributionSource(mService));
-        }
-
-        @Override
-        public void getAddressWithAttribution(AttributionSource source,
+        public void getAddress(AttributionSource source,
                 SynchronousResultReceiver receiver) {
             try {
-                receiver.send(getAddressWithAttribution(source));
+                receiver.send(getAddress(source));
             } catch (RuntimeException e) {
                 receiver.propagateException(e);
             }
@@ -1696,7 +1690,7 @@ public class AdapterService extends Service {
                 android.Manifest.permission.BLUETOOTH_CONNECT,
                 android.Manifest.permission.LOCAL_MAC_ADDRESS,
         })
-        private String getAddressWithAttribution(AttributionSource attributionSource) {
+        private String getAddress(AttributionSource attributionSource) {
             AdapterService service = getService();
             if (service == null || !callerIsSystemOrActiveOrManagedUser(service, TAG, "getAddress")
                     || !Utils.checkConnectPermissionForDataDelivery(
@@ -2219,18 +2213,22 @@ public class AdapterService extends Service {
          * methods must be changed if the logic behind this method changes.
          */
         @Override
-        public void getProfileConnectionState(int profile, SynchronousResultReceiver receiver) {
+        public void getProfileConnectionState(int profile, AttributionSource source,
+                SynchronousResultReceiver receiver) {
             try {
-                receiver.send(getProfileConnectionState(profile));
+                receiver.send(getProfileConnectionState(profile, source));
             } catch (RuntimeException e) {
                 receiver.propagateException(e);
             }
         }
-        private int getProfileConnectionState(int profile) {
+        @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+        private int getProfileConnectionState(int profile, AttributionSource source) {
             AdapterService service = getService();
             if (service == null
                     || !callerIsSystemOrActiveOrManagedUser(
-                            service, TAG, "getProfileConnectionState")) {
+                            service, TAG, "getProfileConnectionState")
+                    || !Utils.checkConnectPermissionForDataDelivery(
+                            service, source, "AdapterService getProfileConnectionState")) {
                 return BluetoothProfile.STATE_DISCONNECTED;
             }
 
@@ -2425,25 +2423,16 @@ public class AdapterService extends Service {
         }
 
         @Override
-        public int getConnectionState(BluetoothDevice device) {
-            if (mService == null) {
-                return BluetoothProfile.STATE_DISCONNECTED;
-            }
-            return getConnectionStateWithAttribution(device,
-                        Utils.getCallingAttributionSource(mService));
-        }
-
-        @Override
-        public void getConnectionStateWithAttribution(BluetoothDevice device,
+        public void getConnectionState(BluetoothDevice device,
                 AttributionSource source, SynchronousResultReceiver receiver) {
             try {
-                receiver.send(getConnectionStateWithAttribution(device, source));
+                receiver.send(getConnectionState(device, source));
             } catch (RuntimeException e) {
                 receiver.propagateException(e);
             }
         }
         @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-        private int getConnectionStateWithAttribution(
+        private int getConnectionState(
                 BluetoothDevice device, AttributionSource attributionSource) {
             AdapterService service = getService();
             if (service == null || !Utils.checkConnectPermissionForDataDelivery(
@@ -2693,25 +2682,16 @@ public class AdapterService extends Service {
         }
 
         @Override
-        public String getRemoteAlias(BluetoothDevice device) {
-            if (mService == null) {
-                return null;
-            }
-            return getRemoteAliasWithAttribution(device,
-                    Utils.getCallingAttributionSource(mService));
-        }
-
-        @Override
-        public void getRemoteAliasWithAttribution(BluetoothDevice device, AttributionSource source,
+        public void getRemoteAlias(BluetoothDevice device, AttributionSource source,
                 SynchronousResultReceiver receiver) {
             try {
-                receiver.send(getRemoteAliasWithAttribution(device, source));
+                receiver.send(getRemoteAlias(device, source));
             } catch (RuntimeException e) {
                 receiver.propagateException(e);
             }
         }
         @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-        private String getRemoteAliasWithAttribution(
+        private String getRemoteAlias(
                 BluetoothDevice device, AttributionSource attributionSource) {
             AdapterService service = getService();
             if (service == null
@@ -2816,19 +2796,10 @@ public class AdapterService extends Service {
         }
 
         @Override
-        public boolean fetchRemoteUuids(BluetoothDevice device) {
-            if (mService == null) {
-                return false;
-            }
-            return fetchRemoteUuidsWithAttribution(device, TRANSPORT_AUTO,
-                    Utils.getCallingAttributionSource(mService));
-        }
-
-        @Override
-        public void fetchRemoteUuidsWithAttribution(BluetoothDevice device, int transport,
+        public void fetchRemoteUuids(BluetoothDevice device, int transport,
                 AttributionSource source, SynchronousResultReceiver receiver) {
             try {
-                receiver.send(fetchRemoteUuidsWithAttribution(device, transport, source));
+                receiver.send(fetchRemoteUuids(device, transport, source));
             } catch (RuntimeException e) {
                 receiver.propagateException(e);
             }
@@ -2837,7 +2808,7 @@ public class AdapterService extends Service {
                 android.Manifest.permission.BLUETOOTH_CONNECT,
                 android.Manifest.permission.BLUETOOTH_PRIVILEGED,
         })
-        private boolean fetchRemoteUuidsWithAttribution(
+        private boolean fetchRemoteUuids(
                 BluetoothDevice device, int transport, AttributionSource attributionSource) {
             AdapterService service = getService();
             if (service == null
@@ -3575,7 +3546,8 @@ public class AdapterService extends Service {
                 return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
             }
 
-            if (service.isLeAudioBroadcastSourceSupported()) {
+            long supportBitMask = Config.getSupportedProfilesBitMask();
+            if ((supportBitMask & (1 << BluetoothProfile.LE_AUDIO_BROADCAST)) != 0) {
                 return BluetoothStatusCodes.FEATURE_SUPPORTED;
             }
 
@@ -4241,13 +4213,29 @@ public class AdapterService extends Service {
         if (mOobDataCallbackQueue.peek() != null) {
             try {
                 callback.onError(BluetoothStatusCodes.ERROR_ANOTHER_ACTIVE_OOB_REQUEST);
-                return;
             } catch (RemoteException e) {
                 Log.e(TAG, "Failed to make callback", e);
             }
+            return;
         }
         mOobDataCallbackQueue.offer(callback);
+        mHandler.postDelayed(() -> removeFromOobDataCallbackQueue(callback),
+                GENERATE_LOCAL_OOB_DATA_TIMEOUT.toMillis());
         generateLocalOobDataNative(transport);
+    }
+
+    private synchronized void removeFromOobDataCallbackQueue(IBluetoothOobDataCallback callback) {
+        if (callback == null) {
+            return;
+        }
+
+        if (mOobDataCallbackQueue.peek() == callback) {
+            try {
+                mOobDataCallbackQueue.poll().onError(BluetoothStatusCodes.ERROR_UNKNOWN);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Failed to make OobDataCallback to remove callback from queue", e);
+            }
+        }
     }
 
     /* package */ synchronized void notifyOobDataCallback(int transport, OobData oobData) {
@@ -4456,8 +4444,8 @@ public class AdapterService extends Service {
                 Log.e(TAG, "getActiveDevices: LeAudioService is null");
                 } else {
                     activeDevices = mLeAudioService.getActiveDevices();
-                    Log.i(TAG, "getActiveDevices: LeAudio devices: Out["
-                            + activeDevices.get(0) + "] - In[" + activeDevices.get(1) + "]");
+                    Log.i(TAG, "getActiveDevices: LeAudio devices: Lead["
+                            + activeDevices.get(0) + "] - member_1[" + activeDevices.get(1) + "]");
                 }
                 break;
             default:
@@ -4897,8 +4885,7 @@ public class AdapterService extends Service {
      * @return true, if the LE audio broadcast source is supported
      */
     public boolean isLeAudioBroadcastSourceSupported() {
-        return  BluetoothProperties.isProfileBapBroadcastSourceEnabled().orElse(false)
-                && mAdapterProperties.isLePeriodicAdvertisingSupported()
+        return  mAdapterProperties.isLePeriodicAdvertisingSupported()
                 && mAdapterProperties.isLeExtendedAdvertisingSupported()
                 && mAdapterProperties.isLeIsochronousBroadcasterSupported();
     }
@@ -4913,6 +4900,10 @@ public class AdapterService extends Service {
             && mAdapterProperties.isLeExtendedAdvertisingSupported()
             && (mAdapterProperties.isLePeriodicAdvertisingSyncTransferSenderSupported()
                 || mAdapterProperties.isLePeriodicAdvertisingSyncTransferRecipientSupported());
+    }
+
+    public long getSupportedProfilesBitMask() {
+        return Config.getSupportedProfilesBitMask();
     }
 
     /**
@@ -5315,97 +5306,16 @@ public class AdapterService extends Service {
         }
     }
 
-    // Boolean flags
-    private static final String GD_CORE_FLAG = "INIT_gd_core";
-    private static final String GD_ADVERTISING_FLAG = "INIT_gd_advertising";
-    private static final String GD_SCANNING_FLAG = "INIT_gd_scanning";
-    private static final String GD_HCI_FLAG = "INIT_gd_hci";
-    private static final String GD_CONTROLLER_FLAG = "INIT_gd_controller";
-    private static final String GD_ACL_FLAG = "INIT_gd_acl";
-    private static final String GD_L2CAP_FLAG = "INIT_gd_l2cap";
-    private static final String GD_RUST_FLAG = "INIT_gd_rust";
-    private static final String GD_LINK_POLICY_FLAG = "INIT_gd_link_policy";
-    private static final String GATT_ROBUST_CACHING_CLIENT_FLAG = "INIT_gatt_robust_caching_client";
-    private static final String GATT_ROBUST_CACHING_SERVER_FLAG = "INIT_gatt_robust_caching_server";
-
-    /**
-     * Logging flags logic (only applies to DEBUG and VERBOSE levels):
-     * if LOG_TAG in LOGGING_DEBUG_DISABLED_FOR_TAGS_FLAG:
-     *   DO NOT LOG
-     * else if LOG_TAG in LOGGING_DEBUG_ENABLED_FOR_TAGS_FLAG:
-     *   DO LOG
-     * else if LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG:
-     *   DO LOG
-     * else:
-     *   DO NOT LOG
-     */
-    private static final String LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG =
-            "INIT_logging_debug_enabled_for_all";
-    // String flags
-    // Comma separated tags
-    private static final String LOGGING_DEBUG_ENABLED_FOR_TAGS_FLAG =
-            "INIT_logging_debug_enabled_for_tags";
-    private static final String LOGGING_DEBUG_DISABLED_FOR_TAGS_FLAG =
-            "INIT_logging_debug_disabled_for_tags";
-    private static final String BTAA_HCI_LOG_FLAG = "INIT_btaa_hci";
-
     @RequiresPermission(android.Manifest.permission.READ_DEVICE_CONFIG)
     private String[] getInitFlags() {
+        final DeviceConfig.Properties properties =
+                DeviceConfig.getProperties(DeviceConfig.NAMESPACE_BLUETOOTH);
         ArrayList<String> initFlags = new ArrayList<>();
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_CORE_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_CORE_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_ADVERTISING_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_ADVERTISING_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_SCANNING_FLAG,
-                Config.isGdEnabledUpToScanningLayer())) {
-            initFlags.add(String.format("%s=%s", GD_SCANNING_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_HCI_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_HCI_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_CONTROLLER_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_CONTROLLER_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_ACL_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_ACL_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_L2CAP_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_L2CAP_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_RUST_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_RUST_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, GD_LINK_POLICY_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GD_LINK_POLICY_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
-                GATT_ROBUST_CACHING_CLIENT_FLAG, true)) {
-            initFlags.add(String.format("%s=%s", GATT_ROBUST_CACHING_CLIENT_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
-                GATT_ROBUST_CACHING_SERVER_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", GATT_ROBUST_CACHING_SERVER_FLAG, "true"));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH,
-                LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG, false)) {
-            initFlags.add(String.format("%s=%s", LOGGING_DEBUG_ENABLED_FOR_ALL_FLAG, "true"));
-        }
-        String debugLoggingEnabledTags = DeviceConfig.getString(DeviceConfig.NAMESPACE_BLUETOOTH,
-                LOGGING_DEBUG_ENABLED_FOR_TAGS_FLAG, "");
-        if (!debugLoggingEnabledTags.isEmpty()) {
-            initFlags.add(String.format("%s=%s", LOGGING_DEBUG_ENABLED_FOR_TAGS_FLAG,
-                    debugLoggingEnabledTags));
-        }
-        String debugLoggingDisabledTags = DeviceConfig.getString(DeviceConfig.NAMESPACE_BLUETOOTH,
-                LOGGING_DEBUG_DISABLED_FOR_TAGS_FLAG, "");
-        if (!debugLoggingDisabledTags.isEmpty()) {
-            initFlags.add(String.format("%s=%s", LOGGING_DEBUG_DISABLED_FOR_TAGS_FLAG,
-                    debugLoggingDisabledTags));
-        }
-        if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_BLUETOOTH, BTAA_HCI_LOG_FLAG, true)) {
-            initFlags.add(String.format("%s=%s", BTAA_HCI_LOG_FLAG, "true"));
+        for (String property: properties.getKeyset()) {
+            if (property.startsWith("INIT_")) {
+                initFlags.add(String.format("%s=%s", property,
+                            properties.getString(property, null)));
+            }
         }
         return initFlags.toArray(new String[0]);
     }
@@ -5442,6 +5352,9 @@ public class AdapterService extends Service {
     @GuardedBy("mDeviceConfigLock")
     private int mScanUpgradeDurationMillis =
             DeviceConfigListener.DEFAULT_SCAN_UPGRADE_DURATION_MILLIS;
+    @GuardedBy("mDeviceConfigLock")
+    private int mScanDowngradeDurationMillis =
+            DeviceConfigListener.DEFAULT_SCAN_DOWNGRADE_DURATION_BT_CONNECTING_MILLIS;
     @GuardedBy("mDeviceConfigLock")
     private int mScreenOffLowPowerWindowMillis =
             ScanManager.SCAN_MODE_SCREEN_OFF_LOW_POWER_WINDOW_MS;
@@ -5510,6 +5423,15 @@ public class AdapterService extends Service {
     }
 
     /**
+     * Returns scan downgrade duration in millis.
+     */
+    public long getScanDowngradeDurationMillis() {
+        synchronized (mDeviceConfigLock) {
+            return mScanDowngradeDurationMillis;
+        }
+    }
+
+    /**
      * Returns SCREEN_OFF_BALANCED scan window in millis.
      */
     public int getScreenOffBalancedWindowMillis() {
@@ -5562,6 +5484,8 @@ public class AdapterService extends Service {
                 "scan_timeout_millis";
         private static final String SCAN_UPGRADE_DURATION_MILLIS =
                 "scan_upgrade_duration_millis";
+        private static final String SCAN_DOWNGRADE_DURATION_MILLIS =
+                "scan_downgrade_duration_millis";
         private static final String SCREEN_OFF_LOW_POWER_WINDOW_MILLIS =
                 "screen_off_low_power_window_millis";
         private static final String SCREEN_OFF_LOW_POWER_INTERVAL_MILLIS =
@@ -5581,6 +5505,8 @@ public class AdapterService extends Service {
         private static final long DEFAULT_SCAN_QUOTA_WINDOW_MILLIS = 30 * SECOND_IN_MILLIS;
         private static final long DEFAULT_SCAN_TIMEOUT_MILLIS = 30 * MINUTE_IN_MILLIS;
         private static final int DEFAULT_SCAN_UPGRADE_DURATION_MILLIS = (int) SECOND_IN_MILLIS * 6;
+        private static final int DEFAULT_SCAN_DOWNGRADE_DURATION_BT_CONNECTING_MILLIS =
+                (int) SECOND_IN_MILLIS * 6;
 
         @RequiresPermission(android.Manifest.permission.READ_DEVICE_CONFIG)
         public void start() {
@@ -5609,6 +5535,8 @@ public class AdapterService extends Service {
                         DEFAULT_SCAN_TIMEOUT_MILLIS);
                 mScanUpgradeDurationMillis = properties.getInt(SCAN_UPGRADE_DURATION_MILLIS,
                         DEFAULT_SCAN_UPGRADE_DURATION_MILLIS);
+                mScanDowngradeDurationMillis = properties.getInt(SCAN_DOWNGRADE_DURATION_MILLIS,
+                        DEFAULT_SCAN_DOWNGRADE_DURATION_BT_CONNECTING_MILLIS);
                 mScreenOffLowPowerWindowMillis = properties.getInt(
                         SCREEN_OFF_LOW_POWER_WINDOW_MILLIS,
                         ScanManager.SCAN_MODE_SCREEN_OFF_LOW_POWER_WINDOW_MS);

@@ -241,6 +241,18 @@ bt_status_t btif_storage_load_bonded_hid_info(void);
  ******************************************************************************/
 bt_status_t btif_storage_remove_hid_info(const RawAddress& remote_bd_addr);
 
+/*******************************************************************************
+ *
+ * Function         btif_storage_get_hid_device_addresses
+ *
+ * Description      BTIF storage API - Finds all bonded HID devices
+ *
+ * Returns          std::vector of RawAddress
+ *
+ ******************************************************************************/
+std::vector<std::pair<RawAddress, uint8_t>>
+btif_storage_get_hid_device_addresses(void);
+
 /** Loads information about bonded hearing aid devices */
 void btif_storage_load_bonded_hearing_aids();
 
@@ -284,6 +296,25 @@ bool btif_storage_get_hearing_aid_prop(
 /** Store Le Audio device autoconnect flag */
 void btif_storage_set_leaudio_autoconnect(const RawAddress& addr,
                                           bool autoconnect);
+
+/** Store PACs information */
+void btif_storage_leaudio_update_pacs_bin(const RawAddress& addr);
+
+/** Store ASEs information */
+void btif_storage_leaudio_update_ase_bin(const RawAddress& addr);
+
+/** Store Handles information */
+void btif_storage_leaudio_update_handles_bin(const RawAddress& addr);
+
+/** Store Le Audio device audio locations */
+void btif_storage_set_leaudio_audio_location(const RawAddress& addr,
+                                             uint32_t sink_location,
+                                             uint32_t source_location);
+
+/** Store Le Audio device context types */
+void btif_storage_set_leaudio_supported_context_types(
+    const RawAddress& addr, uint16_t sink_supported_context_type,
+    uint16_t source_supported_context_type);
 
 /** Remove Le Audio device from the storage */
 void btif_storage_remove_leaudio(const RawAddress& address);

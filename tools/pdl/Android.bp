@@ -9,7 +9,6 @@ package {
 
 rust_defaults {
     name: "pdl_defaults",
-    srcs: ["src/main.rs"],
     // LINT.IfChange
     rustlibs: [
         "libcodespan_reporting",
@@ -18,7 +17,7 @@ rust_defaults {
         "libquote",
         "libserde",
         "libserde_json",
-        "libstructopt",
+        "libclap",
         "libsyn",
         "libtempfile",
     ],
@@ -31,17 +30,13 @@ rust_defaults {
 rust_binary_host {
     name: "pdl",
     defaults: ["pdl_defaults"],
-}
-
-python_binary_host {
-    name: "pypdl",
-    main: "scripts/pdl/parser.py",
-    srcs: ["scripts/pdl/parser.py"],
+    srcs: ["src/main.rs"],
 }
 
 rust_test_host {
     name: "pdl_inline_tests",
     defaults: ["pdl_defaults"],
+    srcs: ["src/main.rs"],
     test_suites: ["general-tests"],
     enabled: false, // rustfmt is only available on x86.
     arch: {
@@ -56,11 +51,14 @@ rust_test_host {
         "tests/generated/packet_decl_empty.rs",
         "tests/generated/packet_decl_simple_little_endian.rs",
         "tests/generated/packet_decl_simple_big_endian.rs",
+        "tests/generated/packet_decl_complex_little_endian.rs",
+        "tests/generated/packet_decl_complex_big_endian.rs",
     ],
 }
 
 rust_test_host {
     name: "pdl_tests",
+    defaults: ["pdl_defaults"],
     srcs: ["tests/pdl_tests.rs"],
     test_suites: ["general-tests"],
     enabled: false, // rustfmt is only available on x86.
@@ -69,28 +67,12 @@ rust_test_host {
             enabled: true,
         },
     },
-    // LINT.IfChange
-    rustlibs: [
-        "libtempfile",
-    ],
-    // LINT.ThenChange(Cargo.toml)
     data: [
         ":bluetooth_packetgen",
         ":pdl",
         ":rustfmt",
         ":rustfmt.toml",
     ],
-}
-
-// Python generator.
-python_binary_host {
-    name: "pdl_python_generator",
-    main: "scripts/generate_python_backend.py",
-    srcs: [
-        "scripts/generate_python_backend.py",
-        "scripts/pdl/ast.py",
-        "scripts/pdl/core.py",
-    ]
 }
 
 // Defaults for PDL python backend generation.
@@ -160,6 +142,11 @@ python_test_host {
     ],
     test_options: {
         unit_test: true,
+    },
+    version: {
+        py3: {
+            embedded_launcher: true,
+        },
     },
 }
 

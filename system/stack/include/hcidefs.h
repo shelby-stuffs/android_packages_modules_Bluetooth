@@ -734,6 +734,7 @@ typedef enum : uint16_t {
 #define HCI_EIR_OOB_SSP_HASH_C_TYPE 0x0E
 #define HCI_EIR_OOB_SSP_RAND_R_TYPE 0x0F
 #define HCI_EIR_RSI_TYPE 0x2E
+#define HCI_EIR_APPEARANCE_TYPE 0x19
 
 /* Definitions for Write Simple Pairing Mode */
 #define HCI_SP_MODE_ENABLED 0x01
@@ -829,6 +830,9 @@ typedef enum : uint8_t {
 /* Define an invalid value for a handle */
 #define HCI_INVALID_HANDLE 0xFFFF
 
+/* Define the max valid value for a connection handle */
+#define HCI_HANDLE_MAX 0xEFF
+
 /* Define the preamble length for all HCI Commands.
  * This is 2-bytes for opcode and 1 byte for length
 */
@@ -889,12 +893,9 @@ typedef struct {
 /* Parameter information for HCI_BRCM_SET_ACL_PRIORITY */
 #define HCI_BRCM_ACL_PRIORITY_PARAM_SIZE 3
 #define HCI_BRCM_SET_ACL_PRIORITY (0x0057 | HCI_GRP_VENDOR_SPECIFIC)
-#define HCI_BRCM_ACL_HIGH_PRIORITY_TO_NORMAL_PRIORITY 0x00
-#define HCI_BRCM_ACL_NORMAL_PRIORITY_TO_HIGH_PRIORITY 0xFF
-#define HCI_BRCM_ACL_NORMAL_PRIORITY_TO_HIGH_PRIORITY_LOW_LATENCY 0xF3
-#define HCI_BRCM_ACL_HIGH_PRIORITY_LOW_LATENCY_TO_NORMAL_PRIORITY 0xF2
-#define HCI_BRCM_ACL_HIGH_PRIORITY_TO_HIGH_PRIORITY_LOW_LATENCY 0xF1
-#define HCI_BRCM_ACL_HIGH_PRIORITY_LOW_LATENCY_TO_HIGH_PRIORITY 0xF0
+#define HCI_BRCM_ACL_NORMAL_PRIORITY 0x00
+#define HCI_BRCM_ACL_HIGH_PRIORITY 0xFF
+#define HCI_BRCM_ACL_HIGH_PRIORITY_LOW_LATENCY 0xF3
 
 #define LMP_COMPID_GOOGLE 0xE0
 

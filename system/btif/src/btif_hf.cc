@@ -45,6 +45,7 @@
 #include "include/hardware/bt_hf.h"
 #include "main/shim/dumpsys.h"
 #include "osi/include/log.h"
+#include "stack/btm/btm_sco_hfp_hal.h"
 #include "stack/include/btm_api.h"
 #include "types/raw_address.h"
 
@@ -319,10 +320,17 @@ static void btif_hf_upstreams_evt(uint16_t event, char* p_param) {
       break;
     // RFCOMM connected or failed to connect
     case BTA_AG_OPEN_EVT:
-      // Check if an outoging connection is pending
+      bt_hf_callbacks->ConnectionStateCallback(BTHF_CONNECTION_STATE_CONNECTING,
+                                               &(p_data->open.bd_addr));
+      // Check if an outgoing connection is pending
       if (btif_hf_cb[idx].is_initiator) {
+        // There is an outgoing connection.
+        // Check the incoming open event status and the outgoing connection
+        // state.
         if ((p_data->open.status != BTA_AG_SUCCESS) &&
             btif_hf_cb[idx].state != BTHF_CONNECTION_STATE_CONNECTING) {
+          // Check if the incoming open event and the outgoing connection are
+          // for the same device.
           if (p_data->open.bd_addr == btif_hf_cb[idx].connected_bda) {
             LOG(WARNING) << __func__ << ": btif_hf_cb state["
                          << p_data->open.status
@@ -349,10 +357,14 @@ static void btif_hf_upstreams_evt(uint16_t event, char* p_param) {
           break;
         }
 
+        // There is an outgoing connection.
+        // Check the outgoing connection state and address.
         CHECK_EQ(btif_hf_cb[idx].state, BTHF_CONNECTION_STATE_CONNECTING)
             << "Control block must be in connecting state when initiating";
         CHECK(!btif_hf_cb[idx].connected_bda.IsEmpty())
             << "Remote device address must not be empty when initiating";
+        // Check if the incoming open event and the outgoing connection are
+        // for the same device.
         if (btif_hf_cb[idx].connected_bda != p_data->open.bd_addr) {
           LOG(WARNING) << __func__
                        << ": possible connection collision, ignore the "
@@ -371,6 +383,8 @@ static void btif_hf_upstreams_evt(uint16_t event, char* p_param) {
           btif_queue_advance();
         }
       }
+
+      // There is no pending outgoing connection.
       if (p_data->open.status == BTA_AG_SUCCESS) {
         // In case this is an incoming connection
         btif_hf_cb[idx].connected_bda = p_data->open.bd_addr;
@@ -407,12 +421,15 @@ static void btif_hf_upstreams_evt(uint16_t event, char* p_param) {
           "SLC and RFCOMM both disconnected event:%s idx:%d"
           " btif_hf_cb.handle:%d",
           dump_hf_event(event), idx, btif_hf_cb[idx].handle);
+      RawAddress connected_bda = btif_hf_cb[idx].connected_bda;
+      bt_hf_callbacks->ConnectionStateCallback(
+          BTHF_CONNECTION_STATE_DISCONNECTING, &connected_bda);
       // If AG_OPEN was received but SLC was not connected in time, then
       // AG_CLOSE may be received. We need to advance the queue here.
       bool failed_to_setup_slc =
           (btif_hf_cb[idx].state != BTHF_CONNECTION_STATE_SLC_CONNECTED) &&
           btif_hf_cb[idx].is_initiator;
-      RawAddress connected_bda = btif_hf_cb[idx].connected_bda;
+
       reset_control_block(&btif_hf_cb[idx]);
       bt_hf_callbacks->ConnectionStateCallback(btif_hf_cb[idx].state,
                                                &connected_bda);
@@ -552,11 +569,10 @@ static void btif_hf_upstreams_evt(uint16_t event, char* p_param) {
     case BTA_AG_AT_BAC_EVT:
       BTIF_TRACE_DEBUG("AG Bitmap of peer-codecs %d", p_data->val.num);
       /* If the peer supports mSBC and the BTIF preferred codec is also mSBC,
-      then
-      we should set the BTA AG Codec to mSBC. This would trigger a +BCS to mSBC
-      at the time
-      of SCO connection establishment */
-      if (p_data->val.num & BTM_SCO_CODEC_MSBC) {
+       * then we should set the BTA AG Codec to mSBC. This would trigger a +BCS
+       * to mSBC at the time of SCO connection establishment */
+      if (hfp_hal_interface::get_wbs_supported() &&
+          (p_data->val.num & BTM_SCO_CODEC_MSBC)) {
         BTIF_TRACE_EVENT("%s: btif_hf override-Preferred Codec to MSBC",
                          __func__);
         BTA_AgSetCodec(btif_hf_cb[idx].handle, BTM_SCO_CODEC_MSBC);
@@ -658,7 +674,7 @@ static bt_status_t connect_int(RawAddress* bd_addr, uint16_t uuid) {
   if (is_connected(bd_addr)) {
     BTIF_TRACE_WARNING("%s: device %s is already connected", __func__,
                        bd_addr->ToString().c_str());
-    return BT_STATUS_BUSY;
+    return BT_STATUS_DONE;
   }
   btif_hf_cb_t* hf_cb = nullptr;
   for (int i = 0; i < btif_max_hf_clients; i++) {
@@ -727,7 +743,7 @@ class HeadsetInterface : Interface {
                    bool inband_ringing_enabled) override;
   bt_status_t Connect(RawAddress* bd_addr) override;
   bt_status_t Disconnect(RawAddress* bd_addr) override;
-  bt_status_t ConnectAudio(RawAddress* bd_addr) override;
+  bt_status_t ConnectAudio(RawAddress* bd_addr, bool force_cvsd) override;
   bt_status_t DisconnectAudio(RawAddress* bd_addr) override;
   bt_status_t isNoiseReductionSupported(RawAddress* bd_addr) override;
   bt_status_t isVoiceRecognitionSupported(RawAddress* bd_addr) override;
@@ -759,6 +775,7 @@ class HeadsetInterface : Interface {
                                const char* name, RawAddress* bd_addr) override;
 
   void Cleanup() override;
+  bt_status_t SetScoOffloadEnabled(bool value) override;
   bt_status_t SetScoAllowed(bool value) override;
   bt_status_t SendBsir(bool value, RawAddress* bd_addr) override;
   bt_status_t SetActiveDevice(RawAddress* active_device_addr) override;
@@ -818,7 +835,8 @@ bt_status_t HeadsetInterface::Disconnect(RawAddress* bd_addr) {
   return BT_STATUS_SUCCESS;
 }
 
-bt_status_t HeadsetInterface::ConnectAudio(RawAddress* bd_addr) {
+bt_status_t HeadsetInterface::ConnectAudio(RawAddress* bd_addr,
+                                           bool force_cvsd) {
   CHECK_BTHF_INIT();
   int idx = btif_hf_idx_by_bdaddr(bd_addr);
   if ((idx < 0) || (idx >= BTA_AG_MAX_NUM_CLIENTS)) {
@@ -835,7 +853,7 @@ bt_status_t HeadsetInterface::ConnectAudio(RawAddress* bd_addr) {
                               base::Unretained(bt_hf_callbacks),
                               BTHF_AUDIO_STATE_CONNECTING,
                               &btif_hf_cb[idx].connected_bda));
-  BTA_AgAudioOpen(btif_hf_cb[idx].handle);
+  BTA_AgAudioOpen(btif_hf_cb[idx].handle, force_cvsd);
   return BT_STATUS_SUCCESS;
 }
 
@@ -1427,7 +1445,14 @@ void HeadsetInterface::Cleanup() {
     btif_disable_service(BTA_HSP_SERVICE_ID);
   }
 #endif
-  do_in_jni_thread(FROM_HERE, base::Bind([]() { bt_hf_callbacks = nullptr; }));
+
+  bt_hf_callbacks = nullptr;
+}
+
+bt_status_t HeadsetInterface::SetScoOffloadEnabled(bool value) {
+  CHECK_BTHF_INIT();
+  BTA_AgSetScoOffloadEnabled(value);
+  return BT_STATUS_SUCCESS;
 }
 
 bt_status_t HeadsetInterface::SetScoAllowed(bool value) {

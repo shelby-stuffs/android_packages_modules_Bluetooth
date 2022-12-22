@@ -1038,7 +1038,8 @@ public final class BluetoothAdapter {
      * @throws IllegalArgumentException if address is invalid
      */
     @RequiresNoPermission
-    public @NonNull BluetoothDevice getRemoteLeDevice(@NonNull String address,
+    @NonNull
+    public BluetoothDevice getRemoteLeDevice(@NonNull String address,
             @AddressType int addressType) {
         final BluetoothDevice res = new BluetoothDevice(address, addressType);
         res.setAttributionSource(mAttributionSource);
@@ -2647,10 +2648,6 @@ public final class BluetoothAdapter {
      * supported, {@link BluetoothStatusCodes#FEATURE_NOT_SUPPORTED} if the feature is not
      * supported, or an error code.
      *
-     * Android thinks LE audio is supported when the device supports all following profiles:
-     * {@link BluetoothProfile#LE_AUDIO}, {@link BluetoothProfile#CSIP_SET_COORDINATOR},
-     * volume control profile and media control profile for server role.
-     *
      * @return whether the LE audio is supported
      * @throws IllegalStateException if the bluetooth service is null
      */
@@ -3080,16 +3077,20 @@ public final class BluetoothAdapter {
         return STATE_DISCONNECTED;
     }
 
-    private static final IpcDataCache.QueryHandler<Pair<IBluetooth, Integer>, Integer>
+    private static final IpcDataCache
+            .QueryHandler<Pair<IBluetooth, Pair<AttributionSource, Integer>>, Integer>
             sBluetoothProfileQuery = new IpcDataCache.QueryHandler<>() {
                 @RequiresNoPermission
                 @Override
-                public Integer apply(Pair<IBluetooth, Integer> pairQuery) {
+                public Integer apply(Pair<IBluetooth, Pair<AttributionSource, Integer>> pairQuery) {
+                    IBluetooth service = pairQuery.first;
+                    AttributionSource source = pairQuery.second.first;
+                    Integer profile = pairQuery.second.second;
                     final int defaultValue = STATE_DISCONNECTED;
                     try {
                         final SynchronousResultReceiver<Integer> recv =
                                 SynchronousResultReceiver.get();
-                        pairQuery.first.getProfileConnectionState(pairQuery.second, recv);
+                        service.getProfileConnectionState(profile, source, recv);
                         return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
                     } catch (RemoteException | TimeoutException e) {
                         throw new RuntimeException(e);
@@ -3099,7 +3100,7 @@ public final class BluetoothAdapter {
 
     private static final String PROFILE_API = "BluetoothAdapter_getProfileConnectionState";
 
-    private static final IpcDataCache<Pair<IBluetooth, Integer>, Integer>
+    private static final IpcDataCache<Pair<IBluetooth, Pair<AttributionSource, Integer>>, Integer>
             sGetProfileConnectionStateCache = new BluetoothCache<>(PROFILE_API,
                     sBluetoothProfileQuery);
 
@@ -3129,7 +3130,6 @@ public final class BluetoothAdapter {
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    @SuppressLint("AndroidFrameworkRequiresPermission")
     public @ConnectionState int getProfileConnectionState(int profile) {
         android.util.SeempLog.record(64);
         if (getState() != STATE_ON) {
@@ -3138,7 +3138,8 @@ public final class BluetoothAdapter {
         mServiceLock.readLock().lock();
         try {
             if (mService != null) {
-                return sGetProfileConnectionStateCache.query(new Pair<>(mService, profile));
+                return sGetProfileConnectionStateCache.query(
+                        new Pair<>(mService, new Pair<>(mAttributionSource, profile)));
             }
         } catch (RuntimeException e) {
             if (!(e.getCause() instanceof TimeoutException)
@@ -3700,25 +3701,112 @@ public final class BluetoothAdapter {
         return ret;
     }
 
+    private void closeCSProfile(BluetoothProfile proxy) {
+        Class<?> csClass = null;
+        Method csClose = null;
+        try {
+            csClass = Class.forName("android.bluetooth.BluetoothCsClient");
+        } catch (ClassNotFoundException ex) {
+            Log.e(TAG, "no CS: exists");
+            csClass = null;
+        }
+        if (csClass != null) {
+            Log.d(TAG, "Able to get CS class handle");
+            try {
+                csClose =  csClass.getDeclaredMethod("close", null);
+            } catch (NoSuchMethodException e) {
+                Log.e(TAG, "no CS:isSupported method exists");
+            }
+            if (csClose != null) {
+                try {
+                   csClose.invoke(proxy, null);
+                } catch(IllegalAccessException e) {
+                   Log.e(TAG, "csClose IllegalAccessException");
+                } catch (InvocationTargetException e) {
+                   Log.e(TAG, "csClose InvocationTargetException");
+                }
+            }
+        }
+        Log.d(TAG, "CloseCSProfile returns");
+    }
+
+    private boolean getCSProfile(Context context, BluetoothProfile.ServiceListener sl) {
+        boolean ret = true;
+        boolean isProfileSupported = false;
+        Class<?> csClass = null;
+        Method csSupported = null;
+        Constructor csCons = null;
+        Object csObj = null;
+
+        Log.d(TAG, "getCSProfile enters");
+        try {
+            csClass = Class.forName("android.bluetooth.BluetoothCsClient");
+        } catch (ClassNotFoundException ex) {
+            Log.e(TAG, "no CS: exists");
+            csClass = null;
+        }
+        if (csClass != null) {
+            Log.d(TAG, "Able to get Cs class handle");
+            try {
+                csSupported =  csClass.getDeclaredMethod("isSupported", null);
+            } catch (NoSuchMethodException e) {
+                Log.e(TAG, "no CS:isSupported method exists: gdm");
+            }
+            try {
+                csCons =
+                  csClass.getDeclaredConstructor(
+                    new Class[]{Context.class,
+                        BluetoothProfile.ServiceListener.class});
+            } catch (NoSuchMethodException ex) {
+                Log.e(TAG, "csCons: NoSuchMethodException: gdm" + ex);
+            }
+        }
+        if (csClass != null && csSupported != null && csCons != null) {
+            try {
+                isProfileSupported = (boolean)csSupported.invoke(null, null);
+            } catch(IllegalAccessException e) {
+                Log.e(TAG, "CS:isSupported IllegalAccessException");
+            } catch (InvocationTargetException e) {
+                Log.e(TAG, "CS:isSupported InvocationTargetException");
+            }
+            if (isProfileSupported) {
+                try {
+                    csObj = csCons.newInstance(
+                                       context, sl);
+                } catch (InstantiationException ex) {
+                    Log.e(TAG, "csCons InstantiationException:" + ex);
+                } catch (IllegalAccessException ex) {
+                    Log.e(TAG, "csCons InstantiationException:" + ex);
+                } catch (InvocationTargetException ex) {
+                    Log.e(TAG, "csCons InvocationTargetException:" + ex);
+                }
+             }
+        }
+        if (csObj == null) {
+            ret = false;
+        }
+        Log.d(TAG, "getCSProfile returns" + ret);
+        return ret;
+    }
     /**
      * Get the profile proxy object associated with the profile.
      *
-     * <p>Profile can be one of {@link BluetoothProfile#A2DP},
-     * {@link BluetoothProfile#HEADSET}, {@link BluetoothProfile#HID_DEVICE},
-     * {@link BluetoothProfile#SAP}, {@link BluetoothProfile#HAP_CLIENT},
-     * {@link BluetoothProfile#HEARING_AID}, {@link BluetoothProfile#LE_AUDIO},
-     * and {@link BluetoothProfile#CSIP_SET_COORDINATOR}.
-     * Clients must implement {@link BluetoothProfile.ServiceListener} to get notified of
-     * the connection status and to get the proxy object.
+     * <p>Profile can be one of {@link BluetoothProfile#HEADSET}, {@link BluetoothProfile#A2DP},
+     * {@link BluetoothProfile#GATT}, {@link BluetoothProfile#HEARING_AID}, or {@link
+     * BluetoothProfile#GATT_SERVER}. Clients must implement {@link
+     * BluetoothProfile.ServiceListener} to get notified of the connection status and to get the
+     * proxy object.
      *
      * @param context Context of the application
      * @param listener The service Listener for connection callbacks.
-     * @param profile The Bluetooth profile.
+     * @param profile The Bluetooth profile; either {@link BluetoothProfile#HEADSET},
+     * {@link BluetoothProfile#A2DP}, {@link BluetoothProfile#GATT}, {@link
+     * BluetoothProfile#HEARING_AID} or {@link BluetoothProfile#GATT_SERVER}.
      * @return true on success, false on error
      */
     @SuppressLint({
-        "AndroidFrameworkRequiresPermission",
-        "AndroidFrameworkBluetoothPermission"
+            "AndroidFrameworkRequiresPermission",
+            "AndroidFrameworkBluetoothPermission"
     })
     public boolean getProfileProxy(Context context, BluetoothProfile.ServiceListener listener,
             int profile) {
@@ -3726,46 +3814,27 @@ public final class BluetoothAdapter {
             return false;
         }
 
-        // NOTE: We can't rely on BluetoothProperties.isProfileXxxEnabled() method for the profiles
-        // that can be changed by the developer options in Settings app.
-        // See com.android.bluetooth.btservice.Config for details.
         if (profile == BluetoothProfile.HEADSET) {
-            if (BluetoothProperties.isProfileHfpAgEnabled().orElse(false)) {
-                BluetoothHeadset headset = new BluetoothHeadset(context, listener, this);
-                return true;
-            }
+            BluetoothHeadset headset = new BluetoothHeadset(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.A2DP) {
-            if (BluetoothProperties.isProfileA2dpSourceEnabled().orElse(false)) {
-                BluetoothA2dp a2dp = new BluetoothA2dp(context, listener, this);
-                return true;
-            }
+            BluetoothA2dp a2dp = new BluetoothA2dp(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.A2DP_SINK) {
-            if (BluetoothProperties.isProfileA2dpSinkEnabled().orElse(false)) {
-                BluetoothA2dpSink a2dpSink = new BluetoothA2dpSink(context, listener, this);
-                return true;
-            }
+            BluetoothA2dpSink a2dpSink = new BluetoothA2dpSink(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.AVRCP_CONTROLLER) {
-            if (BluetoothProperties.isProfileAvrcpControllerEnabled().orElse(false)) {
-                BluetoothAvrcpController avrcp = new BluetoothAvrcpController(context, listener,
-                        this);
-                return true;
-            }
+            BluetoothAvrcpController avrcp = new BluetoothAvrcpController(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.HID_HOST) {
-            if (BluetoothProperties.isProfileHidHostEnabled().orElse(false)) {
-                BluetoothHidHost iDev = new BluetoothHidHost(context, listener, this);
-                return true;
-            }
+            BluetoothHidHost iDev = new BluetoothHidHost(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.PAN) {
-            if (BluetoothProperties.isProfilePanNapEnabled().orElse(false)
-                    || BluetoothProperties.isProfilePanPanuEnabled().orElse(false)) {
-                BluetoothPan pan = new BluetoothPan(context, listener, this);
-                return true;
-            }
+            BluetoothPan pan = new BluetoothPan(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.PBAP) {
-            if (BluetoothProperties.isProfilePbapServerEnabled().orElse(false)) {
-                BluetoothPbap pbap = new BluetoothPbap(context, listener, this);
-                return true;
-            }
+            BluetoothPbap pbap = new BluetoothPbap(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.DUN) {
             BluetoothDun dun = new BluetoothDun(context, listener);
             return true;
@@ -3773,40 +3842,25 @@ public final class BluetoothAdapter {
             Log.e(TAG, "getProfileProxy(): BluetoothHealth is deprecated");
             return false;
         } else if (profile == BluetoothProfile.MAP) {
-            if (BluetoothProperties.isProfileMapServerEnabled().orElse(false)) {
-                BluetoothMap map = new BluetoothMap(context, listener, this);
-                return true;
-            }
+            BluetoothMap map = new BluetoothMap(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.HEADSET_CLIENT) {
-            if (BluetoothProperties.isProfileHfpHfEnabled().orElse(false)) {
-                BluetoothHeadsetClient headsetClient =
-                        new BluetoothHeadsetClient(context, listener, this);
-                return true;
-            }
+            BluetoothHeadsetClient headsetClient =
+                    new BluetoothHeadsetClient(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.SAP) {
-            if (BluetoothProperties.isProfileSapServerEnabled().orElse(false)) {
-                BluetoothSap sap = new BluetoothSap(context, listener, this);
-                return true;
-            }
+            BluetoothSap sap = new BluetoothSap(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.PBAP_CLIENT) {
-            if (BluetoothProperties.isProfilePbapClientEnabled().orElse(false)) {
-                BluetoothPbapClient pbapClient = new BluetoothPbapClient(context, listener, this);
-                return true;
-            }
+            BluetoothPbapClient pbapClient = new BluetoothPbapClient(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.MAP_CLIENT) {
-            if (BluetoothProperties.isProfileMapClientEnabled().orElse(false)) {
-                BluetoothMapClient mapClient = new BluetoothMapClient(context, listener, this);
-                return true;
-            }
+            BluetoothMapClient mapClient = new BluetoothMapClient(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.HID_DEVICE) {
-            if (BluetoothProperties.isProfileHidDeviceEnabled().orElse(false)) {
-                BluetoothHidDevice hidDevice = new BluetoothHidDevice(context, listener, this);
-                return true;
-            }
+            BluetoothHidDevice hidDevice = new BluetoothHidDevice(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.HAP_CLIENT) {
-            // No proper way to check this before creating this BluetoothProfile.
-            // BluetoothProperties.isProfileHapClientEnabled() could return a wrong value
-            // depends on the status of developer options in Settings app.
             BluetoothHapClient HapClient = new BluetoothHapClient(context, listener);
             return true;
         } else if (profile == BluetoothProfile.BROADCAST) {
@@ -3818,6 +3872,7 @@ public final class BluetoothAdapter {
                 BluetoothHearingAid hearingAid = new BluetoothHearingAid(context, listener, this);
                 return true;
             }
+            return false;
         } else if (profile == BluetoothProfile.GROUP_CLIENT) {
             BluetoothDeviceGroup groupClient = new BluetoothDeviceGroup(context, listener);
             return true;
@@ -3825,38 +3880,30 @@ public final class BluetoothAdapter {
             BluetoothVcp vcp = new BluetoothVcp(context, listener);
             return true;
         } else if (profile == BluetoothProfile.LE_AUDIO) {
-            if (isLeAudioSupported() == BluetoothStatusCodes.FEATURE_SUPPORTED) {
-                BluetoothLeAudio leAudio = new BluetoothLeAudio(context, listener, this);
-                return true;
-            }
+            BluetoothLeAudio leAudio = new BluetoothLeAudio(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.LE_AUDIO_BROADCAST) {
-            if (isLeAudioBroadcastSourceSupported() == BluetoothStatusCodes.FEATURE_SUPPORTED) {
-                BluetoothLeBroadcast leAudio = new BluetoothLeBroadcast(context, listener);
-                return true;
-            }
+            BluetoothLeBroadcast leAudio = new BluetoothLeBroadcast(context, listener);
+            return true;
         } else if (profile == BluetoothProfile.VOLUME_CONTROL) {
-            if (isLeAudioSupported() == BluetoothStatusCodes.FEATURE_SUPPORTED) {
-                BluetoothVolumeControl vcs = new BluetoothVolumeControl(context, listener, this);
-                return true;
-            }
+            BluetoothVolumeControl vcs = new BluetoothVolumeControl(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.CSIP_SET_COORDINATOR) {
-            if (isLeAudioSupported() == BluetoothStatusCodes.FEATURE_SUPPORTED) {
-                BluetoothCsipSetCoordinator csipSetCoordinator =
-                        new BluetoothCsipSetCoordinator(context, listener, this);
-                return true;
-            }
+            BluetoothCsipSetCoordinator csipSetCoordinator =
+                    new BluetoothCsipSetCoordinator(context, listener, this);
+            return true;
         } else if (profile == BluetoothProfile.LE_CALL_CONTROL) {
-            // No proper way to check this before creating this BluetoothProfile.
             BluetoothLeCallControl tbs = new BluetoothLeCallControl(context, listener);
             return true;
         } else if (profile == BluetoothProfile.LE_AUDIO_BROADCAST_ASSISTANT) {
-            if (isLeAudioBroadcastAssistantSupported() == BluetoothStatusCodes.FEATURE_SUPPORTED) {
-                BluetoothLeBroadcastAssistant leAudioBroadcastAssistant =
-                        new BluetoothLeBroadcastAssistant(context, listener);
-                return true;
-            }
+            BluetoothLeBroadcastAssistant leAudioBroadcastAssistant =
+                    new BluetoothLeBroadcastAssistant(context, listener);
+            return true;
+        } else if (profile == BluetoothProfile.CS_PROFILE) {
+            return getCSProfile(context, listener);
+        } else {
+            return false;
         }
-        return false;
     }
 
     /**
@@ -3990,6 +4037,9 @@ public final class BluetoothAdapter {
                 BluetoothLeBroadcastAssistant leAudioBroadcastAssistant =
                         (BluetoothLeBroadcastAssistant) proxy;
                 leAudioBroadcastAssistant.close();
+                break;
+	    case BluetoothProfile.CS_PROFILE:
+                closeCSProfile(proxy);
                 break;
         }
     }
@@ -4508,14 +4558,18 @@ public final class BluetoothAdapter {
 
     /*package*/ IBluetooth getBluetoothService() {
         synchronized (sServiceLock) {
-            if (sProxyServiceStateCallbacks.isEmpty()) {
-                throw new IllegalStateException(
-                        "Anonymous service access requires at least one lifecycle in process");
-            }
             return sService;
         }
     }
 
+    /**
+     * Registers a IBluetoothManagerCallback and returns the cached
+     * Bluetooth service proxy object.
+     *
+     * TODO: rename this API to registerBlueoothManagerCallback or something?
+     * the current name does not match what it does very well.
+     *
+     * /
     @UnsupportedAppUsage
     /*package*/ IBluetooth getBluetoothService(IBluetoothManagerCallback cb) {
         Objects.requireNonNull(cb);

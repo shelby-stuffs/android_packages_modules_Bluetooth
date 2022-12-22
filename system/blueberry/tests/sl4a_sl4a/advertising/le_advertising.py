@@ -24,6 +24,7 @@ from blueberry.tests.gd.cert.context import get_current_context
 
 from blueberry.tests.sl4a_sl4a.lib import sl4a_sl4a_base_test
 from blueberry.tests.gd_sl4a.lib.bt_constants import ble_address_types
+from mobly import test_runner
 
 
 class LeAdvertisingTest(sl4a_sl4a_base_test.Sl4aSl4aBaseTestClass):
@@ -38,7 +39,7 @@ class LeAdvertisingTest(sl4a_sl4a_base_test.Sl4aSl4aBaseTestClass):
         super().teardown_test()
 
     def test_advertise_name(self):
-        rpa_address = self.cert_advertiser_.advertise_rpa_public_extended_pdu()
+        rpa_address = self.cert_advertiser_.advertise_public_extended_pdu()
         self.dut_scanner_.scan_for_name(self.cert_advertiser_.get_local_advertising_name())
         self.dut_scanner_.stop_scanning()
         self.cert_advertiser_.stop_advertising()
@@ -48,10 +49,14 @@ class LeAdvertisingTest(sl4a_sl4a_base_test.Sl4aSl4aBaseTestClass):
             self.test_advertise_name()
 
     def test_advertise_name_twice_no_stop(self):
-        rpa_address = self.cert_advertiser_.advertise_rpa_public_extended_pdu()
+        rpa_address = self.cert_advertiser_.advertise_public_extended_pdu()
         self.dut_scanner_.scan_for_name(self.cert_advertiser_.get_local_advertising_name())
         self.dut_scanner_.stop_scanning()
-        rpa_address = self.cert_advertiser_.advertise_rpa_public_extended_pdu()
+        rpa_address = self.cert_advertiser_.advertise_public_extended_pdu()
         self.dut_scanner_.scan_for_name(self.cert_advertiser_.get_local_advertising_name())
         self.dut_scanner_.stop_scanning()
         self.cert_advertiser_.stop_advertising()
+
+
+if __name__ == '__main__':
+    test_runner.main()
