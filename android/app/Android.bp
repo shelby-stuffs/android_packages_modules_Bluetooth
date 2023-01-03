@@ -155,6 +155,7 @@ android_app {
         "sap-api-java-static",
         "services.net",
         "bluetooth-proto-enums-java-gen",
+        "BluetoothApiShims",
     ],
 
     plugins: [

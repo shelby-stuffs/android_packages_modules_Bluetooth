@@ -21,7 +21,7 @@
 #include <lmp.h>
 #endif /* ROOTCANAL_LMP */
 
-#include "crypto_toolbox/crypto_toolbox.h"
+#include "crypto/crypto.h"
 #include "log.h"
 #include "packet/raw_builder.h"
 
@@ -211,9 +211,6 @@ std::optional<AddressWithType> LinkLayerController::ResolvePrivateAddress(
 
   return {};
 }
-
-static Address generate_rpa(
-    std::array<uint8_t, LinkLayerController::kIrkSize> irk);
 
 std::optional<AddressWithType>
 LinkLayerController::GenerateResolvablePrivateAddress(AddressWithType address,
@@ -2249,8 +2246,7 @@ void LinkLayerController::IncomingInquiryResponsePacket(
               inquiry_response.GetPageScanRepetitionMode()),
           inquiry_response.GetClassOfDevice(),
           inquiry_response.GetClockOffset(), inquiry_response.GetRssi(),
-          std::vector<uint8_t>(extended_inquiry_response_.begin(),
-                               extended_inquiry_response_.end())));
+          extended_inquiry_response_));
     } break;
     default:
       LOG_WARN("Unhandled Incoming Inquiry Response of type %d",
@@ -2621,7 +2617,7 @@ void LinkLayerController::IncomingKeypressNotificationPacket(
 }
 #endif /* !ROOTCANAL_LMP */
 
-static Address generate_rpa(
+Address LinkLayerController::generate_rpa(
     std::array<uint8_t, LinkLayerController::kIrkSize> irk) {
   // most significant bit, bit7, bit6 is 01 to be resolvable random
   // Bits of the random part of prand shall not be all 1 or all 0
@@ -2644,8 +2640,8 @@ static Address generate_rpa(
   rpa.address[5] = prand[2];
 
   /* encrypt with IRK */
-  bluetooth::crypto_toolbox::Octet16 p =
-      bluetooth::crypto_toolbox::aes_128(irk, prand.data(), 3);
+  rootcanal::crypto::Octet16 p =
+      rootcanal::crypto::aes_128(irk, prand.data(), 3);
 
   /* set hash to be LSB of rpAddress */
   rpa.address[0] = p[0];

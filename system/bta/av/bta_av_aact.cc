@@ -244,16 +244,20 @@ static void notify_start_failed(tBTA_AV_SCB* p_scb) {
   LOG_ERROR("%s: peer %s role:0x%x bta_channel:%d bta_handle:0x%x", __func__,
             ADDRESS_TO_LOGGABLE_CSTR(p_scb->PeerAddress()), p_scb->role,
             p_scb->chnl, p_scb->hndl);
-  tBTA_AV_START start;
+  tBTA_AV bta_av_data = {
+      .start =
+          {
+              .chnl = p_scb->chnl,
+              .hndl = p_scb->hndl,
+              .status = BTA_AV_FAIL,
+              .initiator = true,
+              .suspending = false,
+          },
+  };
+
   /* if start failed, clear role */
   p_scb->role &= ~BTA_AV_ROLE_START_INT;
-  start.chnl = p_scb->chnl;
-  start.status = BTA_AV_FAIL;
-  start.initiator = true;
-  start.hndl = p_scb->hndl;
 
-  tBTA_AV bta_av_data;
-  bta_av_data.start = start;
   (*bta_av_cb.p_cback)(BTA_AV_START_EVT, &bta_av_data);
 }
 
@@ -651,13 +655,16 @@ void bta_av_role_res(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
         p_scb->role &= ~BTA_AV_ROLE_START_INT;
         bta_sys_idle(BTA_ID_AV, bta_av_cb.audio_open_cnt, p_scb->PeerAddress());
         /* start failed because of role switch. */
-        tBTA_AV_START start;
-        start.chnl = p_scb->chnl;
-        start.status = BTA_AV_FAIL_ROLE;
-        start.hndl = p_scb->hndl;
-        start.initiator = initiator;
-        tBTA_AV bta_av_data;
-        bta_av_data.start = start;
+        tBTA_AV bta_av_data = {
+            .start =
+                {
+                    .chnl = p_scb->chnl,
+                    .hndl = p_scb->hndl,
+                    .status = BTA_AV_FAIL_ROLE,
+                    .initiator = initiator,
+                    .suspending = false,
+                },
+        };
         (*bta_av_cb.p_cback)(BTA_AV_START_EVT, &bta_av_data);
       } else {
         bta_av_start_ok(p_scb, p_data);
@@ -671,18 +678,23 @@ void bta_av_role_res(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
 
       if (p_data->role_res.hci_status != HCI_SUCCESS) {
         /* Open failed because of role switch. */
-        tBTA_AV_OPEN av_open;
-        av_open.bd_addr = p_scb->PeerAddress();
-        av_open.chnl = p_scb->chnl;
-        av_open.hndl = p_scb->hndl;
-        av_open.status = BTA_AV_FAIL_ROLE;
+        tBTA_AV bta_av_data = {
+            .open =
+                {
+                    .chnl = p_scb->chnl,
+                    .hndl = p_scb->hndl,
+                    .bd_addr = p_scb->PeerAddress(),
+                    .status = BTA_AV_FAIL_ROLE,
+                    .starting = false,
+                    .edr = 0,
+                    .sep = AVDT_TSEP_INVALID,
+                },
+        };
         if (p_scb->seps[p_scb->sep_idx].tsep == AVDT_TSEP_SRC) {
-          av_open.sep = AVDT_TSEP_SNK;
+          bta_av_data.open.sep = AVDT_TSEP_SNK;
         } else if (p_scb->seps[p_scb->sep_idx].tsep == AVDT_TSEP_SNK) {
-          av_open.sep = AVDT_TSEP_SRC;
+          bta_av_data.open.sep = AVDT_TSEP_SRC;
         }
-        tBTA_AV bta_av_data;
-        bta_av_data.open = av_open;
         (*bta_av_cb.p_cback)(BTA_AV_OPEN_EVT, &bta_av_data);
       } else {
         /* Continue av open process */
@@ -1211,12 +1223,15 @@ void bta_av_str_opened(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
      * the connection will be rejected.
      */
     /* check if other audio channel is started. If yes, start */
-    tBTA_AV_OPEN open;
-    open.bd_addr = p_scb->PeerAddress();
-    open.chnl = p_scb->chnl;
-    open.hndl = p_scb->hndl;
-    open.status = BTA_AV_SUCCESS;
-    open.edr = 0;
+    tBTA_AV_OPEN open = {
+        .chnl = p_scb->chnl,
+        .hndl = p_scb->hndl,
+        .bd_addr = p_scb->PeerAddress(),
+        .status = BTA_AV_SUCCESS,
+        .starting = false,
+        .edr = 0,
+        .sep = AVDT_TSEP_INVALID,
+    };
     p = BTM_ReadRemoteFeatures(p_scb->PeerAddress());
     if (p != NULL) {
       if (HCI_EDR_ACL_2MPS_SUPPORTED(p)) open.edr |= BTA_AV_EDR_2MBPS;
@@ -1266,14 +1281,15 @@ void bta_av_security_ind(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
   p_scb->avdt_label = p_data->str_msg.msg.hdr.label;
 
   if (bta_av_cb.features & BTA_AV_FEAT_PROTECT) {
-    tBTA_AV_PROTECT_REQ protect_req;
-    protect_req.chnl = p_scb->chnl;
-    protect_req.hndl = p_scb->hndl;
-    protect_req.p_data = p_data->str_msg.msg.security_ind.p_data;
-    protect_req.len = p_data->str_msg.msg.security_ind.len;
-
-    tBTA_AV bta_av_data;
-    bta_av_data.protect_req = protect_req;
+    tBTA_AV bta_av_data = {
+        .protect_req =
+            {
+                .chnl = p_scb->chnl,
+                .hndl = p_scb->hndl,
+                .p_data = p_data->str_msg.msg.security_ind.p_data,
+                .len = p_data->str_msg.msg.security_ind.len,
+            },
+    };
     (*bta_av_cb.p_cback)(BTA_AV_PROTECT_REQ_EVT, &bta_av_data);
   }
   /* app doesn't support security indication; respond with failure */
@@ -1294,15 +1310,16 @@ void bta_av_security_ind(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
  ******************************************************************************/
 void bta_av_security_cfm(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
   if (bta_av_cb.features & BTA_AV_FEAT_PROTECT) {
-    tBTA_AV_PROTECT_RSP protect_rsp;
-    protect_rsp.chnl = p_scb->chnl;
-    protect_rsp.hndl = p_scb->hndl;
-    protect_rsp.p_data = p_data->str_msg.msg.security_cfm.p_data;
-    protect_rsp.len = p_data->str_msg.msg.security_cfm.len;
-    protect_rsp.err_code = p_data->str_msg.msg.hdr.err_code;
-
-    tBTA_AV bta_av_data;
-    bta_av_data.protect_rsp = protect_rsp;
+    tBTA_AV bta_av_data = {
+        .protect_rsp =
+            {
+                .chnl = p_scb->chnl,
+                .hndl = p_scb->hndl,
+                .p_data = p_data->str_msg.msg.security_cfm.p_data,
+                .len = p_data->str_msg.msg.security_cfm.len,
+                .err_code = p_data->str_msg.msg.hdr.err_code,
+            },
+    };
     (*bta_av_cb.p_cback)(BTA_AV_PROTECT_RSP_EVT, &bta_av_data);
   }
 }
@@ -2720,10 +2737,14 @@ void bta_av_suspend_cont(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
   if (err_code) {
     if (AVDT_ERR_CONNECT == err_code) {
       /* report failure */
-      tBTA_AV_RECONFIG reconfig;
-      reconfig.status = BTA_AV_FAIL;
-      tBTA_AV bta_av_data;
-      bta_av_data.reconfig = reconfig;
+      tBTA_AV bta_av_data = {
+          .reconfig =
+              {
+                  .chnl = p_scb->chnl,
+                  .hndl = p_scb->hndl,
+                  .status = BTA_AV_FAIL,
+              },
+      };
       (*bta_av_cb.p_cback)(BTA_AV_RECONFIG_EVT, &bta_av_data);
       APPL_TRACE_ERROR("%s: BTA_AV_STR_DISC_FAIL_EVT: peer_addr=%s", __func__,
                        ADDRESS_TO_LOGGABLE_CSTR(p_scb->PeerAddress()));
@@ -2932,15 +2953,18 @@ void bta_av_open_rc(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
           __func__);
       alarm_cancel(p_scb->avrc_ct_timer);
 
-      tBTA_AV_START start;
-      start.chnl = p_scb->chnl;
-      start.status = BTA_AV_FAIL_ROLE;
-      start.initiator = true;
-      start.hndl = p_scb->hndl;
+      tBTA_AV bta_av_data = {
+          .start =
+              {
+                  .chnl = p_scb->chnl,
+                  .hndl = p_scb->hndl,
+                  .status = BTA_AV_FAIL_ROLE,
+                  .initiator = true,
+                  .suspending = false,
+              },
+      };
       p_scb->wait &= ~BTA_AV_WAIT_ROLE_SW_BITS;
       bta_av_cb.rs_idx = 0;
-      tBTA_AV bta_av_data;
-      bta_av_data.start = start;
       (*bta_av_cb.p_cback)(BTA_AV_START_EVT, &bta_av_data);
     } else {
       /* role switch is done. continue to start streaming */
