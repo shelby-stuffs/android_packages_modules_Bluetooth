@@ -338,7 +338,11 @@ static bluetooth::core::CoreInterface* CreateInterfaceToProfiles() {
           btif_av_set_dynamic_audio_buffer_size,
 
       // ASHA
-      .GetHearingAidDeviceCount = HearingAid::GetDeviceCount};
+      .GetHearingAidDeviceCount = HearingAid::GetDeviceCount,
+
+      // LE Audio
+      .IsLeAudioClientRunning = LeAudioClient::IsLeAudioClientRunning};
+
   static auto interfaceForCore =
       CoreInterfaceImpl(&eventCallbacks, &configInterface, &msbcCodecInterface,
                         &profileInterface);
@@ -720,7 +724,9 @@ static int restore_filter_accept_list() {
 
 static int allow_wake_by_hid() {
   if (!interface_ready()) return BT_STATUS_NOT_READY;
-  do_in_main_thread(FROM_HERE, base::BindOnce(btif_dm_allow_wake_by_hid));
+  auto hid_addrs = btif_storage_get_hid_device_addresses();
+  do_in_main_thread(FROM_HERE, base::BindOnce(btif_dm_allow_wake_by_hid,
+                                              std::move(hid_addrs)));
   return BT_STATUS_SUCCESS;
 }
 
@@ -948,6 +954,18 @@ static bool allow_low_latency_audio(bool allowed, const RawAddress& address) {
   return true;
 }
 
+static void metadata_changed(const RawAddress& remote_bd_addr, int key,
+                             std::vector<uint8_t> value) {
+  if (!interface_ready()) {
+    LOG_ERROR("Interface not ready!");
+    return;
+  }
+
+  do_in_main_thread(
+      FROM_HERE, base::BindOnce(btif_dm_metadata_changed, remote_bd_addr, key,
+                                std::move(value)));
+}
+
 EXPORT_SYMBOL bt_interface_t bluetoothInterface = {
     sizeof(bluetoothInterface),
     .init = init,
@@ -1000,7 +1018,8 @@ EXPORT_SYMBOL bt_interface_t bluetoothInterface = {
     .allow_wake_by_hid = allow_wake_by_hid,
     .set_event_filter_connection_setup_all_devices =
         set_event_filter_connection_setup_all_devices,
-    .get_wbs_supported = get_wbs_supported};
+    .get_wbs_supported = get_wbs_supported,
+    .metadata_changed = metadata_changed};
 
 // callback reporting helpers
 

@@ -22,7 +22,7 @@
 #endif /* ROOTCANAL_LMP */
 
 #include "crypto_toolbox/crypto_toolbox.h"
-#include "os/log.h"
+#include "log.h"
 #include "packet/raw_builder.h"
 
 using std::vector;
@@ -247,9 +247,17 @@ ErrorCode LinkLayerController::LeSetRandomAddress(Address random_address) {
   // the Controller shall return the error code Command Disallowed (0x0C).
   if (legacy_advertiser_.IsEnabled() || scanner_.IsEnabled() ||
       initiator_.IsEnabled()) {
+    LOG_INFO("advertising, scanning or initiating are currently active");
     return ErrorCode::COMMAND_DISALLOWED;
   }
 
+  if (random_address == Address::kEmpty) {
+    LOG_INFO("the random address may not be set to 00:00:00:00:00:00");
+    return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
+  }
+
+  LOG_INFO("device random address configured to %s",
+           random_address.ToString().c_str());
   random_address_ = random_address;
   return ErrorCode::SUCCESS;
 }
@@ -5966,7 +5974,7 @@ ErrorCode LinkLayerController::LeCreateBig(
     bluetooth::hci::SecondaryPhyType /* phy */,
     bluetooth::hci::Packing /* packing */, bluetooth::hci::Enable /* framing */,
     bluetooth::hci::Enable /* encryption */,
-    std::vector<uint16_t> /* broadcast_code */) {
+    std::array<uint8_t, 16> /* broadcast_code */) {
   return ErrorCode::SUCCESS;
 }
 
@@ -5978,7 +5986,7 @@ ErrorCode LinkLayerController::LeTerminateBig(uint8_t /* big_handle */,
 ErrorCode LinkLayerController::LeBigCreateSync(
     uint8_t /* big_handle */, uint16_t /* sync_handle */,
     bluetooth::hci::Enable /* encryption */,
-    std::vector<uint16_t> /* broadcast_code */, uint8_t /* mse */,
+    std::array<uint8_t, 16> /* broadcast_code */, uint8_t /* mse */,
     uint16_t /* big_sync_timeout */, std::vector<uint8_t> /* bis */) {
   return ErrorCode::SUCCESS;
 }

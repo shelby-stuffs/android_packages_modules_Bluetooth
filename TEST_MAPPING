@@ -70,6 +70,18 @@
     },
     {
       "name" : "net_test_stack_btm"
+    },
+    {
+      "name" : "BluetoothInstrumentationTests"
+    },
+    {
+      "name" : "GoogleBluetoothInstrumentationTests"
+    },
+    {
+      "name" : "FrameworkBluetoothTests"
+    },
+    {
+      "name" : "ServiceBluetoothTests"
     }
   ]
 }

@@ -83,6 +83,24 @@ pub mod ffi {
         irk: [u8; 16],
     }
 
+    // Defined in C++ and needs a translation in shim.
+    #[derive(Debug, Clone)]
+    pub struct RustMsftAdvMonitorPattern {
+        pub ad_type: u8,
+        pub start_byte: u8,
+        pub pattern: Vec<u8>,
+    }
+
+    // Defined in C++ and needs a translation in shim.
+    #[derive(Debug, Clone)]
+    pub struct RustMsftAdvMonitor {
+        pub rssi_high_threshold: u8,
+        pub rssi_low_threshold: u8,
+        pub rssi_low_timeout: u8,
+        pub rssi_sampling_period: u8,
+        pub patterns: Vec<RustMsftAdvMonitorPattern>,
+    }
+
     #[derive(Debug, Clone)]
     pub struct RustAdvertiseParameters {
         advertising_event_properties: u16,
@@ -98,7 +116,8 @@ pub mod ffi {
 
     #[derive(Debug, Clone)]
     pub struct RustPeriodicAdvertisingParameters {
-        enable: u8,
+        enable: bool,
+        include_adi: bool,
         min_interval: u16,
         max_interval: u16,
         periodic_advertising_properties: u16,
@@ -143,6 +162,9 @@ pub mod ffi {
         );
         fn ScanFilterClear(self: Pin<&mut BleScannerIntf>, filter_index: u8);
         fn ScanFilterEnable(self: Pin<&mut BleScannerIntf>, enable: bool);
+        fn MsftAdvMonitorAdd(self: Pin<&mut BleScannerIntf>, monitor: RustMsftAdvMonitor);
+        fn MsftAdvMonitorRemove(self: Pin<&mut BleScannerIntf>, monitor_handle: u8);
+        fn MsftAdvMonitorEnable(self: Pin<&mut BleScannerIntf>, enable: bool);
         fn SetScanParameters(
             self: Pin<&mut BleScannerIntf>,
             scanner_id: u8,
@@ -248,6 +270,9 @@ pub mod ffi {
             action: u8,
             btm_status: u8,
         );
+        unsafe fn gdscan_msft_adv_monitor_add_callback(monitor_handle: u8, status: u8);
+        unsafe fn gdscan_msft_adv_monitor_remove_callback(status: u8);
+        unsafe fn gdscan_msft_adv_monitor_enable_callback(status: u8);
         unsafe fn gdscan_start_sync_callback(
             status: u8,
             sync_handle: u16,
@@ -329,6 +354,7 @@ pub mod ffi {
             self: Pin<&mut BleAdvertiserIntf>,
             adv_id: u8,
             enable: bool,
+            include_adi: bool,
         );
 
         /// Registers a C++ |AdvertisingCallbacks| implementation with the BleAdvertiser.
@@ -364,13 +390,15 @@ pub mod ffi {
 pub type AdvertisingTrackInfo = ffi::RustAdvertisingTrackInfo;
 pub type GattFilterParam = ffi::RustGattFilterParam;
 pub type ApcfCommand = ffi::RustApcfCommand;
+pub type MsftAdvMonitor = ffi::RustMsftAdvMonitor;
 pub type AdvertiseParameters = ffi::RustAdvertiseParameters;
 pub type PeriodicAdvertisingParameters = ffi::RustPeriodicAdvertisingParameters;
 
 impl Default for PeriodicAdvertisingParameters {
     fn default() -> Self {
         PeriodicAdvertisingParameters {
-            enable: 0,
+            enable: false,
+            include_adi: false,
             min_interval: 0,
             max_interval: 0,
             periodic_advertising_properties: 0,
@@ -897,6 +925,15 @@ pub enum GattScannerInbandCallbacks {
     /// Params: Filter Index, Filter Type, Available Space, Action, BTM Status
     FilterConfigCallback(u8, u8, u8, u8, u8),
 
+    /// Params: Monitor handle, status
+    MsftAdvMonitorAddCallback(u8, u8),
+
+    /// Params: status
+    MsftAdvMonitorRemoveCallback(u8),
+
+    /// Params: status
+    MsftAdvMonitorEnableCallback(u8),
+
     /// Params: Status, Sync Handle, Advertising Sid, Address Type, Address, Phy, Interval
     StartSyncCallback(u8, u16, u8, u8, RawAddress, u8, u16),
 
@@ -927,6 +964,15 @@ cb_variant!(GDScannerInbandCb,
 cb_variant!(GDScannerInbandCb,
     gdscan_filter_config_callback -> GattScannerInbandCallbacks::FilterConfigCallback,
     u8, u8, u8, u8, u8);
+cb_variant!(GDScannerInbandCb,
+    gdscan_msft_adv_monitor_add_callback -> GattScannerInbandCallbacks::MsftAdvMonitorAddCallback,
+    u8, u8);
+cb_variant!(GDScannerInbandCb,
+    gdscan_msft_adv_monitor_remove_callback -> GattScannerInbandCallbacks::MsftAdvMonitorRemoveCallback,
+    u8);
+cb_variant!(GDScannerInbandCb,
+    gdscan_msft_adv_monitor_enable_callback -> GattScannerInbandCallbacks::MsftAdvMonitorEnableCallback,
+    u8);
 cb_variant!(GDScannerInbandCb,
 gdscan_start_sync_callback -> GattScannerInbandCallbacks::StartSyncCallback,
 u8, u16, u8, u8, *const RawAddress, u8, u16, {
@@ -1418,6 +1464,18 @@ impl BleScanner {
         mutcxxcall!(self, ScanFilterEnable, false);
     }
 
+    pub fn msft_adv_monitor_add(&mut self, monitor: MsftAdvMonitor) {
+        mutcxxcall!(self, MsftAdvMonitorAdd, monitor);
+    }
+
+    pub fn msft_adv_monitor_remove(&mut self, monitor_handle: u8) {
+        mutcxxcall!(self, MsftAdvMonitorRemove, monitor_handle);
+    }
+
+    pub fn msft_adv_monitor_enable(&mut self, enable: bool) {
+        mutcxxcall!(self, MsftAdvMonitorEnable, enable);
+    }
+
     pub fn set_scan_parameters(&mut self, scanner_id: u8, scan_interval: u16, scan_window: u16) {
         mutcxxcall!(self, SetScanParameters, scanner_id, scan_interval, scan_window);
     }
@@ -1582,8 +1640,8 @@ impl BleAdvertiser {
     pub fn set_periodic_advertising_data(&mut self, adv_id: u8, data: Vec<u8>) {
         mutcxxcall!(self, SetPeriodicAdvertisingData, adv_id, data);
     }
-    pub fn set_periodic_advertising_enable(&mut self, adv_id: u8, enable: bool) {
-        mutcxxcall!(self, SetPeriodicAdvertisingEnable, adv_id, enable);
+    pub fn set_periodic_advertising_enable(&mut self, adv_id: u8, enable: bool, include_adi: bool) {
+        mutcxxcall!(self, SetPeriodicAdvertisingEnable, adv_id, enable, include_adi);
     }
 }
 

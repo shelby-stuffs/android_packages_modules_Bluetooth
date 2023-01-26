@@ -231,10 +231,10 @@ impl DBusArg for ScanFilterCondition {
 
 #[dbus_propmap(ScanFilter)]
 struct ScanFilterDBus {
-    rssi_high_threshold: i16,
-    rssi_low_threshold: i16,
-    rssi_low_timeout: u16,
-    rssi_sampling_period: u16,
+    rssi_high_threshold: u8,
+    rssi_low_threshold: u8,
+    rssi_low_timeout: u8,
+    rssi_sampling_period: u8,
     condition: ScanFilterCondition,
 }
 
@@ -996,7 +996,7 @@ impl IBluetoothGatt for BluetoothGattDBus {
         &mut self,
         _scanner_id: u8,
         _settings: ScanSettings,
-        _filter: ScanFilter,
+        _filter: Option<ScanFilter>,
     ) -> BtStatus {
         dbus_generated!()
     }
@@ -1096,7 +1096,12 @@ impl IBluetoothGatt for BluetoothGattDBus {
 
     /// Enable/Disable periodic advertising of the advertising set.
     #[dbus_method("SetPeriodicAdvertisingEnable")]
-    fn set_periodic_advertising_enable(&mut self, advertiser_id: i32, enable: bool) {
+    fn set_periodic_advertising_enable(
+        &mut self,
+        advertiser_id: i32,
+        enable: bool,
+        include_adi: bool,
+    ) {
         dbus_generated!()
     }
 

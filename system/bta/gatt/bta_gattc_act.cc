@@ -86,7 +86,8 @@ static tGATT_CBACK bta_gattc_cl_cback = {
     .p_enc_cmpl_cb = bta_gattc_enc_cmpl_cback,
     .p_congestion_cb = bta_gattc_cong_cback,
     .p_phy_update_cb = bta_gattc_phy_update_cback,
-    .p_conn_update_cb = bta_gattc_conn_update_cback};
+    .p_conn_update_cb = bta_gattc_conn_update_cback,
+};
 
 /* opcode(tGATTC_OPTYPE) order has to be comply with internal event order */
 static uint16_t bta_gattc_opcode_to_int_evt[] = {
@@ -425,7 +426,7 @@ static void bta_gattc_init_bk_conn(const tBTA_GATTC_API_OPEN* p_data,
   if (!GATT_Connect(p_data->client_if, p_data->remote_bda, false,
                     p_data->transport, false)) {
     LOG_ERROR("Unable to connect to remote bd_addr=%s",
-              p_data->remote_bda.ToString().c_str());
+              ADDRESS_TO_LOGGABLE_CSTR(p_data->remote_bda));
     bta_gattc_send_open_cback(p_clreg, GATT_ERROR, p_data->remote_bda,
                               GATT_INVALID_CONN_ID, BT_TRANSPORT_LE, 0);
     return;
@@ -472,7 +473,7 @@ void bta_gattc_cancel_bk_conn(const tBTA_GATTC_API_CANCEL_OPEN* p_data) {
     } else {
       LOG_ERROR("failed for client_if=%d, remote_bda=%s, is_direct=false",
                 static_cast<int>(p_data->client_if),
-                p_data->remote_bda.ToString().c_str());
+                ADDRESS_TO_LOGGABLE_CSTR(p_data->remote_bda));
     }
   }
   p_clreg = bta_gattc_cl_get_regcb(p_data->client_if);
@@ -541,9 +542,12 @@ void bta_gattc_conn(tBTA_GATTC_CLCB* p_clcb, const tBTA_GATTC_DATA* p_data) {
       p_clcb->p_srcb->state != BTA_GATTC_SERV_IDLE) {
     if (p_clcb->p_srcb->state == BTA_GATTC_SERV_IDLE) {
       p_clcb->p_srcb->state = BTA_GATTC_SERV_LOAD;
-      // For bonded devices, read cache directly, and back to connected state.
+      // Consider the case that if GATT Server is changed, but no service
+      // changed indication is received, the database might be out of date. So
+      // if robust caching is enabled, any time when connection is established,
+      // always check the db hash first, not just load the stored database.
       gatt::Database db = bta_gattc_cache_load(p_clcb->p_srcb->server_bda);
-      if (!db.IsEmpty() && btm_sec_is_a_bonded_dev(p_clcb->p_srcb->server_bda)) {
+      if (!bta_gattc_is_robust_caching_enabled() && !db.IsEmpty()) {
         p_clcb->p_srcb->gatt_database = db;
         p_clcb->p_srcb->state = BTA_GATTC_SERV_IDLE;
         bta_gattc_reset_discover_st(p_clcb->p_srcb, GATT_SUCCESS);
@@ -783,7 +787,7 @@ void bta_gattc_start_discover(tBTA_GATTC_CLCB* p_clcb,
       uint8_t lmp_version = 0;
       if (!BTM_ReadRemoteVersion(p_clcb->bda, &lmp_version, nullptr, nullptr)) {
         LOG_WARN("Could not read remote version for %s",
-                 p_clcb->bda.ToString().c_str());
+                 ADDRESS_TO_LOGGABLE_CSTR(p_clcb->bda));
       }
 
       if (lmp_version < 0x0a) {

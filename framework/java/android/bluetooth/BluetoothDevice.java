@@ -885,6 +885,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
      * Data type should be {@link Byte} array.
      * @hide
      */
+    @SystemApi
     public static final int METADATA_LE_AUDIO = 26;
 
 
@@ -1269,6 +1270,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
      * Used as an extra field in {@link #ACTION_UUID} intents,
      * Contains the {@link android.os.ParcelUuid}s of the remote device which
      * is a parcelable version of {@link UUID}.
+     * A {@code null} EXTRA_UUID indicates a timeout.
      */
     public static final String EXTRA_UUID = "android.bluetooth.device.extra.UUID";
 
