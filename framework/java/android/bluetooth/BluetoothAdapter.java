@@ -1568,7 +1568,6 @@ public final class BluetoothAdapter {
     })
     public boolean disable(boolean persist) {
         android.util.SeempLog.record(57);
-
         try {
             return mManagerService.disable(mAttributionSource, persist);
         } catch (RemoteException e) {

@@ -15,11 +15,20 @@ package {
 
 cc_defaults {
     name: "rootcanal_defaults",
+    tidy: true,
+    tidy_checks: [
+        "-*",
+        "readability-inconsistent-declaration-parameter-name",
+    ],
+    tidy_checks_as_errors: [
+        "readability-inconsistent-declaration-parameter-name",
+    ],
+    tidy_flags: [
+        "--header-filter=^((?!BluetoothGeneratedPackets_h|RootCanalGeneratedPackets_h|RootCanalBrEdrBBGeneratedPackets_h).)*$",
+    ],
     defaults: [
         "fluoride_common_options",
         "gd_defaults",
-        "gd_clang_tidy",
-        "gd_clang_tidy_ignore_android",
     ],
     cflags: [
         "-fvisibility=hidden",
@@ -208,6 +217,7 @@ cc_test_host {
         "rootcanal_defaults",
     ],
     srcs: [
+        "test/controller/le/rpa_generation_test.cc",
         "test/controller/le/le_set_random_address_test.cc",
         "test/controller/le/le_clear_filter_accept_list_test.cc",
         "test/controller/le/le_add_device_to_filter_accept_list_test.cc",
@@ -257,8 +267,8 @@ python_test_host {
         ":hci_packets_python3_gen",
         ":link_layer_packets_python3_gen",
         "test/main.py",
-        "test/LL/DDI/SCN/BV_13_C.py",
-        "test/LL/DDI/SCN/BV_14_C.py",
+        "test/LL/DDI/ADV/*.py",
+        "test/LL/DDI/SCN/*.py",
     ],
     data: [
         ":lib_rootcanal_python3",

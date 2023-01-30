@@ -166,11 +166,11 @@ public class ScanManager {
         mSuspendedScanClients =
                 Collections.newSetFromMap(new ConcurrentHashMap<ScanClient, Boolean>());
         mService = service;
+        mAdapterService = adapterService;
         mScanNative = new ScanNative();
         mDm = mService.getSystemService(DisplayManager.class);
         mActivityManager = mService.getSystemService(ActivityManager.class);
-        mLocationManager = mService.getSystemService(LocationManager.class);
-        mAdapterService = adapterService;
+        mLocationManager = mAdapterService.getSystemService(LocationManager.class);
         mBluetoothAdapterProxy = bluetoothAdapterProxy;
         mIsConnecting = false;
 
@@ -1482,11 +1482,12 @@ public class ScanManager {
         private void initFilterIndexStack() {
             int maxFiltersSupported =
                     AdapterService.getAdapterService().getNumOfOffloadedScanFilterSupported();
-            // Start from index 3 as:
+            // Start from index 4 as:
             // index 0 is reserved for ALL_PASS filter in Settings app.
             // index 1 is reserved for ALL_PASS filter for regular scan apps.
             // index 2 is reserved for ALL_PASS filter for batch scan apps.
-            for (int i = 3; i < maxFiltersSupported; ++i) {
+            // index 3 is reserved for BAP/CAP Announcements
+            for (int i = 4; i < maxFiltersSupported; ++i) {
                 mFilterIndexStack.add(i);
             }
         }
