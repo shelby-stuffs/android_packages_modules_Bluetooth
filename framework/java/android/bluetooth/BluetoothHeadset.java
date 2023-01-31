@@ -403,6 +403,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
             BluetoothAdapter adapter) {
         mAdapter = adapter;
         mAttributionSource = adapter.getAttributionSource();
+        mProfileConnector.connect(context, listener);
     }
 
     /**

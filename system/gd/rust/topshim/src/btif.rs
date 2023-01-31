@@ -703,17 +703,19 @@ pub enum SupportedProfiles {
     Gatt,
     Sdp,
     Socket,
+    HfClient,
 }
 
 impl From<SupportedProfiles> for Vec<u8> {
     fn from(item: SupportedProfiles) -> Self {
         match item {
             SupportedProfiles::HidHost => "hidhost",
-            SupportedProfiles::Hfp => "hfp",
+            SupportedProfiles::Hfp => "handsfree",
             SupportedProfiles::A2dp => "a2dp",
             SupportedProfiles::Gatt => "gatt",
             SupportedProfiles::Sdp => "sdp",
             SupportedProfiles::Socket => "socket",
+            SupportedProfiles::HfClient => "handsfree_client",
         }
         .bytes()
         .chain("\0".bytes())
@@ -811,6 +813,14 @@ impl RawAddress {
 
     pub fn to_byte_arr(&self) -> [u8; 6] {
         self.address.clone()
+    }
+}
+
+/// Address that is safe to display in logs.
+pub struct DisplayAddress(pub RawAddress);
+impl Display for DisplayAddress {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "xx:xx:xx:xx:{:2X}:{:2X}", &self.0.address[4], &self.0.address[5])
     }
 }
 
