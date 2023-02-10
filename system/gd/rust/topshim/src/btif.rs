@@ -5,6 +5,7 @@
 use crate::bindings::root as bindings;
 use crate::topstack::get_dispatchers;
 use crate::utils::{LTCheckedPtr, LTCheckedPtrMut};
+use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::cast::{FromPrimitive, ToPrimitive};
 use std::cmp;
 use std::convert::TryFrom;
@@ -765,6 +766,7 @@ impl Hash for RawAddress {
     }
 }
 
+// TODO (b/264603574): Handling address hiding in rust logging statements
 impl ToString for RawAddress {
     fn to_string(&self) -> String {
         String::from(format!(

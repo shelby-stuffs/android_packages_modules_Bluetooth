@@ -25,6 +25,7 @@ use crate::callbacks::Callbacks;
 use crate::uuid::UuidHelper;
 use crate::{Message, RPCProxy, SuspendMode};
 use log::{debug, warn};
+use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::cast::{FromPrimitive, ToPrimitive};
 use num_traits::clamp;
 use rand::rngs::SmallRng;
@@ -350,6 +351,9 @@ pub trait IBluetoothGatt {
 
     /// Updates advertisement data of the advertising set.
     fn set_advertising_data(&mut self, advertiser_id: i32, data: AdvertiseData);
+
+    /// Set the advertisement data of the advertising set.
+    fn set_raw_adv_data(&mut self, advertiser_id: i32, data: Vec<u8>);
 
     /// Updates scan response of the advertising set.
     fn set_scan_response_data(&mut self, advertiser_id: i32, data: AdvertiseData);
@@ -1228,8 +1232,7 @@ impl Into<MsftAdvMonitor> for &ScanFilter {
 
 impl IBluetoothGatt for BluetoothGatt {
     fn is_msft_supported(&self) -> bool {
-        // TODO(b/244505567): Wire the real capability from lower layer.
-        false
+        self.gatt.as_ref().unwrap().lock().unwrap().scanner.is_msft_supported()
     }
 
     fn register_scanner_callback(&mut self, callback: Box<dyn IScannerCallback + Send>) -> u32 {
@@ -1278,7 +1281,6 @@ impl IBluetoothGatt for BluetoothGatt {
         // Multiplexing scanners happens at this layer. The implementations of start_scan
         // and stop_scan maintains the state of all registered scanners and based on the states
         // update the scanning and/or filter states of libbluetooth.
-        // TODO(b/217274432): Honor settings and filters.
         {
             let mut scanners_lock = self.scanners.lock().unwrap();
 
@@ -1292,6 +1294,8 @@ impl IBluetoothGatt for BluetoothGatt {
         }
 
         let gatt_async = self.gatt_async.clone();
+        let scanners = self.scanners.clone();
+        let is_msft_supported = self.is_msft_supported();
         tokio::spawn(async move {
             // The three operations below (monitor add, monitor enable, update scan) happen one
             // after another, and cannot be interleaved with other GATT async operations.
@@ -1301,7 +1305,8 @@ impl IBluetoothGatt for BluetoothGatt {
             // handling callbacks.
             let mut gatt_async = gatt_async.lock().await;
 
-            if let Some(filter) = filter {
+            // Add and enable the monitor filter only when the MSFT extension is supported.
+            if let (true, Some(filter)) = (is_msft_supported, filter) {
                 let monitor_handle = match gatt_async.msft_adv_monitor_add((&filter).into()).await {
                     Ok((handle, 0)) => handle,
                     _ => {
@@ -1309,6 +1314,13 @@ impl IBluetoothGatt for BluetoothGatt {
                         return;
                     }
                 };
+
+                if let Some(scanner) =
+                    Self::find_scanner_by_id(&mut scanners.lock().unwrap(), scanner_id)
+                {
+                    // The monitor handle is needed in stop_scan().
+                    scanner.monitor_handle = Some(monitor_handle);
+                }
 
                 log::debug!("Added adv monitor handle = {}", monitor_handle);
 
@@ -1491,6 +1503,20 @@ impl IBluetoothGatt for BluetoothGatt {
                 s.adv_id(),
                 false,
                 bytes,
+            );
+        }
+    }
+
+    fn set_raw_adv_data(&mut self, advertiser_id: i32, data: Vec<u8>) {
+        if self.advertisers.suspend_mode() != SuspendMode::Normal {
+            return;
+        }
+
+        if let Some(s) = self.advertisers.get_by_advertiser_id(advertiser_id) {
+            self.gatt.as_ref().unwrap().lock().unwrap().advertiser.set_data(
+                s.adv_id(),
+                false,
+                data,
             );
         }
     }

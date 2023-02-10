@@ -189,21 +189,32 @@ public final class BluetoothGatt implements BluetoothProfile {
      *
      * @hide
      */
-    public static final int SUBRATE_REQ_BALANCED = 0;
+    public static final int SUBRATE_REQUEST_MODE_BALANCED = 0;
 
     /**
      * Connection subrate request - High.
      *
      * @hide
      */
-    public static final int SUBRATE_REQ_HIGH = 1;
+    public static final int SUBRATE_REQUEST_MODE_HIGH = 1;
 
     /**
      * Connection Subrate Request - Low Power.
      *
      * @hide
      */
-    public static final int SUBRATE_REQ_LOW_POWER = 2;
+    public static final int SUBRATE_REQUEST_MODE_LOW_POWER = 2;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"SUBRATE_REQUEST_MODE"},
+            value =
+                    {
+                            SUBRATE_REQUEST_MODE_BALANCED,
+                            SUBRATE_REQUEST_MODE_HIGH,
+                            SUBRATE_REQUEST_MODE_LOW_POWER,
+                    })
+    public @interface SubrateRequestMode {}
 
     /**
      * No authentication required.
@@ -833,9 +844,12 @@ public final class BluetoothGatt implements BluetoothProfile {
                 @Override
                 public void onSubrateChange(String address, int subrateFactor, int latency,
                         int contNum, int timeout, int status) {
-                    Log.d(TAG, "onSubrateChange() - Device=" + address
-                            + " subrateFactor=" + subrateFactor + " latency=" + latency
-                            + " contNum=" + contNum + " timeout=" + timeout + " status=" + status);
+                    Log.d(TAG,
+                            "onSubrateChange() - "
+                                    + "Device=" + BluetoothUtils.toAnonymizedAddress(address)
+                                    + ", subrateFactor=" + subrateFactor + ", latency=" + latency
+                                    + ", contNum=" + contNum + ", timeout=" + timeout
+                                    + ", status=" + status);
 
                     if (!address.equals(mDevice.getAddress())) {
                         return;
@@ -852,7 +866,6 @@ public final class BluetoothGatt implements BluetoothProfile {
                         }
                     });
                 }
-
             };
 
     /* package */ BluetoothGatt(IBluetoothGatt iGatt, BluetoothDevice device, int transport,
@@ -2002,34 +2015,37 @@ public final class BluetoothGatt implements BluetoothProfile {
     /**
      * Request LE subrate mode.
      *
-     * <p>This function will send a LE subrate request to the
-     * remote device.
+     * <p>This function will send a LE subrate request to the remote device.
      *
-     * @param subrateMode Request a specific subrate mode. Must be one of {@link
-     * BluetoothGatt#SUBRATE_REQ_BALANCED}, {@link BluetoothGatt#SUBRATE_REQ_HIGH}
-     * or {@link BluetoothGatt#SUBRATE_REQ_LOW_POWER}.
+     * @param subrateMode Request a specific subrate mode.
      * @throws IllegalArgumentException If the parameters are outside of their specified range.
+     * @return true, if the request is send to the Bluetooth stack.
      * @hide
      */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    public boolean requestSubrateMode(int subrateMode) {
-        if (subrateMode < SUBRATE_REQ_BALANCED
-                || subrateMode > SUBRATE_REQ_LOW_POWER) {
-            throw new IllegalArgumentException(" Subrate Mode not within valid range");
+    public boolean requestSubrateMode(@SubrateRequestMode int subrateMode) {
+        if (subrateMode < SUBRATE_REQUEST_MODE_BALANCED
+                || subrateMode > SUBRATE_REQUEST_MODE_LOW_POWER) {
+            throw new IllegalArgumentException("Subrate Mode not within valid range");
         }
 
-        Log.d(TAG, "requestsubrateMode() - params: " + subrateMode);
-        if (mService == null || mClientIf == 0) return false;
-
-        try {
-            mService.subrateModeRequest(
-                    mClientIf, mDevice.getAddress(), subrateMode, mAttributionSource);
-        } catch (RemoteException e) {
-            Log.e(TAG, "", e);
+        if (DBG) {
+            Log.d(TAG, "requestsubrateMode() - subrateMode: " + subrateMode);
+        }
+        if (mService == null || mClientIf == 0) {
             return false;
         }
 
+        try {
+            final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
+            mService.subrateModeRequest(
+                    mClientIf, mDevice.getAddress(), subrateMode, mAttributionSource, recv);
+            recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+        } catch (RemoteException | TimeoutException e) {
+            Log.e(TAG, "", e);
+            return false;
+        }
         return true;
     }
 
@@ -2041,25 +2057,29 @@ public final class BluetoothGatt implements BluetoothProfile {
      * @return true, if the request is send to the Bluetooth stack.
      * @hide
      */
-    public boolean bleSubrateRequest(int subrateMin, int subrateMax,
-                                     int maxLatency, int contNumber,
-                                     int supervisionTimeout) {
-        Log.d(TAG, "bleSubrateRequest() - subrateMin=" + subrateMin
-                   + " subrateMax=" + (subrateMax)
-                   + " maxLatency= " + maxLatency + "contNumber="
-                   + contNumber + " supervisionTimeout=" + supervisionTimeout);
-        if (mService == null || mClientIf == 0) return false;
-
-        try {
-            mService.leSubrateRequest(mClientIf, mDevice.getAddress(),
-                                      subrateMin, subrateMax, maxLatency,
-                                      contNumber, supervisionTimeout,
-                                      mAttributionSource);
-        } catch (RemoteException e) {
-            Log.e(TAG, "", e);
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    public boolean bleSubrateRequest(int subrateMin, int subrateMax, int maxLatency, int contNumber,
+            int supervisionTimeout) {
+        if (DBG) {
+            Log.d(TAG,
+                    "bleSubrateRequest() - subrateMin=" + subrateMin + " subrateMax=" + (subrateMax)
+                            + " maxLatency= " + maxLatency + "contNumber=" + contNumber
+                            + " supervisionTimeout=" + supervisionTimeout);
+        }
+        if (mService == null || mClientIf == 0) {
             return false;
         }
 
+        try {
+            final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
+            mService.leSubrateRequest(mClientIf, mDevice.getAddress(), subrateMin, subrateMax,
+                    maxLatency, contNumber, supervisionTimeout, mAttributionSource, recv);
+            recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+        } catch (RemoteException | TimeoutException e) {
+            Log.e(TAG, "", e);
+            return false;
+        }
         return true;
     }
 

@@ -9,7 +9,7 @@ use crate::callbacks::{BtGattCallback, BtGattServerCallback};
 use crate::ClientContext;
 use crate::{console_red, console_yellow, print_error, print_info};
 use bt_topshim::btif::{BtConnectionState, BtStatus, BtTransport};
-use bt_topshim::profiles::gatt::LePhy;
+use bt_topshim::profiles::{gatt::LePhy, ProfileConnectionState};
 use btstack::bluetooth::{BluetoothDevice, IBluetooth, IBluetoothQA};
 use btstack::bluetooth_gatt::{GattWriteType, IBluetoothGatt, ScanSettings, ScanType};
 use btstack::socket_manager::{IBluetoothSocketManager, SocketResult};
@@ -196,6 +196,7 @@ fn build_commands() -> HashMap<String, CommandOption> {
                 String::from("advertise <on|off|ext>"),
                 String::from("advertise set-interval <ms>"),
                 String::from("advertise set-scan-rsp <enable|disable>"),
+                String::from("advertise set-raw-data <raw-adv-data> <adv-id>"),
             ],
             description: String::from("Advertising utilities."),
             function_pointer: CommandHandler::cmd_advertise,
@@ -401,10 +402,16 @@ impl CommandHandler {
                 let le_ext_adv_supported = adapter_dbus.is_le_extended_advertising_supported();
                 let wbs_supported = adapter_dbus.is_wbs_supported();
                 let supported_profiles = UuidHelper::get_supported_profiles();
-                let connected_profiles: Vec<Profile> = supported_profiles
+                let connected_profiles: Vec<(Profile, ProfileConnectionState)> = supported_profiles
                     .iter()
-                    .filter(|&&prof| adapter_dbus.get_profile_connection_state(prof) > 0)
-                    .cloned()
+                    .map(|&prof| {
+                        if let Some(uuid) = UuidHelper::get_profile_uuid(&prof) {
+                            (prof, adapter_dbus.get_profile_connection_state(uuid.clone()))
+                        } else {
+                            (prof, ProfileConnectionState::Disconnected)
+                        }
+                    })
+                    .filter(|(_prof, state)| state != &ProfileConnectionState::Disconnected)
                     .collect();
                 print_info!("Address: {}", address);
                 print_info!("Name: {}", name);
@@ -1249,6 +1256,26 @@ impl CommandHandler {
                     print_info!("Setting parameters for {}", adv_id);
                     context.gatt_dbus.as_mut().unwrap().set_advertising_parameters(adv_id, params);
                 }
+            }
+            "set-raw-data" => {
+                let data = hex::decode(get_arg(args, 1)?).or(Err("Failed parsing data"))?;
+
+                let adv_id = String::from(get_arg(args, 2)?)
+                    .parse::<i32>()
+                    .or(Err("Failed parsing adv_id"))?;
+
+                let mut context = self.context.lock().unwrap();
+                if context
+                    .adv_sets
+                    .iter()
+                    .find(|(_, s)| s.adv_id.map_or(false, |id| id == adv_id))
+                    .is_none()
+                {
+                    return Err("Failed to find advertising set".into());
+                }
+
+                print_info!("Setting advertising data for {}", adv_id);
+                context.gatt_dbus.as_mut().unwrap().set_raw_adv_data(adv_id, data);
             }
             _ => return Err(CommandError::InvalidArgs),
         }

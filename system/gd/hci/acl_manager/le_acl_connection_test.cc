@@ -102,8 +102,9 @@ class TestLeAclConnectionInterface : public hci::LeAclConnectionInterface {
     command_queue_.push(std::move(command));
     command_status_callbacks.push_back(std::move(on_status));
     if (command_promise_ != nullptr) {
-      command_promise_->set_value();
-      command_promise_.reset();
+      std::promise<void>* prom = command_promise_.release();
+      prom->set_value();
+      delete prom;
     }
   }
 
@@ -114,8 +115,9 @@ class TestLeAclConnectionInterface : public hci::LeAclConnectionInterface {
     command_queue_.push(std::move(command));
     command_complete_callbacks.push_back(std::move(on_complete));
     if (command_promise_ != nullptr) {
-      command_promise_->set_value();
-      command_promise_.reset();
+      std::promise<void>* prom = command_promise_.release();
+      prom->set_value();
+      delete prom;
     }
   }
 
@@ -183,7 +185,7 @@ class LeAclConnectionTest : public ::testing::Test {
 
   void sync_handler() {
     ASSERT(thread_ != nullptr);
-    ASSERT_TRUE(thread_->GetReactor()->WaitForIdle(2s));
+    ASSERT(thread_->GetReactor()->WaitForIdle(2s));
   }
 
   AddressWithType address_1 =

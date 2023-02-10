@@ -445,8 +445,6 @@ public final class Utils {
                 "Need DUMP permission");
     }
 
-    /**
-     */
     public static AttributionSource getCallingAttributionSource(Context context) {
         int callingUid = Binder.getCallingUid();
         if (callingUid == android.os.Process.ROOT_UID) {
@@ -481,6 +479,9 @@ public final class Utils {
     @SuppressLint("AndroidFrameworkRequiresPermission")
     private static boolean checkPermissionForDataDelivery(Context context, String permission,
             AttributionSource attributionSource, String message) {
+        if (isInstrumentationTestMode()) {
+            return true;
+        }
         // STOPSHIP(b/188391719): enable this security enforcement
         // attributionSource.enforceCallingUid();
         AttributionSource currentAttribution = new AttributionSource
@@ -687,6 +688,9 @@ public final class Utils {
     }
 
     public static boolean checkCallerIsSystemOrActiveOrManagedUser(Context context, String tag) {
+        if (isInstrumentationTestMode()) {
+            return true;
+        }
         final boolean res = checkCallerIsSystemOrActiveOrManagedUser(context);
         if (!res) {
             Log.w(TAG, tag + " - Not allowed for"
@@ -1016,7 +1020,8 @@ public final class Utils {
         }
         values.put(Telephony.Sms.ERROR_CODE, 0);
 
-        return 1 == context.getContentResolver().update(uri, values, null, null);
+        return 1 == BluetoothMethodProxy.getInstance().contentResolverUpdate(
+                context.getContentResolver(), uri, values, null, null);
     }
 
     /**

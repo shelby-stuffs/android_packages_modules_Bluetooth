@@ -23,6 +23,7 @@ import android.annotation.RequiresPermission;
 import android.app.admin.SecurityLog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothAssignedNumbers;
+import android.bluetooth.BluetoothAudioPolicy;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHeadset;
@@ -40,6 +41,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
+import android.os.SystemProperties;
 import android.util.Log;
 
 import com.android.bluetooth.BluetoothStatsLog;
@@ -314,6 +316,7 @@ final class RemoteDevices {
         @VisibleForTesting int mBondState;
         @VisibleForTesting int mDeviceType;
         @VisibleForTesting ParcelUuid[] mUuids;
+        private BluetoothAudioPolicy mAudioPolicy;
 
         DeviceProperties() {
             mBondState = BluetoothDevice.BOND_NONE;
@@ -595,6 +598,14 @@ final class RemoteDevices {
                 this.mIsCoordinatedSetMember = isCoordinatedSetMember;
             }
         }
+
+        public void setHfAudioPolicyForRemoteAg(BluetoothAudioPolicy policies) {
+            mAudioPolicy = policies;
+        }
+
+        public BluetoothAudioPolicy getHfAudioPolicyForRemoteAg() {
+            return mAudioPolicy;
+        }
     }
 
     private void sendUuidIntent(BluetoothDevice device, DeviceProperties prop) {
@@ -848,6 +859,12 @@ final class RemoteDevices {
         DeviceProperties deviceProp = getDeviceProperties(device);
         if (deviceProp == null) {
             errorLog("Device Properties is null for Device:" + device);
+            return;
+        }
+        boolean restrict_device_found =
+                SystemProperties.getBoolean("bluetooth.restrict_discovered_device.enabled", false);
+        if (restrict_device_found && (deviceProp.mName == null || deviceProp.mName.isEmpty())) {
+            debugLog("Device name is null or empty: " + device);
             return;
         }
 

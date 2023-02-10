@@ -6,6 +6,7 @@ use bt_topshim::btif::{
 };
 use bt_topshim::profiles::gatt::{AdvertisingStatus, GattStatus, LePhy};
 use bt_topshim::profiles::socket::SocketType;
+use bt_topshim::profiles::ProfileConnectionState;
 
 use btstack::bluetooth::{
     BluetoothDevice, IBluetooth, IBluetoothCallback, IBluetoothConnectionCallback, IBluetoothQA,
@@ -29,7 +30,6 @@ use btstack::{RPCProxy, SuspendMode};
 
 use btstack::suspend::{ISuspend, ISuspendCallback, SuspendType};
 
-use btstack::uuid::Profile;
 use dbus::arg::RefArg;
 use dbus::nonblock::SyncConnection;
 
@@ -69,7 +69,7 @@ impl_dbus_arg_enum!(GattStatus);
 impl_dbus_arg_enum!(GattWriteRequestStatus);
 impl_dbus_arg_enum!(GattWriteType);
 impl_dbus_arg_enum!(LePhy);
-impl_dbus_arg_enum!(Profile);
+impl_dbus_arg_enum!(ProfileConnectionState);
 impl_dbus_arg_enum!(ScanType);
 impl_dbus_arg_enum!(SocketType);
 impl_dbus_arg_enum!(SuspendMode);
@@ -572,7 +572,7 @@ impl IBluetooth for BluetoothDBus {
     }
 
     #[dbus_method("GetProfileConnectionState")]
-    fn get_profile_connection_state(&self, profile: Profile) -> u32 {
+    fn get_profile_connection_state(&self, profile: Uuid128Bit) -> ProfileConnectionState {
         dbus_generated!()
     }
 
@@ -1068,6 +1068,11 @@ impl IBluetoothGatt for BluetoothGattDBus {
 
     #[dbus_method("SetAdvertisingData")]
     fn set_advertising_data(&mut self, advertiser_id: i32, data: AdvertiseData) {
+        dbus_generated!()
+    }
+
+    #[dbus_method("SetRawAdvertisingData")]
+    fn set_raw_adv_data(&mut self, advertiser_id: i32, data: Vec<u8>) {
         dbus_generated!()
     }
 

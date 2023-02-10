@@ -14,6 +14,7 @@ use bt_topshim::{
         HHCallbacksDispatcher, HidHost,
     },
     profiles::sdp::{BtSdpRecord, Sdp, SdpCallbacks, SdpCallbacksDispatcher},
+    profiles::ProfileConnectionState,
     topstack,
 };
 
@@ -174,7 +175,7 @@ pub trait IBluetooth {
     fn get_connection_state(&self, device: BluetoothDevice) -> BtConnectionState;
 
     /// Gets the connection state of a specific profile.
-    fn get_profile_connection_state(&self, profile: Profile) -> u32;
+    fn get_profile_connection_state(&self, profile: Uuid128Bit) -> ProfileConnectionState;
 
     /// Returns the cached UUIDs of a remote device.
     fn get_remote_uuids(&self, device: BluetoothDevice) -> Vec<Uuid128Bit>;
@@ -1098,9 +1099,11 @@ impl BtifBluetoothCallbacks for Bluetooth {
 
                     let sent_info = info.clone();
                     tokio::spawn(async move {
-                        let _ = txl.send(Message::DelayedAdapterActions(
-                            DelayedActions::ConnectAllProfiles(sent_info),
-                        ));
+                        let _ = txl
+                            .send(Message::DelayedAdapterActions(
+                                DelayedActions::ConnectAllProfiles(sent_info),
+                            ))
+                            .await;
                     });
                 }
 
@@ -1179,13 +1182,22 @@ impl BtifBluetoothCallbacks for Bluetooth {
 
                     match state {
                         BtAclState::Connected => {
+                            let bluetooth_device = found.info.clone();
+                            let acl_reported_transport = found.acl_reported_transport.clone();
                             Bluetooth::send_metrics_remote_device_info(found);
                             self.connection_callbacks.for_all_callbacks(|callback| {
                                 callback.on_device_connected(device.clone());
                             });
                             let tx = self.tx.clone();
+                            let transport = match self.get_remote_type(bluetooth_device.clone()) {
+                                BtDeviceType::Bredr => BtTransport::Bredr,
+                                BtDeviceType::Ble => BtTransport::Le,
+                                _ => acl_reported_transport,
+                            };
                             tokio::spawn(async move {
-                                let _ = tx.send(Message::OnAclConnected(device.clone())).await;
+                                let _ = tx
+                                    .send(Message::OnAclConnected(bluetooth_device, transport))
+                                    .await;
                             });
                         }
                         BtAclState::Disconnected => {
@@ -1684,16 +1696,20 @@ impl IBluetooth for Bluetooth {
         self.intf.lock().unwrap().get_connection_state(&addr.unwrap())
     }
 
-    fn get_profile_connection_state(&self, profile: Profile) -> u32 {
-        match profile {
-            Profile::A2dpSink | Profile::A2dpSource => {
-                self.bluetooth_media.lock().unwrap().get_a2dp_connection_state()
+    fn get_profile_connection_state(&self, profile: Uuid128Bit) -> ProfileConnectionState {
+        if let Some(known) = UuidHelper::is_known_profile(&profile) {
+            match known {
+                Profile::A2dpSink | Profile::A2dpSource => {
+                    self.bluetooth_media.lock().unwrap().get_a2dp_connection_state()
+                }
+                Profile::Hfp | Profile::HfpAg => {
+                    self.bluetooth_media.lock().unwrap().get_hfp_connection_state()
+                }
+                // TODO: (b/223431229) Profile::Hid and Profile::Hogp
+                _ => ProfileConnectionState::Disconnected,
             }
-            Profile::Hfp | Profile::HfpAg => {
-                self.bluetooth_media.lock().unwrap().get_hfp_connection_state()
-            }
-            // TODO: (b/223431229) Profile::Hid and Profile::Hogp
-            _ => 0,
+        } else {
+            ProfileConnectionState::Disconnected
         }
     }
 
@@ -1812,11 +1828,24 @@ impl IBluetooth for Bluetooth {
 
                             Profile::Bas => {
                                 let tx = self.tx.clone();
+                                let transport =
+                                    match self.get_remote_device_if_found(&device.address) {
+                                        Some(context) => context.acl_reported_transport,
+                                        None => return false,
+                                    };
                                 let device_to_send = device.clone();
+                                let transport = match self.get_remote_type(device.clone()) {
+                                    BtDeviceType::Bredr => BtTransport::Bredr,
+                                    BtDeviceType::Ble => BtTransport::Le,
+                                    _ => transport,
+                                };
                                 topstack::get_runtime().spawn(async move {
                                     let _ = tx
                                         .send(Message::BatteryService(
-                                            BatteryServiceActions::Connect(device_to_send),
+                                            BatteryServiceActions::Connect(
+                                                device_to_send,
+                                                transport,
+                                            ),
                                         ))
                                         .await;
                                 });
