@@ -432,7 +432,8 @@ void BleScannerInterfaceImpl::StartSync(uint8_t sid, RawAddress address,
                                         uint16_t skip, uint16_t timeout,
                                         StartSyncCb start_cb,
                                         SyncReportCb report_cb,
-                                        SyncLostCb lost_cb) {
+                                        SyncLostCb lost_cb,
+                                        BigInfoReportCb biginfoI_report_cb) {
   LOG(INFO) << __func__ << " in shim layer";
 }
 
