@@ -70,4 +70,5 @@ cc_test {
         "audio.a2dp.default",
         "libosi",
     ],
+    min_sdk_version: "29",
 }

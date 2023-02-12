@@ -227,7 +227,6 @@ typedef void (*subrate_change_callback)(int conn_id, uint16_t subrate_factor,
                                         uint16_t latency, uint16_t cont_num,
                                         uint16_t timeout, uint8_t status);
 
-
 typedef struct {
   register_client_callback register_client_cb;
   connect_callback open_cb;
@@ -356,9 +355,8 @@ typedef struct {
   bt_status_t (*get_gatt_db)(int conn_id);
 
   /** Request a BLE subrate request procedure */
-  bt_status_t (*subrate_request)(const RawAddress& bd_addr,
-                                 int subrate_min, int subrate_max,
-                                 int max_latency, int cont_num,
+  bt_status_t (*subrate_request)(const RawAddress& bd_addr, int subrate_min,
+                                 int subrate_max, int max_latency, int cont_num,
                                  int timeout);
 
 } btgatt_client_interface_t;

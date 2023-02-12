@@ -57,6 +57,7 @@ cc_library_shared {
         "libbluetooth_headers",
     ],
     include_dirs: [
+        "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/types",
         "packages/modules/Bluetooth/system/gd",
     ],
@@ -137,6 +138,7 @@ android_app {
     platform_apis: true,
     static_libs: [
         "android.hardware.radio-V1.0-java",
+        "android.hardware.radio.sap-V1-java",
         "androidx.core_core",
         "androidx.media_media",
         "androidx.lifecycle_lifecycle-livedata",

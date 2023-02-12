@@ -555,7 +555,7 @@ static void btif_update_remote_version_property(RawAddress* p_bd) {
       BTM_ReadRemoteVersion(*p_bd, &lmp_ver, &mfct_set, &lmp_subver);
 
   LOG_INFO("Remote version info valid:%s [%s]: %x, %x, %x",
-           logbool(version_info_valid).c_str(), PRIVATE_ADDRESS((*p_bd)),
+           logbool(version_info_valid).c_str(), ADDRESS_TO_LOGGABLE_CSTR((*p_bd)),
            lmp_ver, mfct_set, lmp_subver);
 
   if (version_info_valid) {
@@ -657,9 +657,13 @@ static void btif_update_remote_properties(const RawAddress& bdaddr,
  * ordering issues (first Classic, GATT over SDP, etc) */
 static bool is_device_le_audio_capable(const RawAddress bd_addr) {
   if (!GetInterfaceToProfiles()
-           ->profileSpecific_HACK->IsLeAudioClientRunning() ||
-      !check_cod_le_audio(bd_addr)) {
+           ->profileSpecific_HACK->IsLeAudioClientRunning()) {
     /* If LE Audio profile is not enabled, do nothing. */
+    return false;
+  }
+
+  if (!check_cod_le_audio(bd_addr) && !BTA_DmCheckLeAudioCapable(bd_addr)) {
+    /* LE Audio not present in CoD or in LE Advertisement, do nothing.*/
     return false;
   }
 
@@ -1205,10 +1209,8 @@ static void btif_dm_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
     }
     // Report bond state change to java only if we are bonding to a device or
     // a device is removed from the pairing list.
-    if (pairing_cb.state == BT_BOND_STATE_BONDING) {
-      bond_state_changed(status, bd_addr, BT_BOND_STATE_BONDING);
-    } else if (is_bonded_device_removed) {
-      bond_state_changed(status, bd_addr, BT_BOND_STATE_NONE);
+    if (pairing_cb.state == BT_BOND_STATE_BONDING || is_bonded_device_removed) {
+      bond_state_changed(status, bd_addr, state);
     }
   }
 }
@@ -1399,6 +1401,17 @@ static void btif_dm_search_devices_evt(tBTA_DM_SEARCH_EVT event,
         status = btif_storage_set_remote_addr_type(&bdaddr, addr_type);
         ASSERTC(status == BT_STATUS_SUCCESS,
                 "failed to save remote addr type (inquiry)", status);
+
+        bool restrict_report = osi_property_get_bool(
+            "bluetooth.restrict_discovered_device.enabled", false);
+        if (restrict_report &&
+            p_search_data->inq_res.device_type == BT_DEVICE_TYPE_BLE &&
+            !(p_search_data->inq_res.ble_evt_type & BTM_BLE_CONNECTABLE_MASK)) {
+          LOG_INFO("%s: Ble device is not connectable",
+                   ADDRESS_TO_LOGGABLE_CSTR(bdaddr));
+          break;
+        }
+
         /* Callback to notify upper layer of device */
         GetInterfaceToProfiles()->events->invoke_device_found_cb(num_properties,
                                                                  properties);
@@ -1548,7 +1561,8 @@ static void btif_dm_search_services_evt(tBTA_DM_SEARCH_EVT event,
           pairing_cb.gatt_over_le !=
               btif_dm_pairing_cb_t::ServiceDiscoveryState::FINISHED &&
           (check_cod_le_audio(bd_addr) ||
-           metadata_cb.le_audio_cache.contains(bd_addr))) {
+           metadata_cb.le_audio_cache.contains(bd_addr) ||
+           BTA_DmCheckLeAudioCapable(bd_addr))) {
         skip_reporting_wait_for_le = true;
       }
 
@@ -1604,7 +1618,7 @@ static void btif_dm_search_services_evt(tBTA_DM_SEARCH_EVT event,
           LOG_INFO(
               "Bonding LE Audio sink - must wait for le services discovery "
               "to pass all services to java %s",
-              PRIVATE_ADDRESS(bd_addr));
+              ADDRESS_TO_LOGGABLE_CSTR(bd_addr));
           /* For LE Audio capable devices, we care more about passing GATT LE
            * services than about just finishing pairing. Service discovery
            * should be scheduled when LE pairing finishes, by call to
@@ -1951,7 +1965,7 @@ static void btif_dm_upstreams_evt(uint16_t event, char* p_param) {
       LOG_DEBUG(
           "Sent BT_ACL_STATE_DISCONNECTED upward as ACL link down event "
           "device:%s reason:%s",
-          PRIVATE_ADDRESS(bd_addr),
+          ADDRESS_TO_LOGGABLE_CSTR(bd_addr),
           hci_reason_code_text(
               static_cast<tHCI_REASON>(btm_get_acl_disc_reason_code()))
               .c_str());
@@ -2421,6 +2435,8 @@ void btif_dm_pin_reply(const RawAddress bd_addr, uint8_t accept,
     for (i = 0; i < 6; i++) {
       passkey += (multi[i] * (pin_code.pin[i] - '0'));
     }
+    // TODO:
+    // FIXME: should we hide part of passkey here?
     BTIF_TRACE_DEBUG("btif_dm_pin_reply: passkey: %d", passkey);
     BTA_DmBlePasskeyReply(bd_addr, accept, passkey);
 
@@ -3138,7 +3154,8 @@ static void btif_dm_ble_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
 
       case BTA_DM_AUTH_SMP_CONN_TOUT: {
         if (btm_sec_is_a_bonded_dev(bd_addr)) {
-          LOG(INFO) << __func__ << " Bonded device addr=" << bd_addr
+          LOG(INFO) << __func__ << " Bonded device addr="
+                    << ADDRESS_TO_LOGGABLE_STR(bd_addr)
                     << " timed out - will not remove the keys";
           // Don't send state change to upper layers - otherwise Java think we
           // unbonded, and will disconnect HID profile.
@@ -3646,8 +3663,7 @@ bool btif_get_device_type(const RawAddress& bda, int* p_device_type) {
 
   if (!btif_config_get_int(bd_addr_str, "DevType", p_device_type)) return false;
   tBT_DEVICE_TYPE device_type = static_cast<tBT_DEVICE_TYPE>(*p_device_type);
-  // TODO: fix it to replace PRIVATE_ADDRESS in an upcoming patch
-  LOG_DEBUG(" bd_addr:%s device_type:%s", PRIVATE_ADDRESS(bda),
+  LOG_DEBUG(" bd_addr:%s device_type:%s", ADDRESS_TO_LOGGABLE_CSTR(bda),
             DeviceTypeText(device_type).c_str());
 
   return true;
@@ -3662,8 +3678,7 @@ bool btif_get_address_type(const RawAddress& bda, tBLE_ADDR_TYPE* p_addr_type) {
   int val = 0;
   if (!btif_config_get_int(bd_addr_str, "AddrType", &val)) return false;
   *p_addr_type = static_cast<tBLE_ADDR_TYPE>(val);
-  // TODO: fix PRIVATE_ADDRESS
-  LOG_DEBUG(" bd_addr:%s[%s]", PRIVATE_ADDRESS(bda),
+  LOG_DEBUG(" bd_addr:%s[%s]", ADDRESS_TO_LOGGABLE_CSTR(bda),
             AddressTypeText(*p_addr_type).c_str());
   return true;
 }
@@ -3723,7 +3738,7 @@ void btif_dm_metadata_changed(const RawAddress& remote_bd_addr, int key,
   static const int METADATA_LE_AUDIO = 26;
   /* If METADATA_LE_AUDIO is present, device is LE Audio capable */
   if (key == METADATA_LE_AUDIO) {
-    LOG_INFO("Device is LE Audio Capable %s", PRIVATE_ADDRESS(remote_bd_addr));
+    LOG_INFO("Device is LE Audio Capable %s", ADDRESS_TO_LOGGABLE_CSTR(remote_bd_addr));
     metadata_cb.le_audio_cache.insert_or_assign(remote_bd_addr, value);
   }
 }

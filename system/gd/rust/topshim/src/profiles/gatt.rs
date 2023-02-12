@@ -9,6 +9,7 @@ use crate::topstack::get_dispatchers;
 use crate::utils::LTCheckedPtr;
 use crate::{ccall, mutcxxcall};
 
+use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::cast::{FromPrimitive, ToPrimitive};
 
 use std::fmt::{Display, Formatter, Result};
@@ -162,6 +163,7 @@ pub mod ffi {
         );
         fn ScanFilterClear(self: Pin<&mut BleScannerIntf>, filter_index: u8);
         fn ScanFilterEnable(self: Pin<&mut BleScannerIntf>, enable: bool);
+        fn IsMsftSupported(self: Pin<&mut BleScannerIntf>) -> bool;
         fn MsftAdvMonitorAdd(
             self: Pin<&mut BleScannerIntf>,
             call_id: u32,
@@ -1473,6 +1475,10 @@ impl BleScanner {
         mutcxxcall!(self, ScanFilterEnable, false);
     }
 
+    pub fn is_msft_supported(&mut self) -> bool {
+        mutcxxcall!(self, IsMsftSupported)
+    }
+
     pub fn msft_adv_monitor_add(&mut self, call_id: u32, monitor: &MsftAdvMonitor) {
         mutcxxcall!(self, MsftAdvMonitorAdd, call_id, monitor);
     }
@@ -1814,7 +1820,7 @@ impl Gatt {
             mtu_changed_cb: Some(gs_mtu_changed_cb),
             phy_updated_cb: Some(gs_phy_updated_cb),
             conn_updated_cb: Some(gs_conn_updated_cb),
-            subrate_chg_cb : None,
+            subrate_chg_cb: None,
         });
 
         let gatt_scanner_callbacks = Box::new(btgatt_scanner_callbacks_t {

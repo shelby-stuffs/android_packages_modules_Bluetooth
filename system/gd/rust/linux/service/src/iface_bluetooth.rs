@@ -1,10 +1,9 @@
-extern crate bt_shim;
-
 use bt_topshim::btif::{
     BtBondState, BtConnectionState, BtDeviceType, BtPropertyType, BtSspVariant, BtStatus,
     BtTransport, Uuid, Uuid128Bit,
 };
 use bt_topshim::profiles::socket::SocketType;
+use bt_topshim::profiles::ProfileConnectionState;
 
 use btstack::bluetooth::{
     Bluetooth, BluetoothDevice, IBluetooth, IBluetoothCallback, IBluetoothConnectionCallback,
@@ -15,7 +14,6 @@ use btstack::socket_manager::{
     IBluetoothSocketManager, IBluetoothSocketManagerCallbacks, SocketId, SocketResult,
 };
 use btstack::suspend::{ISuspend, ISuspendCallback, Suspend, SuspendType};
-use btstack::uuid::Profile;
 use btstack::RPCProxy;
 
 use dbus::arg::RefArg;
@@ -119,7 +117,7 @@ impl_dbus_arg_enum!(BtDeviceType);
 impl_dbus_arg_enum!(BtPropertyType);
 impl_dbus_arg_enum!(BtSspVariant);
 impl_dbus_arg_enum!(BtTransport);
-impl_dbus_arg_enum!(Profile);
+impl_dbus_arg_enum!(ProfileConnectionState);
 
 #[allow(dead_code)]
 struct BluetoothConnectionCallbackDBus {}
@@ -342,7 +340,7 @@ impl IBluetooth for IBluetoothDBus {
     }
 
     #[dbus_method("GetProfileConnectionState")]
-    fn get_profile_connection_state(&self, profile: Profile) -> u32 {
+    fn get_profile_connection_state(&self, profile: Uuid128Bit) -> ProfileConnectionState {
         dbus_generated!()
     }
 

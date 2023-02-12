@@ -149,7 +149,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     // Delay for retrying enable and disable in msec
     private static final int ENABLE_DISABLE_DELAY_MS = 300;
     private static final int DELAY_BEFORE_RESTART_DUE_TO_INIT_FLAGS_CHANGED_MS = 300;
-    private static final int DELAY_FOR_RETRY_INIT_FLAG_CHECK_MS = 86400;
+    private static final int DELAY_FOR_RETRY_INIT_FLAG_CHECK_MS = 86400000;
 
     private static final int MESSAGE_ENABLE = 1;
     private static final int MESSAGE_DISABLE = 2;
@@ -305,6 +305,8 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     // Save a ProfileServiceConnections object for each of the bound
     // bluetooth profile services
     private final Map<Integer, ProfileServiceConnections> mProfileServices = new HashMap<>();
+    @GuardedBy("mProfileServices")
+    private boolean mUnbindingAll = false;
 
     private final IBluetoothCallback mBluetoothCallback = new IBluetoothCallback.Stub() {
         @Override
@@ -1696,15 +1698,18 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 } catch (IllegalArgumentException e) {
                     Log.e(TAG, "Unable to unbind service with intent: " + psc.mIntent, e);
                 }
-                Log.w(TAG, "psc.isEmpty is true, removing psc entry for profile "
-                             + profile);
-                mProfileServices.remove(profile);
+                if (!mUnbindingAll) {
+                    Log.w(TAG, "psc.isEmpty is true, removing psc entry for profile "
+                                 + profile);
+                    mProfileServices.remove(profile);
+                }
             }
         }
     }
 
     private void unbindAllBluetoothProfileServices() {
         synchronized (mProfileServices) {
+            mUnbindingAll = true;
             for (Integer i : mProfileServices.keySet()) {
                 ProfileServiceConnections psc = mProfileServices.get(i);
                 try {
@@ -1714,6 +1719,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 }
                 psc.removeAllProxies();
             }
+            mUnbindingAll = false;
             mProfileServices.clear();
         }
     }
@@ -3282,15 +3288,25 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         }
     }
 
+    boolean waitForManagerState(int state) {
+        return waitForState(Set.of(state), false);
+    }
+
     private boolean waitForState(Set<Integer> states) {
-        int i = 0;
-        while (i < 16) {
+        return waitForState(states, true);
+    }
+    private boolean waitForState(Set<Integer> states, boolean failIfUnbind) {
+        for (int i = 0; i < 16; i++) {
+            mBluetoothLock.readLock().lock();
             try {
-                mBluetoothLock.readLock().lock();
-                if (mBluetooth == null) {
-                    break;
+                if (mBluetooth == null && failIfUnbind) {
+                    Log.e(TAG, "waitForState " + states + " Bluetooth is not unbind");
+                    return false;
                 }
-                if (states.contains(synchronousGetState())) {
+                if (mBluetooth == null && states.contains(BluetoothAdapter.STATE_OFF)) {
+                    return true; // We are so OFF that the bluetooth is not bind
+                }
+                if (mBluetooth != null && states.contains(synchronousGetState())) {
                     return true;
                 }
             } catch (RemoteException | TimeoutException e) {
@@ -3300,7 +3316,6 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 mBluetoothLock.readLock().unlock();
             }
             SystemClock.sleep(300);
-            i++;
         }
         Log.e(TAG, "waitForState " + states + " time out");
         return false;

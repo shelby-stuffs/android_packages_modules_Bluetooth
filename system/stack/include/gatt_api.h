@@ -213,6 +213,8 @@ typedef enum : uint16_t {
 
   GATT_CONN_FAILED_ESTABLISHMENT = HCI_ERR_CONN_FAILED_ESTABLISHMENT,
 
+  GATT_CONN_TERMINATED_POWER_OFF = HCI_ERR_REMOTE_POWER_OFF,
+
   BTA_GATT_CONN_NONE = 0x0101, /* 0x0101 no connection to cancel  */
 
 } tGATT_DISCONN_REASON;
@@ -232,6 +234,7 @@ inline std::string gatt_disconnection_reason_text(
     CASE_RETURN_TEXT(GATT_CONN_LMP_TIMEOUT);
     CASE_RETURN_TEXT(GATT_CONN_FAILED_ESTABLISHMENT);
     CASE_RETURN_TEXT(BTA_GATT_CONN_NONE);
+    CASE_RETURN_TEXT(GATT_CONN_TERMINATED_POWER_OFF);
     default:
       return base::StringPrintf("UNKNOWN[%hu]", reason);
   }
@@ -686,6 +689,12 @@ typedef void(tGATT_CONN_UPDATE_CB)(tGATT_IF gatt_if, uint16_t conn_id,
                                    uint16_t interval, uint16_t latency,
                                    uint16_t timeout, tGATT_STATUS status);
 
+/* Define a callback function when subrate change event is received */
+typedef void(tGATT_SUBRATE_CHG_CB)(tGATT_IF gatt_if, uint16_t conn_id,
+                                   uint16_t subrate_factor, uint16_t latency,
+                                   uint16_t cont_num, uint16_t timeout,
+                                   tGATT_STATUS status);
+
 /* Define the structure that applications use to register with
  * GATT. This structure includes callback functions. All functions
  * MUST be provided.
@@ -700,6 +709,7 @@ typedef struct {
   tGATT_CONGESTION_CBACK* p_congestion_cb{nullptr};
   tGATT_PHY_UPDATE_CB* p_phy_update_cb{nullptr};
   tGATT_CONN_UPDATE_CB* p_conn_update_cb{nullptr};
+  tGATT_SUBRATE_CHG_CB* p_subrate_chg_cb{nullptr};
 } tGATT_CBACK;
 
 /*****************  Start Handle Management Definitions   *********************/

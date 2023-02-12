@@ -1163,13 +1163,13 @@ void gatt_clcb_invalidate(tGATT_TCB* p_tcb, const tGATT_CLCB* p_clcb) {
   uint16_t cid = p_clcb->cid;
 
   if (!p_tcb->pending_enc_clcb.empty()) {
-    auto iter = std::find_if(p_tcb->pending_enc_clcb.begin(),
-                             p_tcb->pending_enc_clcb.end(),
-                             [p_clcb](auto& el) { return el == p_clcb; });
-    if (iter != p_tcb->pending_enc_clcb.end()) {
-      p_tcb->pending_enc_clcb.erase(iter);
-      LOG_WARN("Removing clcb (%p) for conn id=0x%04x from pending_enc_clcb",
-               p_clcb, p_clcb->conn_id);
+    for (size_t i = 0; i < p_tcb->pending_enc_clcb.size(); i++) {
+      if (p_tcb->pending_enc_clcb.at(i) == p_clcb) {
+        LOG_WARN("Removing clcb (%p) for conn id=0x%04x from pending_enc_clcb",
+                 p_clcb, p_clcb->conn_id);
+        p_tcb->pending_enc_clcb.at(i) = NULL;
+        break;
+      }
     }
   }
 
@@ -1446,7 +1446,7 @@ bool gatt_cancel_open(tGATT_IF gatt_if, const RawAddress& bda) {
   if (!p_tcb) {
     LOG_WARN(
         "Unable to cancel open for unknown connection gatt_if:%hhu peer:%s",
-        gatt_if, PRIVATE_ADDRESS(bda));
+        gatt_if, ADDRESS_TO_LOGGABLE_CSTR(bda));
     return true;
   }
 
@@ -1461,7 +1461,7 @@ bool gatt_cancel_open(tGATT_IF gatt_if, const RawAddress& bda) {
     LOG_DEBUG(
         "Client reference count is zero disconnecting device gatt_if:%hhu "
         "peer:%s",
-        gatt_if, PRIVATE_ADDRESS(bda));
+        gatt_if, ADDRESS_TO_LOGGABLE_CSTR(bda));
     gatt_disconnect(p_tcb);
   }
 
@@ -1470,7 +1470,7 @@ bool gatt_cancel_open(tGATT_IF gatt_if, const RawAddress& bda) {
     LOG_INFO(
         "GATT connection manager has no record but removed filter acceptlist "
         "gatt_if:%hhu peer:%s",
-        gatt_if, PRIVATE_ADDRESS(bda));
+        gatt_if, ADDRESS_TO_LOGGABLE_CSTR(bda));
   }
   return true;
 }
@@ -1636,7 +1636,7 @@ void gatt_cleanup_upon_disc(const RawAddress& bda, tGATT_DISCONN_REASON reason,
   if (!p_tcb) {
     LOG_ERROR(
         "Disconnect for unknown connection bd_addr:%s reason:%s transport:%s",
-        PRIVATE_ADDRESS(bda), gatt_disconnection_reason_text(reason).c_str(),
+        ADDRESS_TO_LOGGABLE_CSTR(bda), gatt_disconnection_reason_text(reason).c_str(),
         bt_transport_text(transport).c_str());
     return;
   }
