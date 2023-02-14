@@ -383,8 +383,6 @@ public final class BluetoothHeadset implements BluetoothProfile {
             "android.bluetooth.headset.extra.HF_INDICATORS_IND_VALUE";
 
     private final ReentrantReadWriteLock mServiceLock = new ReentrantReadWriteLock();
-
-    @GuardedBy("mServiceLock") private IBluetoothHeadset mService;
     private final BluetoothAdapter mAdapter;
     private final AttributionSource mAttributionSource;
     private final BluetoothProfileConnector<IBluetoothHeadset> mProfileConnector =
@@ -529,7 +527,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
         final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         try {
             mServiceLock.readLock().lock();
-            final IBluetoothHeadset service = mService;
+            final IBluetoothHeadset service = getService();
             if (service == null) {
                 Log.w(TAG, "Proxy not attached to service");
                 if (DBG) log(Log.getStackTraceString(new Throwable()));
@@ -1504,7 +1502,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
     })
     public void phoneStateChangedDsDa(int numActive, int numHeld, int callState, String number,
             int type, String name) {
-        final IBluetoothHeadset service = mService;
+        final IBluetoothHeadset service = getService();
         if (service != null && isEnabled()) {
             try {
                 service.phoneStateChangedDsDa(numActive, numHeld, callState, number, type, name,
@@ -1530,7 +1528,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
     })
     public void clccResponseDsDa(int index, int direction, int status, int mode, boolean mpty,
             String number, int type) {
-        final IBluetoothHeadset service = mService;
+        final IBluetoothHeadset service = getService();
         if (service != null && isEnabled()) {
             try {
                 service.clccResponseDsDa(index, direction, status, mode, mpty, number, type,
