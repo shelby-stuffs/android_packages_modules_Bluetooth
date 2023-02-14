@@ -5,6 +5,7 @@ use bt_topshim::btif::{
     BtTransport, Uuid, Uuid128Bit,
 };
 use bt_topshim::profiles::gatt::{AdvertisingStatus, GattStatus, LePhy};
+use bt_topshim::profiles::hid_host::BthhReportType;
 use bt_topshim::profiles::socket::SocketType;
 use bt_topshim::profiles::ProfileConnectionState;
 
@@ -75,6 +76,7 @@ impl_dbus_arg_enum!(SocketType);
 impl_dbus_arg_enum!(SuspendMode);
 impl_dbus_arg_enum!(SuspendType);
 impl_dbus_arg_from_into!(Uuid, Vec<u8>);
+impl_dbus_arg_enum!(BthhReportType);
 
 impl RefArgToRust for Uuid {
     type RustType = Vec<u8>;
@@ -635,6 +637,29 @@ impl IBluetoothQA for BluetoothQADBus {
     fn set_connectable(&mut self, mode: bool) -> bool {
         dbus_generated!()
     }
+
+    #[dbus_method("GetHIDReport")]
+    fn get_hid_report(
+        &mut self,
+        addr: String,
+        report_type: BthhReportType,
+        report_id: u8,
+    ) -> BtStatus {
+        dbus_generated!()
+    }
+
+    #[dbus_method("SetHIDReport")]
+    fn set_hid_report(
+        &mut self,
+        addr: String,
+        report_type: BthhReportType,
+        report: String,
+    ) -> BtStatus {
+        dbus_generated!()
+    }
+
+    #[dbus_method("SendHIDData")]
+    fn send_hid_data(&mut self, addr: String, data: String) -> BtStatus;
 }
 
 #[dbus_propmap(AdapterWithEnabled)]
@@ -1286,6 +1311,22 @@ impl IBluetoothGatt for BluetoothGattDBus {
     fn unregister_server(&mut self, server_id: i32) {
         dbus_generated!()
     }
+
+    #[dbus_method("ServerConnect")]
+    fn server_connect(
+        &self,
+        server_id: i32,
+        addr: String,
+        is_direct: bool,
+        transport: BtTransport,
+    ) -> bool {
+        dbus_generated!()
+    }
+
+    #[dbus_method("ServerDisconnect")]
+    fn server_disconnect(&self, server_id: i32, addr: String) -> bool {
+        dbus_generated!()
+    }
 }
 
 struct IBluetoothGattCallbackDBus {}
@@ -1378,6 +1419,9 @@ impl IBluetoothGattCallback for IBluetoothGattCallbackDBus {
 impl IBluetoothGattServerCallback for IBluetoothGattCallbackDBus {
     #[dbus_method("OnServerRegistered")]
     fn on_server_registered(&self, status: GattStatus, client_id: i32) {}
+
+    #[dbus_method("OnServerConnectionState")]
+    fn on_server_connection_state(&self, server_id: i32, connected: bool, addr: String) {}
 }
 
 #[dbus_propmap(BluetoothServerSocket)]

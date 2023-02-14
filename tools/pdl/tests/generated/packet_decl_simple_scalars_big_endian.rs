@@ -36,24 +36,25 @@ pub trait Packet {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct FooData {
     x: u8,
     y: u16,
     z: u32,
 }
-
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FooPacket {
+    #[cfg_attr(feature = "serde", serde(flatten))]
     foo: Arc<FooData>,
 }
-
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FooBuilder {
     pub x: u8,
     pub y: u16,
     pub z: u32,
 }
-
 impl FooData {
     fn conforms(bytes: &[u8]) -> bool {
         bytes.len() >= 6
@@ -74,7 +75,7 @@ impl FooData {
                 got: bytes.remaining(),
             });
         }
-        let y = bytes.get_u16_le();
+        let y = bytes.get_u16();
         if bytes.remaining() < 3 {
             return Err(Error::InvalidLengthError {
                 obj: "Foo".to_string(),
@@ -82,16 +83,16 @@ impl FooData {
                 got: bytes.remaining(),
             });
         }
-        let z = bytes.get_uint_le(3) as u32;
+        let z = bytes.get_uint(3) as u32;
         Ok(Self { x, y, z })
     }
     fn write_to(&self, buffer: &mut BytesMut) {
-        let x = self.x;
-        buffer.put_u8(x);
-        let y = self.y;
-        buffer.put_u16_le(y);
-        let z = self.z;
-        buffer.put_uint_le(z as u64, 3);
+        buffer.put_u8(self.x);
+        buffer.put_u16(self.y);
+        if self.z > 0xffffff {
+            panic!("Invalid value for {}::{}: {} > {}", "Foo", "z", self.z, 0xffffff);
+        }
+        buffer.put_uint(self.z as u64, 3);
     }
     fn get_total_size(&self) -> usize {
         self.get_size()
@@ -100,7 +101,6 @@ impl FooData {
         6
     }
 }
-
 impl Packet for FooPacket {
     fn to_bytes(self) -> Bytes {
         let mut buffer = BytesMut::with_capacity(self.foo.get_total_size());
@@ -121,7 +121,6 @@ impl From<FooPacket> for Vec<u8> {
         packet.to_vec()
     }
 }
-
 impl FooPacket {
     pub fn parse(mut bytes: &[u8]) -> Result<Self> {
         Ok(Self::new(Arc::new(FooData::parse(bytes)?)).unwrap())
@@ -140,7 +139,6 @@ impl FooPacket {
         self.foo.as_ref().z
     }
 }
-
 impl FooBuilder {
     pub fn build(self) -> FooPacket {
         let foo = Arc::new(FooData { x: self.x, y: self.y, z: self.z });

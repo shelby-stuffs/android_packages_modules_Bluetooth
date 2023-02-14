@@ -2010,7 +2010,7 @@ void bta_av_str_stopped(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
  ******************************************************************************/
 void bta_av_reconfig(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
   AvdtpSepConfig* p_cfg;
-  tBTA_AV_API_STOP stop;
+  tBTA_AV_API_STOP stop = {};
   tBTA_AV_API_RCFG* p_rcfg = &p_data->api_reconfig;
 
   APPL_TRACE_DEBUG("%s: r:%d, s:%d idx: %d (o:%d)", __func__, p_scb->recfg_sup,
@@ -2279,13 +2279,16 @@ void bta_av_start_ok(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
     p_scb->wait &= ~BTA_AV_WAIT_ROLE_SW_BITS;
     if (p_data->hdr.offset == BTA_AV_RS_FAIL) {
       bta_sys_idle(BTA_ID_AV, bta_av_cb.audio_open_cnt, p_scb->PeerAddress());
-      tBTA_AV_START start;
-      start.chnl = p_scb->chnl;
-      start.status = BTA_AV_FAIL_ROLE;
-      start.hndl = p_scb->hndl;
-      start.initiator = initiator;
-      tBTA_AV bta_av_data;
-      bta_av_data.start = start;
+      tBTA_AV bta_av_data = {
+          .start =
+              {
+                  .chnl = p_scb->chnl,
+                  .hndl = p_scb->hndl,
+                  .status = BTA_AV_FAIL_ROLE,
+                  .initiator = initiator,
+                  .suspending = false,
+              },
+      };
       (*bta_av_cb.p_cback)(BTA_AV_START_EVT, &bta_av_data);
       return;
     }
