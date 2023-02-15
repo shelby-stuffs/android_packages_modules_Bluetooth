@@ -2570,7 +2570,7 @@ static JNINativeMethod sPeriodicScanMethods[] = {
      (void*)transferSetInfoNative},
 };
 
-// JNI functions defined in ScanManager class.
+// JNI functions defined in ScanNativeInterface class.
 static JNINativeMethod sScanMethods[] = {
     {"registerScannerNative", "(JJ)V", (void*)registerScannerNative},
     {"unregisterScannerNative", "(I)V", (void*)unregisterScannerNative},
@@ -2681,7 +2681,7 @@ static JNINativeMethod sMethods[] = {
 
 int register_com_android_bluetooth_gatt(JNIEnv* env) {
   int register_success = jniRegisterNativeMethods(
-      env, "com/android/bluetooth/gatt/ScanManager$ScanNative", sScanMethods,
+      env, "com/android/bluetooth/gatt/ScanNativeInterface", sScanMethods,
       NELEM(sScanMethods));
   register_success &= jniRegisterNativeMethods(
       env, "com/android/bluetooth/gatt/AdvertiseManager", sAdvertiseMethods,

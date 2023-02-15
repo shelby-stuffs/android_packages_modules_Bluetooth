@@ -47,8 +47,6 @@ import android.bluetooth.BluetoothStatusCodes;
 import android.bluetooth.IBluetooth;
 import android.bluetooth.IBluetoothCallback;
 import android.bluetooth.IBluetoothGatt;
-import android.bluetooth.IBluetoothHeadset;
-import android.bluetooth.IBluetoothLeCallControl;
 import android.bluetooth.IBluetoothManager;
 import android.bluetooth.IBluetoothManagerCallback;
 import android.bluetooth.IBluetoothProfileServiceConnection;
@@ -1636,7 +1634,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     }
 
     @Override
-    public boolean bindBluetoothProfileService(int bluetoothProfile,
+    public boolean bindBluetoothProfileService(int bluetoothProfile, String serviceName,
             IBluetoothProfileServiceConnection proxy) {
         if (isBluetoothAvailableForBinding() == false) {
             Log.w(TAG, "bindBluetoothProfileService:Trying to bind to profile: "
@@ -1644,23 +1642,19 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
             return false;
         }
         synchronized (mProfileServices) {
-            ProfileServiceConnections psc = mProfileServices.get(new Integer(bluetoothProfile));
-            Intent intent;
-            if (bluetoothProfile == BluetoothProfile.HEADSET
-                    && mSupportedProfileList.contains(BluetoothProfile.HEADSET)) {
-                intent = new Intent(IBluetoothHeadset.class.getName());
-            } else if (bluetoothProfile == BluetoothProfile.LE_CALL_CONTROL
-                    && mSupportedProfileList.contains(BluetoothProfile.LE_CALL_CONTROL)) {
-                intent = new Intent(IBluetoothLeCallControl.class.getName());
-            } else {
+            if (!mSupportedProfileList.contains(bluetoothProfile)) {
+                Log.w(TAG, "Cannot bind profile: "  + bluetoothProfile
+                        + ", not in supported profiles list");
                 return false;
             }
+            ProfileServiceConnections psc =
+                    mProfileServices.get(Integer.valueOf(bluetoothProfile));
             if (psc == null) {
                 if (DBG) {
                     Log.d(TAG, "Creating new ProfileServiceConnections object for" + " profile: "
                             + bluetoothProfile);
                 }
-                psc = new ProfileServiceConnections(intent);
+                psc = new ProfileServiceConnections(new Intent(serviceName));
                 if (!psc.bindService(DEFAULT_REBIND_COUNT)) {
                     return false;
                 }

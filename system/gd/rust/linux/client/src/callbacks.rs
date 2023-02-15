@@ -579,7 +579,7 @@ impl BtGattCallback {
 impl IBluetoothGattCallback for BtGattCallback {
     fn on_client_registered(&self, status: GattStatus, client_id: i32) {
         print_info!("GATT Client registered status = {}, client_id = {}", status, client_id);
-        self.context.lock().unwrap().gatt_client_id = Some(client_id);
+        self.context.lock().unwrap().gatt_client_context.client_id = Some(client_id);
     }
 
     fn on_client_connection_state(
@@ -807,11 +807,15 @@ impl IBluetoothSocketManagerCallbacks for BtSocketManagerCallback {
 
     fn on_outgoing_connection_result(
         &mut self,
-        _connecting_id: SocketId,
-        _result: BtStatus,
-        _socket: Option<BluetoothSocket>,
+        connecting_id: SocketId,
+        result: BtStatus,
+        socket: Option<BluetoothSocket>,
     ) {
-        todo!();
+        if let Some(s) = socket {
+            print_info!("Connection success on {}: {:?} for {}", connecting_id, result, s);
+        } else {
+            print_info!("Connection failed on {}: {:?}", connecting_id, result);
+        }
     }
 }
 

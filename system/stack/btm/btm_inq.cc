@@ -43,6 +43,7 @@
 #include "osi/include/osi.h"
 #include "osi/include/properties.h"
 #include "stack/btm/btm_ble_int.h"
+#include "stack/btm/btm_dev.h"
 #include "stack/btm/btm_int_types.h"
 #include "stack/include/acl_api.h"
 #include "stack/include/bt_hdr.h"
@@ -684,6 +685,11 @@ tBTM_STATUS BTM_CancelRemoteDeviceName(void) {
     return (BTM_WRONG_MODE);
 }
 
+bool BTM_IsRemoteNameKnown(const RawAddress& bd_addr, tBT_TRANSPORT transport) {
+  tBTM_SEC_DEV_REC* p_dev_rec = btm_find_dev(bd_addr);
+  return (p_dev_rec == nullptr) ? false : p_dev_rec->is_name_known();
+}
+
 /*******************************************************************************
  *
  * Function         BTM_InqDbRead
@@ -799,7 +805,7 @@ tBTM_STATUS BTM_ClearInqDb(const RawAddress* p_bda) {
  *
  ******************************************************************************/
 void btm_inq_db_reset(void) {
-  tBTM_REMOTE_DEV_NAME rem_name;
+  tBTM_REMOTE_DEV_NAME rem_name = {};
   tBTM_INQUIRY_VAR_ST* p_inq = &btm_cb.btm_inq_vars;
   uint8_t num_responses;
   uint8_t temp_inq_active;
@@ -829,6 +835,7 @@ void btm_inq_db_reset(void) {
 
     if (p_inq->p_remname_cmpl_cb) {
       rem_name.status = BTM_DEV_RESET;
+      rem_name.hci_status = HCI_SUCCESS;
 
       (*p_inq->p_remname_cmpl_cb)(&rem_name);
       p_inq->p_remname_cmpl_cb = NULL;
@@ -1485,6 +1492,7 @@ void btm_process_remote_name(const RawAddress* bda, const BD_NAME bdn,
       rem_name.length = (evt_len < BD_NAME_LEN) ? evt_len : BD_NAME_LEN;
       rem_name.remote_bd_name[rem_name.length] = 0;
       rem_name.status = BTM_SUCCESS;
+      rem_name.hci_status = hci_status;
       temp_evt_len = rem_name.length;
 
       while (temp_evt_len > 0) {
@@ -1492,12 +1500,11 @@ void btm_process_remote_name(const RawAddress* bda, const BD_NAME bdn,
         temp_evt_len--;
       }
       rem_name.remote_bd_name[rem_name.length] = 0;
-    }
-
-    /* If processing a stand alone remote name then report the error in the
-       callback */
-    else {
+    } else {
+      /* If processing a stand alone remote name then report the error in the
+         callback */
       rem_name.status = BTM_BAD_VALUE_RET;
+      rem_name.hci_status = hci_status;
       rem_name.length = 0;
       rem_name.remote_bd_name[0] = 0;
     }

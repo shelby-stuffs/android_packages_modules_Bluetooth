@@ -64,7 +64,10 @@ class AdapterClient(AsyncClosable):
         """Start fetching events"""
         future = asyncio.get_running_loop().create_future()
         self.__task_list.append(asyncio.get_running_loop().create_task(self.__get_next_event(event, future)))
-        await asyncio.wait_for(future, AdapterClient.DEFAULT_TIMEOUT)
+        try:
+            await asyncio.wait_for(future, AdapterClient.DEFAULT_TIMEOUT)
+        except:
+            print("Failed to get event", event)
         return future
 
     async def _verify_adapter_started(self):
@@ -118,6 +121,11 @@ class AdapterClient(AsyncClosable):
 
     async def allow_wake_by_hid(self):
         await self.__adapter_stub.AllowWakeByHid(empty_proto.Empty())
+
+    async def set_local_io_caps(self, io_capability):
+        await self.__adapter_stub.SetLocalIoCaps(facade_pb2.SetLocalIoCapsRequest(io_capability=io_capability))
+        future = await self._listen_for_event(facade_pb2.EventType.ADAPTER_PROPERTY)
+        return future
 
 
 class A2dpAutomationHelper():
