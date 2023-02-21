@@ -1,5 +1,6 @@
 /******************************************************************************
  *
+ *  Copyright (C) 2016-2017 The Linux Foundation
  *  Copyright 2009-2012 Broadcom Corporation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -70,6 +71,7 @@
 #include "common/lru.h"
 #include "common/metrics.h"
 #include "device/include/controller.h"
+#include "device/include/device_iot_config.h"
 #include "device/include/interop.h"
 #include "gd/common/lru_cache.h"
 #include "internal_include/stack_config.h"
@@ -257,6 +259,8 @@ static btif_dm_oob_cb_t oob_cb;
 static btif_dm_metadata_cb_t metadata_cb{.le_audio_cache{40}};
 static void btif_dm_cb_create_bond(const RawAddress bd_addr,
                                    tBT_TRANSPORT transport);
+static void btif_dm_cb_create_bond_le(const RawAddress bd_addr,
+                                      tBLE_ADDR_TYPE addr_type);
 static void btif_update_remote_properties(const RawAddress& bd_addr,
                                           BD_NAME bd_name, DEV_CLASS dev_class,
                                           tBT_DEVICE_TYPE dev_type);
@@ -278,6 +282,8 @@ static void btif_stats_add_bond_event(const RawAddress& bd_addr,
  *  Externs
  *****************************************************************************/
 extern bt_status_t btif_sdp_execute_service(bool b_enable);
+extern void btif_iot_update_remote_info(tBTA_DM_AUTH_CMPL* p_auth_cmpl,
+                                        bool is_ble, bool is_ssp);
 
 /******************************************************************************
  *  Functions
@@ -744,6 +750,26 @@ static void btif_dm_cb_create_bond(const RawAddress bd_addr,
 
 /*******************************************************************************
  *
+ * Function         btif_dm_cb_create_bond_le
+ *
+ * Description      Create bond initiated with le device from the BTIF thread
+ *                  context
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+static void btif_dm_cb_create_bond_le(const RawAddress bd_addr,
+                                      tBLE_ADDR_TYPE addr_type) {
+  bond_state_changed(BT_STATUS_SUCCESS, bd_addr, BT_BOND_STATE_BONDING);
+  /* Handle only LE create bond with random address case */
+  BTA_DmAddBleDevice(bd_addr, addr_type, BT_DEVICE_TYPE_BLE);
+  BTA_DmBond(bd_addr, addr_type, BT_TRANSPORT_LE, BT_DEVICE_TYPE_BLE);
+  /*  Track  originator of bond creation  */
+  pairing_cb.is_local_initiated = true;
+}
+
+/*******************************************************************************
+ *
  * Function         btif_dm_get_connection_state
  *
  * Description      Returns whether the remote device is currently connected
@@ -1013,6 +1039,7 @@ static void btif_dm_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
   pairing_cb.fail_reason = p_auth_cmpl->fail_reason;
 
   RawAddress bd_addr = p_auth_cmpl->bd_addr;
+  tBLE_ADDR_TYPE addr_type = p_auth_cmpl->addr_type;
   if (!bluetooth::shim::is_gd_security_enabled()) {
     if ((p_auth_cmpl->success) && (p_auth_cmpl->key_present)) {
       if ((p_auth_cmpl->key_type < HCI_LKEY_TYPE_DEBUG_COMB) ||
@@ -1048,6 +1075,9 @@ static void btif_dm_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
   }
 
   if (p_auth_cmpl->success) {
+    // save remote info to iot conf file
+    btif_iot_update_remote_info(p_auth_cmpl, false, pairing_cb.is_ssp);
+
     // We could have received a new link key without going through the pairing
     // flow.  If so, we don't want to perform SDP or any other operations on the
     // authenticated device. Also, make sure that the link key is not derived
@@ -1158,7 +1188,11 @@ static void btif_dm_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
           BTIF_TRACE_WARNING("%s() - Pairing timeout; retrying (%d) ...",
                              __func__, pairing_cb.timeout_retries);
           --pairing_cb.timeout_retries;
-          btif_dm_cb_create_bond(bd_addr, BT_TRANSPORT_AUTO);
+          if (addr_type == BLE_ADDR_RANDOM) {
+            btif_dm_cb_create_bond_le(bd_addr, addr_type);
+          } else {
+            btif_dm_cb_create_bond(bd_addr, BT_TRANSPORT_AUTO);
+          }
           return;
         }
         FALLTHROUGH_INTENDED; /* FALLTHROUGH */
@@ -1189,7 +1223,11 @@ static void btif_dm_auth_cmpl_evt(tBTA_DM_AUTH_CMPL* p_auth_cmpl) {
           /* Create the Bond once again */
           BTIF_TRACE_WARNING("%s() auto pair failed. Reinitiate Bond",
                              __func__);
-          btif_dm_cb_create_bond(bd_addr, BT_TRANSPORT_AUTO);
+          if (addr_type == BLE_ADDR_RANDOM) {
+            btif_dm_cb_create_bond_le(bd_addr, addr_type);
+          } else {
+            btif_dm_cb_create_bond(bd_addr, BT_TRANSPORT_AUTO);
+          }
           return;
         } else {
           /* if autopair attempts are more than 1, or not attempted */
@@ -1297,6 +1335,44 @@ static void btif_dm_search_devices_evt(tBTA_DM_SEARCH_EVT event,
                                      BT_PROPERTY_BDNAME,
                                      strlen((char*)bdname.name), &bdname);
           num_properties++;
+        }
+
+        // default to be not as a ASHA follower
+        bool is_ASHA_follower = false;
+        BTIF_STORAGE_FILL_PROPERTY(&properties[num_properties],
+                                   BT_PROPERTY_REMOTE_IS_ASHA_FOLLOWER,
+                                   sizeof(bool), &is_ASHA_follower);
+        num_properties++;
+
+        // based on ASHA advertising service data to decide whether it is hidden
+        tBTA_DM_INQ_RES inq_res = p_search_data->inq_res;
+        const uint8_t* p_service_data = p_search_data->inq_res.p_eir;
+        uint8_t service_data_len = 0;
+        while ((p_service_data = AdvertiseDataParser::GetFieldByType(
+                    p_service_data + service_data_len,
+                    inq_res.eir_len - (p_service_data - inq_res.p_eir) -
+                        service_data_len,
+                    BTM_BLE_AD_TYPE_SERVICE_DATA_TYPE, &service_data_len))) {
+          uint16_t uuid;
+          const uint8_t* p_uuid = p_service_data;
+          STREAM_TO_UINT16(uuid, p_uuid);
+
+          if (uuid == 0xfdf0 /* ASHA service*/) {
+            LOG_INFO("ASHA found in %s", ADDRESS_TO_LOGGABLE_CSTR(bdaddr));
+
+            if (service_data_len < 8) {
+              LOG_WARN("ASHA device service_data_len too short");
+            } else {
+              is_ASHA_follower = (p_service_data[3] & 0x04) != 0;
+              LOG_INFO("is_ASHA_follower_device: %d", is_ASHA_follower);
+              if (is_ASHA_follower) {
+                BTIF_STORAGE_FILL_PROPERTY(&properties[num_properties],
+                                           BT_PROPERTY_REMOTE_IS_ASHA_FOLLOWER,
+                                           sizeof(bool), &is_ASHA_follower);
+              }
+            }
+            break;
+          }
         }
 
         /* DEV_CLASS */
@@ -1774,6 +1850,53 @@ static void btif_dm_search_services_evt(tBTA_DM_SEARCH_EVT event,
   }
 }
 
+static void btif_dm_update_allowlisted_media_players() {
+  uint8_t num_wlplayers = 0;
+  uint8_t i = 0, buf_len = 0;
+  bt_property_t wlplayers_prop;
+  list_t* wl_players = list_new(nullptr);
+  if (!wl_players) {
+    LOG_ERROR("Unable to allocate space for allowlist players");
+    return;
+  }
+  LOG_DEBUG("btif_dm_update_allowlisted_media_players");
+
+  wlplayers_prop.len = 0;
+  if (!interop_get_allowlisted_media_players_list(&wl_players)) {
+    LOG_DEBUG("Allowlisted media players not found");
+    list_free(wl_players);
+    return;
+  }
+  num_wlplayers = list_length(wl_players);
+  LOG_DEBUG("%d - WL media players found", num_wlplayers);
+
+  /* Now send the callback */
+  if (num_wlplayers <= 0) {
+    list_free(wl_players);
+    return;
+  }
+  /*find the total number of bytes and allocate memory */
+  for (list_node_t* node = list_begin(wl_players); node != list_end(wl_players);
+       node = list_next(node)) {
+    buf_len += (strlen((char*)list_node(node)) + 1);
+  }
+  char* players_list = (char*)osi_malloc(buf_len);
+  for (list_node_t* node = list_begin(wl_players); node != list_end(wl_players);
+       node = list_next(node)) {
+    char* name;
+    name = (char*)list_node(node);
+    memcpy(&players_list[i], list_node(node), strlen(name) + 1);
+    i += (strlen(name) + 1);
+  }
+  wlplayers_prop.type = BT_PROPERTY_WL_MEDIA_PLAYERS_LIST;
+  wlplayers_prop.len = buf_len;
+  wlplayers_prop.val = players_list;
+
+  GetInterfaceToProfiles()->events->invoke_adapter_properties_cb(
+      BT_STATUS_SUCCESS, 1, &wlplayers_prop);
+  list_free(wl_players);
+}
+
 void BTIF_dm_report_inquiry_status_change(tBTM_STATUS status) {
   if (status == BTM_INQUIRY_STARTED) {
     GetInterfaceToProfiles()->events->invoke_discovery_state_changed_cb(
@@ -1844,6 +1967,7 @@ void BTIF_dm_enable() {
   */
   btif_storage_load_bonded_devices();
   bluetooth::bqr::EnableBtQualityReport(true);
+  btif_dm_update_allowlisted_media_players();
   btif_enable_bluetooth_evt();
 }
 
@@ -2227,6 +2351,24 @@ void btif_dm_create_bond(const RawAddress bd_addr, int transport) {
 
   pairing_cb.timeout_retries = NUM_TIMEOUT_RETRIES;
   btif_dm_cb_create_bond(bd_addr, transport);
+}
+
+/*******************************************************************************
+ *
+ * Function         btif_dm_create_bond_le
+ *
+ * Description      Initiate bonding with the specified device over le transport
+ *
+ ******************************************************************************/
+void btif_dm_create_bond_le(const RawAddress bd_addr,
+                            tBLE_ADDR_TYPE addr_type) {
+  BTIF_TRACE_EVENT("%s: bd_addr=%s, addr_type=%d, transport=%d", __func__,
+                   ADDRESS_TO_LOGGABLE_CSTR(bd_addr), addr_type);
+  btif_stats_add_bond_event(bd_addr, BTIF_DM_FUNC_CREATE_BOND,
+                            pairing_cb.state);
+
+  pairing_cb.timeout_retries = NUM_TIMEOUT_RETRIES;
+  btif_dm_cb_create_bond_le(bd_addr, addr_type);
 }
 
 /*******************************************************************************
@@ -2915,7 +3057,8 @@ static void id_status_callback(tBT_TRANSPORT transport, bool is_valid,
 
   auto advertiser = get_ble_advertiser_instance();
   AdvertiseParameters parameters{};
-  parameters.advertising_event_properties = 0x0041 /* connectable, tx power */;
+  parameters.advertising_event_properties =
+      0x0045 /* connectable, discoverable, tx power */;
   parameters.min_interval = 0xa0;   // 100 ms
   parameters.max_interval = 0x500;  // 800 ms
   parameters.channel_map = 0x7;     // Use all the channels

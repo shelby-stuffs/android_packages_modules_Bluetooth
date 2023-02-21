@@ -143,16 +143,26 @@ public final class AdvertisingSetParameters implements Parcelable {
     private final int mPrimaryPhy;
     private final int mSecondaryPhy;
     private final boolean mConnectable;
+    private final boolean mDiscoverable;
     private final boolean mScannable;
     private final int mInterval;
     private final int mTxPowerLevel;
     private final int mOwnAddressType;
 
-    private AdvertisingSetParameters(boolean connectable, boolean scannable, boolean isLegacy,
-            boolean isAnonymous, boolean includeTxPower,
-            int primaryPhy, int secondaryPhy,
-            int interval, int txPowerLevel, @AddressTypeStatus int ownAddressType) {
+    private AdvertisingSetParameters(
+            boolean connectable,
+            boolean discoverable,
+            boolean scannable,
+            boolean isLegacy,
+            boolean isAnonymous,
+            boolean includeTxPower,
+            int primaryPhy,
+            int secondaryPhy,
+            int interval,
+            int txPowerLevel,
+            @AddressTypeStatus int ownAddressType) {
         mConnectable = connectable;
+        mDiscoverable = discoverable;
         mScannable = scannable;
         mIsLegacy = isLegacy;
         mIsAnonymous = isAnonymous;
@@ -175,6 +185,7 @@ public final class AdvertisingSetParameters implements Parcelable {
         mInterval = in.readInt();
         mTxPowerLevel = in.readInt();
         mOwnAddressType = in.readInt();
+        mDiscoverable = in.readInt() != 0;
     }
 
     /**
@@ -182,6 +193,13 @@ public final class AdvertisingSetParameters implements Parcelable {
      */
     public boolean isConnectable() {
         return mConnectable;
+    }
+
+    /**
+     * Returns whether the advertisement will be discoverable.
+     */
+    public boolean isDiscoverable() {
+        return mDiscoverable;
     }
 
     /**
@@ -253,6 +271,7 @@ public final class AdvertisingSetParameters implements Parcelable {
     @Override
     public String toString() {
         return "AdvertisingSetParameters [connectable=" + mConnectable
+                + ", discoverable=" + mDiscoverable
                 + ", isLegacy=" + mIsLegacy
                 + ", isAnonymous=" + mIsAnonymous
                 + ", includeTxPower=" + mIncludeTxPower
@@ -280,6 +299,7 @@ public final class AdvertisingSetParameters implements Parcelable {
         dest.writeInt(mInterval);
         dest.writeInt(mTxPowerLevel);
         dest.writeInt(mOwnAddressType);
+        dest.writeInt(mDiscoverable ? 1 : 0);
     }
 
     public static final @android.annotation.NonNull Parcelable.Creator<AdvertisingSetParameters> CREATOR =
@@ -300,6 +320,7 @@ public final class AdvertisingSetParameters implements Parcelable {
      */
     public static final class Builder {
         private boolean mConnectable = false;
+        private boolean mDiscoverable = true;
         private boolean mScannable = false;
         private boolean mIsLegacy = false;
         private boolean mIsAnonymous = false;
@@ -321,6 +342,19 @@ public final class AdvertisingSetParameters implements Parcelable {
          */
         public Builder setConnectable(boolean connectable) {
             mConnectable = connectable;
+            return this;
+        }
+
+        /**
+         * Set whether the advertisement type should be discoverable or non-discoverable. By
+         * default, advertisements will be discoverable. Devices connecting to non-discoverable
+         * advertisements cannot initiate bonding.
+         *
+         * @param discoverable Controls whether the advertisement type will be discoverable
+         * ({@code true}) or non-discoverable ({@code false}).
+         */
+        public @NonNull Builder setDiscoverable(boolean discoverable) {
+            mDiscoverable = discoverable;
             return this;
         }
 
@@ -516,8 +550,17 @@ public final class AdvertisingSetParameters implements Parcelable {
                 }
             }
 
-            return new AdvertisingSetParameters(mConnectable, mScannable, mIsLegacy, mIsAnonymous,
-                    mIncludeTxPower, mPrimaryPhy, mSecondaryPhy, mInterval, mTxPowerLevel,
+            return new AdvertisingSetParameters(
+                    mConnectable,
+                    mDiscoverable,
+                    mScannable,
+                    mIsLegacy,
+                    mIsAnonymous,
+                    mIncludeTxPower,
+                    mPrimaryPhy,
+                    mSecondaryPhy,
+                    mInterval,
+                    mTxPowerLevel,
                     mOwnAddressType);
         }
     }

@@ -55,6 +55,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -315,6 +316,7 @@ final class RemoteDevices {
         private boolean mIsBondingInitiatedLocally;
         private int mBatteryLevel = BluetoothDevice.BATTERY_LEVEL_UNKNOWN;
         private boolean mIsCoordinatedSetMember;
+        private boolean mIsASHAFollower;
         @VisibleForTesting int mBondState;
         @VisibleForTesting int mDeviceType;
         @VisibleForTesting ParcelUuid[] mUuids;
@@ -633,6 +635,21 @@ final class RemoteDevices {
             }
         }
 
+        /**
+         * @return the mIsASHAFollower
+        */
+        boolean isASHAFollower() {
+            synchronized (mObject) {
+                return mIsASHAFollower;
+            }
+        }
+
+        void setIsASHAFollower(boolean isASHAFollower) {
+            synchronized (mObject) {
+                this.mIsASHAFollower = isASHAFollower;
+            }
+        }
+
         public void setHfAudioPolicyForRemoteAg(BluetoothAudioPolicy policies) {
             mAudioPolicy = policies;
         }
@@ -879,6 +896,9 @@ final class RemoteDevices {
                         case AbstractionLayer.BT_PROPERTY_REMOTE_IS_COORDINATED_SET_MEMBER:
                             deviceProperties.setIsCoordinatedSetMember(val[0] != 0);
                             break;
+                        case AbstractionLayer.BT_PROPERTY_REMOTE_IS_ASHA_FOLLOWER:
+                            deviceProperties.setIsASHAFollower(val[0] != 0);
+                            break;
                     }
                 }
             }
@@ -910,6 +930,8 @@ final class RemoteDevices {
         intent.putExtra(BluetoothDevice.EXTRA_NAME, deviceProp.getName());
         intent.putExtra(BluetoothDevice.EXTRA_IS_COORDINATED_SET_MEMBER,
                 deviceProp.isCoordinatedSetMember());
+        intent.putExtra(BluetoothDevice.EXTRA_IS_ASHA_FOLLOWER,
+                deviceProp.isASHAFollower());
 
         final ArrayList<DiscoveringPackage> packages = mAdapterService.getDiscoveringPackages();
         synchronized (packages) {
@@ -988,9 +1010,10 @@ final class RemoteDevices {
         BluetoothDevice device = getDevice(address);
 
         if (device == null) {
-            errorLog("aclStateChangeCallback: device is NULL, address="
+            warnLog("aclStateChangeCallback: device is NULL, address="
                     + Utils.getAddressStringFromByte(address) + ", newState=" + newState);
-            return;
+            addDeviceProperties(address);
+            device = Objects.requireNonNull(getDevice(address));
         }
 
         DeviceProperties deviceProperties = getDeviceProperties(device);
@@ -1025,6 +1048,9 @@ final class RemoteDevices {
                 intent.setPackage(mAdapterService.getString(R.string.pairing_ui_package));
                 mAdapterService.sendBroadcast(intent, BLUETOOTH_CONNECT,
                         Utils.getTempAllowlistBroadcastOptions());
+            } else if (device.getBondState() == BluetoothDevice.BOND_NONE) {
+                String key = Utils.getAddressStringFromByte(address);
+                mDevices.remove(key);
             }
             if (state == BluetoothAdapter.STATE_ON || state == BluetoothAdapter.STATE_TURNING_OFF) {
                 intent = new Intent(BluetoothDevice.ACTION_ACL_DISCONNECTED);

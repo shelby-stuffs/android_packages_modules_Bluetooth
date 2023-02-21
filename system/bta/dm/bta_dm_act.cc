@@ -55,11 +55,12 @@
 #include "stack/btm/neighbor_inquiry.h"
 #include "stack/gatt/connection_manager.h"
 #include "stack/include/acl_api.h"
+#include "stack/include/avrc_api.h"
 #include "stack/include/bt_hdr.h"
 #include "stack/include/bt_octets.h"
 #include "stack/include/bt_types.h"
 #include "stack/include/btm_client_interface.h"
-#include "stack/include/btu.h"  // do_in_main_thread
+#include "stack/include/btu.h"       // do_in_main_thread
 #include "stack/include/srvc_api.h"  // DIS_ReadDISInfo
 #include "types/bluetooth/uuid.h"
 #include "types/raw_address.h"
@@ -362,8 +363,10 @@ void BTA_dm_on_hw_on() {
    * graceful shutdown.
    */
   bta_dm_search_cb.search_timer = alarm_new("bta_dm_search.search_timer");
+  bool delay_close_gatt =
+      osi_property_get_bool("bluetooth.gatt.delay_close.enabled", true);
   bta_dm_search_cb.gatt_close_timer =
-      alarm_new("bta_dm_search.gatt_close_timer");
+      delay_close_gatt ? alarm_new("bta_dm_search.gatt_close_timer") : nullptr;
   bta_dm_search_cb.pending_discovery_queue = fixed_queue_new(SIZE_MAX);
 
   memset(&bta_dm_conn_srvcs, 0, sizeof(bta_dm_conn_srvcs));
@@ -1089,6 +1092,74 @@ void bta_dm_disc_rmt_name(tBTA_DM_MSG* p_data) {
   bta_dm_discover_device(p_data->rem_name.result.disc_res.bd_addr);
 }
 
+static void store_avrcp_profile_feature(tSDP_DISC_REC* sdp_rec) {
+  tSDP_DISC_ATTR* p_attr =
+      SDP_FindAttributeInRec(sdp_rec, ATTR_ID_SUPPORTED_FEATURES);
+  if (p_attr == NULL) {
+    return;
+  }
+
+  uint16_t avrcp_features = p_attr->attr_value.v.u16;
+  if (avrcp_features == 0) {
+    return;
+  }
+
+  if (btif_config_set_bin(sdp_rec->remote_bd_addr.ToString().c_str(),
+                          AV_REM_CTRL_FEATURES_CONFIG_KEY,
+                          (const uint8_t*)&avrcp_features,
+                          sizeof(avrcp_features))) {
+    LOG_INFO("Saving avrcp_features: 0x%x", avrcp_features);
+    btif_config_save();
+  } else {
+    LOG_INFO("Failed to store avrcp_features 0x%x for %s", avrcp_features,
+             ADDRESS_TO_LOGGABLE_CSTR(sdp_rec->remote_bd_addr));
+  }
+}
+
+static void bta_dm_store_audio_profiles_version() {
+  struct AudioProfile {
+    const uint16_t servclass_uuid;
+    const uint16_t btprofile_uuid;
+    const char* profile_key;
+    void (*store_audio_profile_feature)(tSDP_DISC_REC*);
+  };
+
+  std::array<AudioProfile, 1> audio_profiles = {{
+      {
+          .servclass_uuid = UUID_SERVCLASS_AV_REMOTE_CONTROL,
+          .btprofile_uuid = UUID_SERVCLASS_AV_REMOTE_CONTROL,
+          .profile_key = AVRCP_CONTROLLER_VERSION_CONFIG_KEY,
+          .store_audio_profile_feature = store_avrcp_profile_feature,
+      },
+  }};
+
+  for (const auto& audio_profile : audio_profiles) {
+    tSDP_DISC_REC* sdp_rec = SDP_FindServiceInDb(
+        bta_dm_search_cb.p_sdp_db, audio_profile.servclass_uuid, NULL);
+    if (sdp_rec == NULL) continue;
+
+    if (SDP_FindAttributeInRec(sdp_rec, ATTR_ID_BT_PROFILE_DESC_LIST) == NULL)
+      continue;
+
+    uint16_t profile_version = 0;
+    /* get profile version (if failure, version parameter is not updated) */
+    SDP_FindProfileVersionInRec(sdp_rec, audio_profile.btprofile_uuid,
+                                &profile_version);
+    if (profile_version != 0) {
+      if (btif_config_set_bin(sdp_rec->remote_bd_addr.ToString().c_str(),
+                              audio_profile.profile_key,
+                              (const uint8_t*)&profile_version,
+                              sizeof(profile_version))) {
+        btif_config_save();
+      } else {
+        LOG_INFO("Failed to store peer profile version for %s",
+                 ADDRESS_TO_LOGGABLE_CSTR(sdp_rec->remote_bd_addr));
+      }
+    }
+    audio_profile.store_audio_profile_feature(sdp_rec);
+  }
+}
+
 /*******************************************************************************
  *
  * Function         bta_dm_sdp_result
@@ -1202,6 +1273,12 @@ void bta_dm_sdp_result(tBTA_DM_MSG* p_data) {
           }
         }
       } while (p_sdp_rec);
+    }
+
+    if (bluetooth::common::init_flags::
+            dynamic_avrcp_version_enhancement_is_enabled() &&
+        bta_dm_search_cb.services_to_search == 0) {
+      bta_dm_store_audio_profiles_version();
     }
 
 #if TARGET_FLOSS
@@ -1378,7 +1455,7 @@ void bta_dm_search_cmpl() {
   tBTA_DM_SEARCH result;
   result.disc_ble_res.services = &gatt_services;
   result.disc_ble_res.bd_addr = bta_dm_search_cb.peer_bdaddr;
-  strlcpy((char*)result.disc_ble_res.bd_name, (char*)bta_dm_search_cb.peer_name,
+  strlcpy((char*)result.disc_ble_res.bd_name, bta_dm_get_remname(),
           BD_NAME_LEN + 1);
 
   LOG_INFO("GATT services discovered using LE Transport");
@@ -1854,7 +1931,7 @@ static void bta_dm_discover_device(const RawAddress& remote_bd_addr) {
   p_msg->disc_result.result.disc_res.services = bta_dm_search_cb.services_found;
   p_msg->disc_result.result.disc_res.bd_addr = bta_dm_search_cb.peer_bdaddr;
   strlcpy((char*)p_msg->disc_result.result.disc_res.bd_name,
-          (char*)bta_dm_search_cb.peer_name, BD_NAME_LEN + 1);
+          bta_dm_get_remname(), BD_NAME_LEN + 1);
 
   bta_sys_sendmsg(p_msg);
 }
@@ -4076,11 +4153,25 @@ static void bta_dm_gatt_disc_complete(uint16_t conn_id, tGATT_STATUS status) {
   bta_sys_sendmsg(p_msg);
 
   if (conn_id != GATT_INVALID_CONN_ID) {
-    /* start a GATT channel close delay timer */
-    bta_sys_start_timer(bta_dm_search_cb.gatt_close_timer,
-                        BTA_DM_GATT_CLOSE_DELAY_TOUT,
-                        BTA_DM_DISC_CLOSE_TOUT_EVT, 0);
     bta_dm_search_cb.pending_close_bda = bta_dm_search_cb.peer_bdaddr;
+    // Gatt will be close immediately if bluetooth.gatt.delay_close.enabled is
+    // set to false. If property is true / unset there will be a delay
+    if (bta_dm_search_cb.gatt_close_timer != nullptr) {
+      /* start a GATT channel close delay timer */
+      bta_sys_start_timer(bta_dm_search_cb.gatt_close_timer,
+                          BTA_DM_GATT_CLOSE_DELAY_TOUT,
+                          BTA_DM_DISC_CLOSE_TOUT_EVT, 0);
+    } else {
+      p_msg = (tBTA_DM_MSG*)osi_malloc(sizeof(tBTA_DM_MSG));
+      p_msg->hdr.event = BTA_DM_DISC_CLOSE_TOUT_EVT;
+      p_msg->hdr.layer_specific = 0;
+      bta_sys_sendmsg(p_msg);
+    }
+  } else {
+    if (bluetooth::common::init_flags::
+            bta_dm_clear_conn_id_on_client_close_is_enabled()) {
+      bta_dm_search_cb.conn_id = GATT_INVALID_CONN_ID;
+    }
   }
   bta_dm_search_cb.gatt_disc_active = false;
 }
@@ -4337,7 +4428,8 @@ static void bta_dm_gattc_callback(tBTA_GATTC_EVT event, tBTA_GATTC* p_data) {
       break;
 
     case BTA_GATTC_CLOSE_EVT:
-      LOG_DEBUG("BTA_GATTC_CLOSE_EVT reason = %d", p_data->close.reason);
+      LOG_INFO("BTA_GATTC_CLOSE_EVT reason = %d", p_data->close.reason);
+
       /* in case of disconnect before search is completed */
       if ((bta_dm_search_cb.state != BTA_DM_SEARCH_IDLE) &&
           (bta_dm_search_cb.state != BTA_DM_SEARCH_ACTIVE) &&

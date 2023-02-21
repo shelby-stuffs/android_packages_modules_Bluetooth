@@ -6,7 +6,10 @@ mod ffi {
 
         fn asynchronously_start_l2cap_coc_is_enabled() -> bool;
         fn btaa_hci_is_enabled() -> bool;
+        fn bta_dm_clear_conn_id_on_client_close_is_enabled() -> bool;
         fn btm_dm_flush_discovery_queue_on_search_cancel_is_enabled() -> bool;
+        fn device_iot_config_logging_is_enabled() -> bool;
+        fn dynamic_avrcp_version_enhancement_is_enabled() -> bool;
         fn finite_att_timeout_is_enabled() -> bool;
         fn gatt_robust_caching_client_is_enabled() -> bool;
         fn gatt_robust_caching_server_is_enabled() -> bool;
@@ -18,6 +21,7 @@ mod ffi {
         fn gd_rust_is_enabled() -> bool;
         fn gd_security_is_enabled() -> bool;
         fn get_hci_adapter() -> i32;
+        fn hfp_dynamic_version_is_enabled() -> bool;
         fn irk_rotation_is_enabled() -> bool;
         fn is_debug_logging_enabled_for_tag(tag: &str) -> bool;
         fn leaudio_targeted_announcement_reconnection_mode_is_enabled() -> bool;
