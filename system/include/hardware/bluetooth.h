@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2016 The Linux Foundation
  * Copyright (C) 2012 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -358,6 +359,13 @@ typedef enum {
   BT_PROPERTY_REMOTE_IS_COORDINATED_SET_MEMBER,
 
   /**
+   * Description - True if Remote is an ASHA follower device of a set.
+   * Access mode - GET.
+   * Data Type - bool.
+   */
+  BT_PROPERTY_REMOTE_IS_ASHA_FOLLOWER,
+
+  /**
    * Description - Appearance as specified in Assigned Numbers.
    * Access mode - GET.
    * Data Type - uint16_t.
@@ -370,6 +378,7 @@ typedef enum {
    * Data Type - bt_vendor_product_info_t.
    */
   BT_PROPERTY_VENDOR_PRODUCT_INFO,
+  BT_PROPERTY_WL_MEDIA_PLAYERS_LIST,
 
   BT_PROPERTY_REMOTE_DEVICE_TIMESTAMP = 0xFF,
 } bt_property_type_t;
@@ -679,6 +688,9 @@ typedef struct {
   /** Create Bluetooth Bonding */
   int (*create_bond)(const RawAddress* bd_addr, int transport);
 
+  /** Create Bluetooth Bonding over le transport */
+  int (*create_bond_le)(const RawAddress* bd_addr, uint8_t addr_type);
+
   /** Create Bluetooth Bond using out of band data */
   int (*create_bond_out_of_band)(const RawAddress* bd_addr, int transport,
                                  const bt_oob_data_t* p192_data,
@@ -884,6 +896,26 @@ typedef struct {
    */
   void (*metadata_changed)(const RawAddress& remote_bd_addr, int key,
                            std::vector<uint8_t> value);
+
+  /** interop match address */
+  bool (*interop_match_addr)(const char* feature_name, const RawAddress* addr);
+
+  /** interop match name */
+  bool (*interop_match_name)(const char* feature_name, const char* name);
+
+  /** interop match address or name */
+  bool (*interop_match_addr_or_name)(const char* feature_name,
+                                     const RawAddress* addr);
+
+  /** add or remove address entry to interop database */
+  void (*interop_database_add_remove_addr)(bool do_add,
+                                           const char* feature_name,
+                                           const RawAddress* addr, int length);
+
+  /** add or remove name entry to interop database */
+  void (*interop_database_add_remove_name)(bool do_add,
+                                           const char* feature_name,
+                                           const char* name);
 
 } bt_interface_t;
 

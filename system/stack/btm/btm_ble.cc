@@ -25,8 +25,11 @@
 
 #define LOG_TAG "bt_btm_ble"
 
+#include <base/logging.h>
+
 #include <cstdint>
 
+#include "btif/include/btif_storage.h"
 #include "device/include/controller.h"
 #include "main/shim/btm_api.h"
 #include "main/shim/l2c_api.h"
@@ -47,8 +50,6 @@
 #include "stack/include/l2cdefs.h"
 #include "stack/include/smp_api.h"
 #include "types/raw_address.h"
-
-#include <base/logging.h>
 
 extern tBTM_CB btm_cb;
 
@@ -109,6 +110,33 @@ void BTM_SecAddBleDevice(const RawAddress& bd_addr, tBT_DEVICE_TYPE dev_type,
     LOG_DEBUG("InqDb device_type =0x%x  addr_type=0x%x",
               p_info->results.device_type, p_info->results.ble_addr_type);
   }
+}
+
+/*******************************************************************************
+ *
+ * Function         BTM_GetRemoteDeviceName
+ *
+ * Description      This function is called to get the dev name of remote device
+ *                  from NV
+ *
+ * Returns          TRUE if success; otherwise failed.
+ *
+ ******************************************************************************/
+bool BTM_GetRemoteDeviceName(const RawAddress& bd_addr, BD_NAME bd_name) {
+  BTM_TRACE_DEBUG("%s", __func__);
+  bool ret = FALSE;
+  bt_bdname_t bdname;
+  bt_property_t prop_name;
+  BTIF_STORAGE_FILL_PROPERTY(&prop_name, BT_PROPERTY_BDNAME,
+                             sizeof(bt_bdname_t), &bdname);
+
+  if (btif_storage_get_remote_device_property(&bd_addr, &prop_name) ==
+      BT_STATUS_SUCCESS) {
+    APPL_TRACE_DEBUG("%s, NV name = %s", __func__, bdname.name);
+    strncpy((char*)bd_name, (char*)bdname.name, BD_NAME_LEN + 1);
+    ret = TRUE;
+  }
+  return ret;
 }
 
 /*******************************************************************************
@@ -1678,7 +1706,8 @@ uint8_t btm_ble_br_keys_req(tBTM_SEC_DEV_REC* p_dev_rec,
  ******************************************************************************/
 void btm_ble_connected(const RawAddress& bda, uint16_t handle, uint8_t enc_mode,
                        uint8_t role, tBLE_ADDR_TYPE addr_type,
-                       bool addr_matched) {
+                       bool addr_matched,
+                       bool can_read_discoverable_characteristics) {
   tBTM_SEC_DEV_REC* p_dev_rec = btm_find_dev(bda);
   if (!p_dev_rec) {
     LOG_INFO("Creating new device record for new ble connection");
@@ -1703,6 +1732,7 @@ void btm_ble_connected(const RawAddress& bda, uint16_t handle, uint8_t enc_mode,
   p_dev_rec->ble_hci_handle = handle;
   p_dev_rec->device_type |= BT_DEVICE_TYPE_BLE;
   p_dev_rec->role_central = (role == HCI_ROLE_CENTRAL) ? true : false;
+  p_dev_rec->can_read_discoverable = can_read_discoverable_characteristics;
 
   if (!addr_matched) {
     p_dev_rec->ble.active_addr_type = tBTM_SEC_BLE::BTM_BLE_ADDR_PSEUDO;
@@ -1711,13 +1741,6 @@ void btm_ble_connected(const RawAddress& bda, uint16_t handle, uint8_t enc_mode,
     }
   }
   btm_cb.ble_ctr_cb.inq_var.directed_conn = BTM_BLE_ADV_IND_EVT;
-}
-
-void btm_ble_connected_from_address_with_type(
-    const tBLE_BD_ADDR& address_with_type, uint16_t handle, uint8_t enc_mode,
-    uint8_t role, bool addr_matched) {
-  btm_ble_connected(address_with_type.bda, handle, enc_mode, role,
-                    address_with_type.type, addr_matched);
 }
 
 /*****************************************************************************
