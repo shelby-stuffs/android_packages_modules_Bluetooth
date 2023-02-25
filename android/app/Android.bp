@@ -65,55 +65,11 @@ cc_library_shared {
         "libbluetooth-types",
         "libbluetooth",
         "libc++fs",
+        "libbluetooth_core_rs_bridge",
     ],
     sanitize: {
         scs: true,
     },
-}
-
-cc_library {
-    name: "libbluetooth-core",
-    defaults: ["fluoride_basic_defaults"],
-    header_libs: [
-        "jni_headers",
-        "libbluetooth_headers",
-    ],
-    include_dirs: [
-        "packages/modules/Bluetooth/system/types",
-    ],
-    whole_static_libs: [
-        "libbte",
-        "libbt-bta-core",
-        "libbt-common",
-        "libbtdevice",
-        "libbtif-core",
-        "libbt-hci",
-        "libbt-stack-core",
-        "libbt-utils",
-        "libbtcore",
-        "libosi",
-        "lib-bt-packets",
-        "lib-bt-packets-base",
-
-        "libbluetooth-types",
-        "libc++fs",
-    ],
-    cflags: [
-        /* we export all classes, so change default visibility, instead of having EXPORT_SYMBOL on each class*/
-        "-fvisibility=default",
-        "-Wall",
-        "-Werror",
-        "-Wextra",
-        "-Wno-unused-parameter",
-    ],
-    sanitize: {
-        scs: true,
-    },
-    apex_available: [
-        "com.android.btservices",
-    ],
-    host_supported: true,
-    min_sdk_version: "Tiramisu",
 }
 
 // Bluetooth APK
@@ -132,6 +88,7 @@ android_app {
     jni_libs: ["libbluetooth_jni"],
     libs: [
         "services.net",
+        "app-compat-annotations",
         "framework-configinfrastructure",
     ],
     min_sdk_version: "current",
@@ -143,6 +100,7 @@ android_app {
         "androidx.media_media",
         "androidx.lifecycle_lifecycle-livedata",
         "androidx.room_room-runtime",
+        "bluetooth.change-ids",
         "bluetooth.mapsapi",
         "bluetooth-protos-lite",
         "com.android.vcard",
@@ -178,7 +136,8 @@ android_app {
         "android.hardware.bluetooth@1.1",
         "android.hardware.bluetooth.audio@2.0",
         "android.hardware.bluetooth.audio@2.1",
-        "android.hardware.bluetooth.audio-V2-ndk",
+        "android.hardware.bluetooth.audio-V3-ndk",
+        "bluetoothapk-platform-compat-config",
     ],
     apex_available: [
         "//apex_available:platform",
@@ -190,6 +149,26 @@ android_app {
             "-Xep:AlmostJavadoc:ERROR",
         ],
     },
+}
+
+java_library {
+    name: "bluetooth.change-ids",
+    srcs: [
+        "src/com/android/bluetooth/ChangeIds.java"
+    ],
+    libs: [
+        "app-compat-annotations",
+    ],
+    apex_available: [
+        "com.android.btservices",
+    ],
+    min_sdk_version: "Tiramisu",
+    sdk_version: "module_current",
+}
+
+platform_compat_config {
+    name: "bluetoothapk-platform-compat-config",
+    src: ":bluetooth.change-ids",
 }
 
 android_app_certificate {

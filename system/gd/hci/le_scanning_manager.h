@@ -54,6 +54,8 @@ class LeScanningManager : public bluetooth::Module {
   virtual void SetScanParameters(
       ScannerId scanner_id, LeScanType scan_type, std::vector<uint32_t> scan_interval, std::vector<uint32_t> scan_window);
 
+  virtual void SetScanFilterPolicy(LeScanningFilterPolicy filter_policy);
+
   /* Scan filter */
   virtual void ScanFilterEnable(bool enable);
 
