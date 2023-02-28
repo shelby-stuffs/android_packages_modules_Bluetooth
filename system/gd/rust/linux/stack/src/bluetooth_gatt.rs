@@ -658,6 +658,19 @@ pub trait IBluetoothGatt {
         confirm: bool,
         value: Vec<u8>,
     ) -> bool;
+
+    /// Sets preferred PHY.
+    fn server_set_preferred_phy(
+        &self,
+        server_id: i32,
+        addr: String,
+        tx_phy: LePhy,
+        rx_phy: LePhy,
+        phy_options: i32,
+    );
+
+    /// Reads the PHY used by a peer.
+    fn server_read_phy(&self, server_id: i32, addr: String);
 }
 
 #[derive(Debug, Default, Clone)]
@@ -748,7 +761,7 @@ impl BluetoothGattService {
                 GattDbElementType::PrimaryService | GattDbElementType::SecondaryService => {
                     db_out.push(BluetoothGattService::new(
                         elem.uuid.uu,
-                        elem.id as i32,
+                        elem.attribute_handle as i32,
                         elem.type_ as i32,
                     ));
                     // TODO(b/200065274): Mark restricted services.
@@ -758,7 +771,7 @@ impl BluetoothGattService {
                     match db_out.last_mut() {
                         Some(s) => s.characteristics.push(BluetoothGattCharacteristic::new(
                             elem.uuid.uu,
-                            elem.id as i32,
+                            elem.attribute_handle as i32,
                             elem.properties as i32,
                             0,
                         )),
@@ -774,7 +787,7 @@ impl BluetoothGattService {
                         Some(s) => match s.characteristics.last_mut() {
                             Some(c) => c.descriptors.push(BluetoothGattDescriptor::new(
                                 elem.uuid.uu,
-                                elem.id as i32,
+                                elem.attribute_handle as i32,
                                 0,
                             )),
                             None => {
@@ -793,7 +806,7 @@ impl BluetoothGattService {
                         Some(s) => {
                             s.included_services.push(BluetoothGattService::new(
                                 elem.uuid.uu,
-                                elem.id as i32,
+                                elem.attribute_handle as i32,
                                 elem.type_ as i32,
                             ));
                         }
@@ -1007,6 +1020,36 @@ pub trait IBluetoothGattServerCallback: RPCProxy {
 
     /// When a notification or indication has been sent to a remote device.
     fn on_notification_sent(&self, _addr: String, _status: GattStatus);
+
+    /// When the MTU for a given connection changes
+    fn on_mtu_changed(&self, addr: String, mtu: i32);
+
+    /// When there is a change of PHY.
+    fn on_phy_update(&self, addr: String, tx_phy: LePhy, rx_phy: LePhy, status: GattStatus);
+
+    /// The completion of IBluetoothGatt::server_read_phy.
+    fn on_phy_read(&self, addr: String, tx_phy: LePhy, rx_phy: LePhy, status: GattStatus);
+
+    /// When the connection parameters for a given connection changes.
+    fn on_connection_updated(
+        &self,
+        addr: String,
+        interval: i32,
+        latency: i32,
+        timeout: i32,
+        status: GattStatus,
+    );
+
+    /// When the subrate change event for a given connection is received.
+    fn on_subrate_change(
+        &self,
+        addr: String,
+        subrate_factor: i32,
+        latency: i32,
+        cont_num: i32,
+        timeout: i32,
+        status: GattStatus,
+    );
 }
 
 /// Interface for scanner callbacks to clients, passed to
@@ -1225,6 +1268,11 @@ impl GattAsyncIntf {
     /// May be converted into real async in the future if btif supports it.
     async fn update_scan(&mut self) {
         if self.scanners.lock().unwrap().values().find(|scanner| scanner.is_active).is_some() {
+            // Toggle the scan off and on so that we reset the scan parameters based on whether
+            // we have active scanners using hardware filtering.
+            // TODO(b/266752123): We can do more bookkeeping to optimize when we really need to
+            // toggle. Also improve toggling API into 1 operation that guarantees correct ordering.
+            self.gatt.as_ref().unwrap().lock().unwrap().scanner.stop_scan();
             self.gatt.as_ref().unwrap().lock().unwrap().scanner.start_scan();
         } else {
             self.gatt.as_ref().unwrap().lock().unwrap().scanner.stop_scan();
@@ -1626,9 +1674,17 @@ impl IBluetoothGatt for BluetoothGatt {
             }
         }
 
+        let has_active_unfiltered_scanner = self
+            .scanners
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_uuid, scanner)| scanner.is_active && scanner.filter.is_none());
+
         let gatt_async = self.gatt_async.clone();
         let scanners = self.scanners.clone();
         let is_msft_supported = self.is_msft_supported();
+
         tokio::spawn(async move {
             // The three operations below (monitor add, monitor enable, update scan) happen one
             // after another, and cannot be interleaved with other GATT async operations.
@@ -1656,14 +1712,18 @@ impl IBluetoothGatt for BluetoothGatt {
                 }
 
                 log::debug!("Added adv monitor handle = {}", monitor_handle);
+            }
 
-                if !gatt_async
-                    .msft_adv_monitor_enable(true)
-                    .await
-                    .map_or(false, |status| status == 0)
-                {
-                    log::error!("Error enabling Advertisement Monitor");
-                }
+            if !gatt_async
+                .msft_adv_monitor_enable(!has_active_unfiltered_scanner)
+                .await
+                .map_or(false, |status| status == 0)
+            {
+                // TODO(b/266752123):
+                // Intel controller throws "Command Disallowed" error if we tried to enable/disable
+                // filter but it's already at the same state. This is harmless but we can improve
+                // the state machine to avoid calling enable/disable if it's already at that state
+                log::error!("Error updating Advertisement Monitor enable");
             }
 
             gatt_async.update_scan().await;
@@ -1686,6 +1746,13 @@ impl IBluetoothGatt for BluetoothGatt {
             }
         };
 
+        let has_active_unfiltered_scanner = self
+            .scanners
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_uuid, scanner)| scanner.is_active && scanner.filter.is_none());
+
         let gatt_async = self.gatt_async.clone();
         tokio::spawn(async move {
             // The two operations below (monitor remove, update scan) happen one after another, and
@@ -1696,6 +1763,14 @@ impl IBluetoothGatt for BluetoothGatt {
 
             if let Some(handle) = monitor_handle {
                 let _res = gatt_async.msft_adv_monitor_remove(handle).await;
+            }
+
+            if !gatt_async
+                .msft_adv_monitor_enable(!has_active_unfiltered_scanner)
+                .await
+                .map_or(false, |status| status == 0)
+            {
+                log::error!("Error updating Advertisement Monitor enable");
             }
 
             gatt_async.update_scan().await;
@@ -2409,7 +2484,15 @@ impl IBluetoothGatt for BluetoothGatt {
             let conn_id = self.server_context_map.get_conn_id_from_address(server_id, &addr)?;
             let handle = self.server_context_map.get_request_handle_from_id(request_id)?;
             let len = value.len() as u16;
-            let data: [u8; 600] = value.try_into().ok()?;
+
+            let data: [u8; 600] = value
+                .iter()
+                .chain(std::iter::repeat(&0))
+                .take(600)
+                .cloned()
+                .collect::<Vec<u8>>()
+                .try_into()
+                .ok()?;
 
             self.gatt.as_ref().unwrap().lock().unwrap().server.send_response(
                 conn_id,
@@ -2453,6 +2536,34 @@ impl IBluetoothGatt for BluetoothGatt {
         );
 
         true
+    }
+
+    fn server_set_preferred_phy(
+        &self,
+        server_id: i32,
+        addr: String,
+        tx_phy: LePhy,
+        rx_phy: LePhy,
+        phy_options: i32,
+    ) {
+        (|| {
+            let address = RawAddress::from_string(addr)?;
+
+            self.gatt.as_ref().unwrap().lock().unwrap().server.set_preferred_phy(
+                &address,
+                tx_phy.to_u8().unwrap_or_default(),
+                rx_phy.to_u8().unwrap_or_default(),
+                phy_options as u16,
+            );
+
+            Some(())
+        })();
+    }
+
+    fn server_read_phy(&self, server_id: i32, addr: String) {
+        if let Some(address) = RawAddress::from_string(addr.clone()) {
+            self.gatt.as_ref().unwrap().lock().unwrap().server.read_phy(server_id, &address);
+        }
     }
 }
 
@@ -3079,6 +3190,43 @@ pub(crate) trait BtifGattServerCallbacks {
 
     #[btif_callback(Congestion)]
     fn congestion_cb(&mut self, conn_id: i32, congested: bool);
+
+    #[btif_callback(MtuChanged)]
+    fn mtu_changed_cb(&mut self, conn_id: i32, mtu: i32);
+
+    #[btif_callback(PhyUpdated)]
+    fn phy_updated_cb(&mut self, conn_id: i32, tx_phy: u8, rx_phy: u8, status: GattStatus);
+
+    #[btif_callback(ReadPhy)]
+    fn read_phy_cb(
+        &mut self,
+        server_id: i32,
+        addr: RawAddress,
+        tx_phy: u8,
+        rx_phy: u8,
+        status: GattStatus,
+    );
+
+    #[btif_callback(ConnUpdated)]
+    fn conn_updated_cb(
+        &mut self,
+        conn_id: i32,
+        interval: u16,
+        latency: u16,
+        timeout: u16,
+        status: GattStatus,
+    );
+
+    #[btif_callback(SubrateChanged)]
+    fn subrate_chg_cb(
+        &mut self,
+        conn_id: i32,
+        subrate_factor: u16,
+        latency: u16,
+        cont_num: u16,
+        timeout: u16,
+        status: GattStatus,
+    );
 }
 
 impl BtifGattServerCallbacks for BluetoothGatt {
@@ -3315,6 +3463,113 @@ impl BtifGattServerCallbacks for BluetoothGatt {
                 }
             }
         }
+    }
+
+    fn mtu_changed_cb(&mut self, conn_id: i32, mtu: i32) {
+        (|| {
+            let address = self.server_context_map.get_address_from_conn_id(conn_id)?;
+            let server_cbid = self.server_context_map.get_by_conn_id(conn_id)?.cbid;
+
+            if let Some(cb) = self.server_context_map.get_callback_from_callback_id(server_cbid) {
+                cb.on_mtu_changed(address, mtu);
+            }
+
+            Some(())
+        })();
+    }
+
+    fn phy_updated_cb(&mut self, conn_id: i32, tx_phy: u8, rx_phy: u8, status: GattStatus) {
+        (|| {
+            let address = self.server_context_map.get_address_from_conn_id(conn_id)?;
+            let server_cbid = self.server_context_map.get_by_conn_id(conn_id)?.cbid;
+
+            if let Some(cb) = self.server_context_map.get_callback_from_callback_id(server_cbid) {
+                cb.on_phy_update(
+                    address,
+                    LePhy::from_u8(tx_phy).unwrap_or_default(),
+                    LePhy::from_u8(rx_phy).unwrap_or_default(),
+                    status,
+                );
+            }
+
+            Some(())
+        })();
+    }
+
+    fn read_phy_cb(
+        &mut self,
+        server_id: i32,
+        addr: RawAddress,
+        tx_phy: u8,
+        rx_phy: u8,
+        status: GattStatus,
+    ) {
+        if let Some(cbid) =
+            self.server_context_map.get_by_server_id(server_id).map(|server| server.cbid)
+        {
+            if let Some(cb) = self.server_context_map.get_callback_from_callback_id(cbid) {
+                cb.on_phy_read(
+                    addr.to_string(),
+                    LePhy::from_u8(tx_phy).unwrap_or_default(),
+                    LePhy::from_u8(rx_phy).unwrap_or_default(),
+                    status,
+                );
+            }
+        }
+    }
+
+    fn conn_updated_cb(
+        &mut self,
+        conn_id: i32,
+        interval: u16,
+        latency: u16,
+        timeout: u16,
+        status: GattStatus,
+    ) {
+        (|| {
+            let address = self.server_context_map.get_address_from_conn_id(conn_id)?;
+            let server_cbid = self.server_context_map.get_by_conn_id(conn_id)?.cbid;
+
+            if let Some(cb) = self.server_context_map.get_callback_from_callback_id(server_cbid) {
+                cb.on_connection_updated(
+                    address,
+                    interval as i32,
+                    latency as i32,
+                    timeout as i32,
+                    status,
+                );
+            }
+
+            Some(())
+        })();
+    }
+
+    fn subrate_chg_cb(
+        &mut self,
+        conn_id: i32,
+        subrate_factor: u16,
+        latency: u16,
+        cont_num: u16,
+        timeout: u16,
+        status: GattStatus,
+    ) {
+        (|| {
+            let address = self.server_context_map.get_address_from_conn_id(conn_id)?;
+            let server_cbid = self.server_context_map.get_by_conn_id(conn_id)?.cbid;
+
+            if let Some(cb) = self.server_context_map.get_callback_from_callback_id(server_cbid) {
+                cb.on_subrate_change(
+                    address,
+                    subrate_factor as i32,
+                    latency as i32,
+                    cont_num as i32,
+                    timeout as i32,
+                    status,
+                );
+            }
+
+            Some(())
+        })();
     }
 }
 
