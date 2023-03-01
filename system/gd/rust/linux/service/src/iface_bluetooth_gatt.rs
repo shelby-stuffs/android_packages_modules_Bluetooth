@@ -8,8 +8,8 @@ use btstack::bluetooth_adv::{
 use btstack::bluetooth_gatt::{
     BluetoothGattCharacteristic, BluetoothGattDescriptor, BluetoothGattService,
     GattWriteRequestStatus, GattWriteType, IBluetoothGatt, IBluetoothGattCallback,
-    IScannerCallback, ScanFilter, ScanFilterCondition, ScanFilterPattern, ScanResult, ScanSettings,
-    ScanType,
+    IBluetoothGattServerCallback, IScannerCallback, ScanFilter, ScanFilterCondition,
+    ScanFilterPattern, ScanResult, ScanSettings, ScanType,
 };
 use btstack::{RPCProxy, SuspendMode};
 
@@ -136,6 +136,22 @@ impl IBluetoothGattCallback for BluetoothGattCallbackDBus {
     }
 }
 
+#[allow(dead_code)]
+struct BluetoothGattServerCallbackDBus {}
+
+#[dbus_proxy_obj(BluetoothGattServerCallback, "org.chromium.bluetooth.BluetoothGattServerCallback")]
+impl IBluetoothGattServerCallback for BluetoothGattServerCallbackDBus {
+    #[dbus_method("OnServerRegistered")]
+    fn on_server_registered(&self, status: GattStatus, server_id: i32) {
+        dbus_generated!()
+    }
+
+    #[dbus_method("OnServerConnectionState")]
+    fn on_server_connection_state(&self, server_id: i32, connected: bool, addr: String) {
+        dbus_generated!()
+    }
+}
+
 // Represents Uuid128Bit as an array in D-Bus.
 impl DBusArg for Uuid128Bit {
     type DBusType = Vec<u8>;
@@ -166,6 +182,11 @@ impl IScannerCallback for ScannerCallbackDBus {
 
     #[dbus_method("OnScanResult")]
     fn on_scan_result(&self, scan_result: ScanResult) {
+        dbus_generated!()
+    }
+
+    #[dbus_method("OnScanResultLost")]
+    fn on_scan_result_lost(&self, scan_result: ScanResult) {
         dbus_generated!()
     }
 
@@ -549,6 +570,11 @@ impl IBluetoothGatt for IBluetoothGattDBus {
         dbus_generated!()
     }
 
+    #[dbus_method("SetRawAdvertisingData")]
+    fn set_raw_adv_data(&mut self, advertiser_id: i32, data: Vec<u8>) {
+        dbus_generated!()
+    }
+
     #[dbus_method("SetScanResponseData")]
     fn set_scan_response_data(&mut self, advertiser_id: i32, data: AdvertiseData) {
         dbus_generated!()
@@ -740,6 +766,39 @@ impl IBluetoothGatt for IBluetoothGattDBus {
 
     #[dbus_method("ClientReadPhy")]
     fn client_read_phy(&mut self, client_id: i32, addr: String) {
+        dbus_generated!()
+    }
+
+    // GATT Server
+
+    #[dbus_method("RegisterServer")]
+    fn register_server(
+        &mut self,
+        app_uuid: String,
+        callback: Box<dyn IBluetoothGattServerCallback + Send>,
+        eatt_support: bool,
+    ) {
+        dbus_generated!()
+    }
+
+    #[dbus_method("UnregisterServer")]
+    fn unregister_server(&mut self, server_id: i32) {
+        dbus_generated!()
+    }
+
+    #[dbus_method("ServerConnect")]
+    fn server_connect(
+        &self,
+        server_id: i32,
+        addr: String,
+        is_direct: bool,
+        transport: BtTransport,
+    ) -> bool {
+        dbus_generated!()
+    }
+
+    #[dbus_method("ServerDisconnect")]
+    fn server_disconnect(&self, server_id: i32, addr: String) -> bool {
         dbus_generated!()
     }
 }

@@ -34,7 +34,6 @@ static bluetooth::core::EventCallbacks eventCallbacks = {
     .invoke_le_address_associate_cb = invoke_le_address_associate_cb,
     .invoke_acl_state_changed_cb = invoke_acl_state_changed_cb,
     .invoke_thread_evt_cb = invoke_thread_evt_cb,
-    .invoke_le_test_mode_cb = invoke_le_test_mode_cb,
     .invoke_energy_info_cb = invoke_energy_info_cb,
     .invoke_link_quality_report_cb = invoke_link_quality_report_cb};
 
@@ -70,4 +69,8 @@ bool bta_hh_le_is_hh_gatt_if(tGATT_IF client_if) {
 void InitializeCoreInterface() {
   static auto mockCoreInterface = MockCoreInterface{};
   stack_manager_get_interface()->init_stack(&mockCoreInterface);
+}
+
+void CleanCoreInterface() {
+  stack_manager_get_interface()->clean_up_stack([] {});
 }

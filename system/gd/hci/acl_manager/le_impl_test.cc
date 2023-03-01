@@ -163,6 +163,8 @@ namespace bluetooth {
 namespace hci {
 namespace acl_manager {
 
+namespace {
+
 PacketView<kLittleEndian> GetPacketView(std::unique_ptr<packet::BasePacketBuilder> packet) {
   auto bytes = std::make_shared<std::vector<uint8_t>>();
   BitInserter i(*bytes);
@@ -254,8 +256,9 @@ class TestHciLayer : public HciLayer {
     command_queue_.push(std::move(command));
     command_status_callbacks.push_back(std::move(on_status));
     if (command_promise_ != nullptr) {
-      command_promise_->set_value();
-      command_promise_.reset();
+      std::promise<void>* prom = command_promise_.release();
+      prom->set_value();
+      delete prom;
     }
   }
 
@@ -266,8 +269,9 @@ class TestHciLayer : public HciLayer {
     command_queue_.push(std::move(command));
     command_complete_callbacks.push_back(std::move(on_complete));
     if (command_promise_ != nullptr) {
-      command_promise_->set_value();
-      command_promise_.reset();
+      std::promise<void>* prom = command_promise_.release();
+      prom->set_value();
+      delete prom;
     }
   }
 
@@ -382,6 +386,7 @@ class TestHciLayer : public HciLayer {
   std::unique_ptr<std::future<void>> command_future_;
   CommandInterfaceImpl<AclCommandBuilder> le_acl_connection_manager_interface_{*this};
 };
+}  // namespace
 
 class MockLeConnectionCallbacks : public LeConnectionCallbacks {
  public:
@@ -498,11 +503,8 @@ class LeImplTest : public ::testing::Test {
   }
 
   void sync_handler() {
-    std::promise<void> promise;
-    auto future = promise.get_future();
-    handler_->BindOnceOn(&promise, &std::promise<void>::set_value).Invoke();
-    auto status = future.wait_for(2s);
-    ASSERT_EQ(status, std::future_status::ready);
+    ASSERT(thread_ != nullptr);
+    ASSERT(thread_->GetReactor()->WaitForIdle(2s));
   }
 
   void HciDownEndDequeue() {

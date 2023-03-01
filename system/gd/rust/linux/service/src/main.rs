@@ -1,12 +1,9 @@
-extern crate clap;
-#[macro_use]
-extern crate lazy_static;
-
 use clap::{App, AppSettings, Arg};
 use dbus::{channel::MatchingReceiver, message::MatchRule};
 use dbus_crossroads::Crossroads;
 use dbus_tokio::connection;
 use futures::future;
+use lazy_static::lazy_static;
 use log::LevelFilter;
 use nix::sys::signal;
 use std::error::Error;
@@ -14,6 +11,10 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 use syslog::{BasicLogger, Facility, Formatter3164};
 use tokio::time;
+
+// Necessary to link right entries.
+#[allow(unused_imports)]
+use bt_shim;
 
 use bt_topshim::{btif::get_btinterface, topstack};
 use btstack::{
@@ -41,6 +42,9 @@ mod iface_bluetooth_media;
 
 const DBUS_SERVICE_NAME: &str = "org.chromium.bluetooth";
 const ADMIN_SETTINGS_FILE_PATH: &str = "/var/lib/bluetooth/admin_policy.json";
+// The maximum ACL disconnect timeout is 3.5s defined by BTA_DM_DISABLE_TIMER_MS
+// and BTA_DM_DISABLE_TIMER_RETRIAL_MS
+const STACK_TURN_OFF_TIMEOUT_MS: Duration = Duration::from_millis(4000);
 
 fn make_object_name(idx: i32, name: &str) -> String {
     String::from(format!("/org/chromium/bluetooth/hci{}/{}", idx, name))
@@ -120,8 +124,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let intf = Arc::new(Mutex::new(get_btinterface().unwrap()));
     let bluetooth_gatt =
         Arc::new(Mutex::new(Box::new(BluetoothGatt::new(intf.clone(), tx.clone()))));
-    let bluetooth_media =
-        Arc::new(Mutex::new(Box::new(BluetoothMedia::new(tx.clone(), intf.clone()))));
     let battery_provider_manager =
         Arc::new(Mutex::new(Box::new(BatteryProviderManager::new(tx.clone()))));
     let battery_service = Arc::new(Mutex::new(Box::new(BatteryService::new(
@@ -132,6 +134,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let battery_manager = Arc::new(Mutex::new(Box::new(BatteryManager::new(
         battery_provider_manager.clone(),
         tx.clone(),
+    ))));
+    let bluetooth_media = Arc::new(Mutex::new(Box::new(BluetoothMedia::new(
+        tx.clone(),
+        intf.clone(),
+        battery_provider_manager.clone(),
     ))));
     let bluetooth_admin = Arc::new(Mutex::new(Box::new(BluetoothAdmin::new(
         String::from(ADMIN_SETTINGS_FILE_PATH),
@@ -369,8 +376,8 @@ extern "C" fn handle_sigterm(_signum: i32) {
 
         let guard = notifier.0.lock().unwrap();
         if *guard {
-            log::debug!("Waiting for stack to turn off for 2s");
-            let _ = notifier.1.wait_timeout(guard, std::time::Duration::from_millis(2000));
+            log::debug!("Waiting for stack to turn off for {:?}", STACK_TURN_OFF_TIMEOUT_MS);
+            let _ = notifier.1.wait_timeout(guard, STACK_TURN_OFF_TIMEOUT_MS);
         }
     }
 

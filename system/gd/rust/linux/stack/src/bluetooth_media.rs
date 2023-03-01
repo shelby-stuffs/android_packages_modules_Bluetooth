@@ -15,11 +15,11 @@ use bt_topshim::profiles::hfp::{
     BthfAudioState, BthfConnectionState, Hfp, HfpCallbacks, HfpCallbacksDispatcher,
     HfpCodecCapability,
 };
+use bt_topshim::profiles::ProfileConnectionState;
 use bt_topshim::{metrics, topstack};
 use bt_utils::uinput::UInput;
 
 use log::{debug, info, warn};
-use num_traits::cast::ToPrimitive;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -29,6 +29,10 @@ use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration, Instant};
 
+use crate::battery_manager::{Battery, BatterySet};
+use crate::battery_provider_manager::{
+    BatteryProviderManager, IBatteryProviderCallback, IBatteryProviderManager,
+};
 use crate::bluetooth::{Bluetooth, BluetoothDevice, IBluetooth};
 use crate::callbacks::Callbacks;
 use crate::uuid;
@@ -77,20 +81,20 @@ pub trait IBluetoothMedia {
     // Set the HFP speaker volume. Valid volume specified by the HFP spec should
     // be in the range of 0-15.
     fn set_hfp_volume(&mut self, volume: u8, address: String);
-    fn start_audio_request(&mut self);
+    fn start_audio_request(&mut self) -> bool;
     fn stop_audio_request(&mut self);
 
-    /// Returns non-zero value iff A2DP audio has started.
-    fn get_a2dp_audio_started(&mut self, address: String) -> u8;
+    /// Returns true iff A2DP audio has started.
+    fn get_a2dp_audio_started(&mut self, address: String) -> bool;
 
     /// Returns the negotiated codec (CVSD=1, mSBC=2) to use if HFP audio has started.
     /// Returns 0 if HFP audio hasn't started.
-    fn get_hfp_audio_started(&mut self, address: String) -> u8;
+    fn get_hfp_audio_final_codecs(&mut self, address: String) -> u8;
 
     fn get_presentation_position(&mut self) -> PresentationPosition;
 
-    // Start the SCO setup to connect audio
-    fn start_sco_call(&mut self, address: String, sco_offload: bool, force_cvsd: bool);
+    /// Start the SCO setup to connect audio
+    fn start_sco_call(&mut self, address: String, sco_offload: bool, force_cvsd: bool) -> bool;
     fn stop_sco_call(&mut self, address: String);
 
     /// Set the current playback status: e.g., playing, paused, stopped, etc. The method is a copy
@@ -164,6 +168,8 @@ pub enum MediaActions {
 
 pub struct BluetoothMedia {
     intf: Arc<Mutex<BluetoothInterface>>,
+    battery_provider_manager: Arc<Mutex<Box<BatteryProviderManager>>>,
+    battery_provider_id: u32,
     initialized: bool,
     callbacks: Arc<Mutex<Callbacks<dyn IBluetoothMediaCallback + Send>>>,
     tx: Sender<Message>,
@@ -187,9 +193,19 @@ pub struct BluetoothMedia {
 }
 
 impl BluetoothMedia {
-    pub fn new(tx: Sender<Message>, intf: Arc<Mutex<BluetoothInterface>>) -> BluetoothMedia {
+    pub fn new(
+        tx: Sender<Message>,
+        intf: Arc<Mutex<BluetoothInterface>>,
+        battery_provider_manager: Arc<Mutex<Box<BatteryProviderManager>>>,
+    ) -> BluetoothMedia {
+        let battery_provider_id = battery_provider_manager
+            .lock()
+            .unwrap()
+            .register_battery_provider(Box::new(BatteryProviderCallback::new()));
         BluetoothMedia {
             intf,
+            battery_provider_manager,
+            battery_provider_id,
             initialized: false,
             callbacks: Arc::new(Mutex::new(Callbacks::new(
                 tx.clone(),
@@ -377,7 +393,11 @@ impl BluetoothMedia {
     pub fn dispatch_avrcp_callbacks(&mut self, cb: AvrcpCallbacks) {
         match cb {
             AvrcpCallbacks::AvrcpDeviceConnected(addr, supported) => {
-                info!("[{}]: avrcp connected.", addr.to_string());
+                info!(
+                    "[{}]: avrcp connected. Absolute volume support: {}.",
+                    addr.to_string(),
+                    supported
+                );
 
                 match self.uinput.create(self.adapter_get_remote_name(addr), addr.to_string()) {
                     Ok(()) => info!("uinput device created for: {}", addr.to_string()),
@@ -565,6 +585,18 @@ impl BluetoothMedia {
                 self.callbacks.lock().unwrap().for_all_callbacks(|callback| {
                     callback.on_hfp_volume_changed(volume, addr.to_string());
                 });
+            }
+            HfpCallbacks::BatteryLevelUpdate(battery_level, addr) => {
+                let battery_set = BatterySet::new(
+                    addr.to_string(),
+                    uuid::HFP.to_string(),
+                    "HFP".to_string(),
+                    vec![Battery { percentage: battery_level as u32, variant: "".to_string() }],
+                );
+                self.battery_provider_manager
+                    .lock()
+                    .unwrap()
+                    .set_battery_info(self.battery_provider_id, battery_set);
             }
             HfpCallbacks::CapsUpdate(wbs_supported, addr) => {
                 let hfp_cap = match wbs_supported {
@@ -774,18 +806,71 @@ impl BluetoothMedia {
         }
     }
 
-    pub fn get_hfp_connection_state(&self) -> u32 {
-        for state in self.hfp_states.values() {
-            return BthfConnectionState::to_u32(state).unwrap_or(0);
+    pub fn get_hfp_connection_state(&self) -> ProfileConnectionState {
+        if self.hfp_audio_state.values().any(|state| *state == BthfAudioState::Connected) {
+            ProfileConnectionState::Active
+        } else {
+            let mut winning_state = ProfileConnectionState::Disconnected;
+            for state in self.hfp_states.values() {
+                // Grab any state higher than the current state.
+                match state {
+                    // Any SLC completed state means the profile is connected.
+                    BthfConnectionState::SlcConnected => {
+                        winning_state = ProfileConnectionState::Connected;
+                    }
+
+                    // Connecting or Connected are both counted as connecting for profile state
+                    // since it's not a complete connection.
+                    BthfConnectionState::Connecting | BthfConnectionState::Connected
+                        if winning_state != ProfileConnectionState::Connected =>
+                    {
+                        winning_state = ProfileConnectionState::Connecting;
+                    }
+
+                    BthfConnectionState::Disconnecting
+                        if winning_state == ProfileConnectionState::Disconnected =>
+                    {
+                        winning_state = ProfileConnectionState::Disconnecting;
+                    }
+
+                    _ => (),
+                }
+            }
+
+            winning_state
         }
-        0
     }
 
-    pub fn get_a2dp_connection_state(&self) -> u32 {
-        for state in self.a2dp_states.values() {
-            return BtavConnectionState::to_u32(state).unwrap_or(0);
+    pub fn get_a2dp_connection_state(&self) -> ProfileConnectionState {
+        if self.a2dp_audio_state.values().any(|state| *state == BtavAudioState::Started) {
+            ProfileConnectionState::Active
+        } else {
+            let mut winning_state = ProfileConnectionState::Disconnected;
+            for state in self.a2dp_states.values() {
+                // Grab any state higher than the current state.
+                match state {
+                    BtavConnectionState::Connected => {
+                        winning_state = ProfileConnectionState::Connected;
+                    }
+
+                    BtavConnectionState::Connecting
+                        if winning_state != ProfileConnectionState::Connected =>
+                    {
+                        winning_state = ProfileConnectionState::Connecting;
+                    }
+
+                    BtavConnectionState::Disconnecting
+                        if winning_state == ProfileConnectionState::Disconnected =>
+                    {
+                        winning_state = ProfileConnectionState::Disconnecting;
+                    }
+
+                    _ => (),
+                }
+            }
+
+            winning_state
         }
-        0
     }
 }
 
@@ -857,7 +942,6 @@ impl IBluetoothMedia for BluetoothMedia {
         // avrcp is disabled.
         // TODO: fix b/251692015
         self.enable_profile(&Profile::AvrcpTarget);
-
         true
     }
 
@@ -1209,14 +1293,17 @@ impl IBluetoothMedia for BluetoothMedia {
         };
     }
 
-    fn start_audio_request(&mut self) {
+    fn start_audio_request(&mut self) -> bool {
         // TODO(b/254808917): revert to debug log once fixed
         info!("Start audio request");
 
         match self.a2dp.as_mut() {
             Some(a2dp) => a2dp.start_audio_request(),
-            None => warn!("Uninitialized A2DP to start audio request"),
-        };
+            None => {
+                warn!("Uninitialized A2DP to start audio request");
+                false
+            }
+        }
     }
 
     fn stop_audio_request(&mut self) {
@@ -1234,11 +1321,11 @@ impl IBluetoothMedia for BluetoothMedia {
         };
     }
 
-    fn start_sco_call(&mut self, address: String, sco_offload: bool, force_cvsd: bool) {
+    fn start_sco_call(&mut self, address: String, sco_offload: bool, force_cvsd: bool) -> bool {
         let addr = match RawAddress::from_string(address.clone()) {
             None => {
                 warn!("Can't start sco call with: {}", address);
-                return;
+                return false;
             }
             Some(addr) => addr,
         };
@@ -1247,7 +1334,7 @@ impl IBluetoothMedia for BluetoothMedia {
         let hfp = match self.hfp.as_mut() {
             None => {
                 warn!("Uninitialized HFP to start the sco call");
-                return;
+                return false;
             }
             Some(hfp) => hfp,
         };
@@ -1255,11 +1342,13 @@ impl IBluetoothMedia for BluetoothMedia {
         match hfp.connect_audio(addr, sco_offload, force_cvsd) {
             0 => {
                 info!("SCO connect_audio status success.");
+                true
             }
             x => {
                 warn!("SCO connect_audio status failed: {}", x);
+                false
             }
-        };
+        }
     }
 
     fn stop_sco_call(&mut self, address: String) {
@@ -1272,6 +1361,7 @@ impl IBluetoothMedia for BluetoothMedia {
         };
 
         info!("Stop sco call for {}", address);
+
         match self.hfp.as_mut() {
             Some(hfp) => {
                 hfp.disconnect_audio(addr);
@@ -1280,22 +1370,22 @@ impl IBluetoothMedia for BluetoothMedia {
         };
     }
 
-    fn get_a2dp_audio_started(&mut self, address: String) -> u8 {
+    fn get_a2dp_audio_started(&mut self, address: String) -> bool {
         let addr = match RawAddress::from_string(address.clone()) {
             None => {
                 warn!("Invalid device address {}", address);
-                return 0;
+                return false;
             }
             Some(addr) => addr,
         };
 
         match self.a2dp_audio_state.get(&addr) {
-            Some(BtavAudioState::Started) => 1,
-            _ => 0,
+            Some(BtavAudioState::Started) => true,
+            _ => false,
         }
     }
 
-    fn get_hfp_audio_started(&mut self, address: String) -> u8 {
+    fn get_hfp_audio_final_codecs(&mut self, address: String) -> u8 {
         let addr = match RawAddress::from_string(address.clone()) {
             None => {
                 warn!("Invalid device address {}", address);
@@ -1353,5 +1443,24 @@ impl IBluetoothMedia for BluetoothMedia {
             Some(avrcp) => avrcp.set_metadata(&metadata),
             None => warn!("Uninitialized AVRCP to set player playback status"),
         };
+    }
+}
+
+struct BatteryProviderCallback {}
+
+impl BatteryProviderCallback {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl IBatteryProviderCallback for BatteryProviderCallback {
+    // We do not support refreshing HFP battery information.
+    fn refresh_battery_info(&self) {}
+}
+
+impl RPCProxy for BatteryProviderCallback {
+    fn get_object_id(&self) -> String {
+        "HFP BatteryProvider Callback".to_string()
     }
 }

@@ -15,25 +15,23 @@
  */
 
 #define LOG_TAG "BluetoothServiceJni"
-#include "com_android_bluetooth.h"
-#include "hardware/bt_sock.h"
-#include "utils/Log.h"
-#include "utils/misc.h"
-
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <hardware/bluetooth.h>
+#include <nativehelper/JNIPlatformHelp.h>
 #include <pthread.h>
 #include <string.h>
-
-#include <fcntl.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
 
-#include <hardware/bluetooth.h>
-#include <nativehelper/JNIPlatformHelp.h>
 #include <mutex>
 
-#include <pthread.h>
+#include "com_android_bluetooth.h"
+#include "hardware/bt_sock.h"
+#include "os/logging/log_redaction.h"
+#include "utils/Log.h"
+#include "utils/misc.h"
 
 using bluetooth::Uuid;
 #ifndef DYNAMIC_LOAD_BLUETOOTH
@@ -369,7 +367,8 @@ static void acl_state_changed_callback(bt_status_t status, RawAddress* bd_addr,
                                        bt_acl_state_t state,
                                        int transport_link_type,
                                        bt_hci_error_code_t hci_reason,
-                                       bt_conn_direction_t direction) {
+                                       bt_conn_direction_t direction,
+                                       uint16_t acl_handle) {
   if (!bd_addr) {
     ALOGE("Address is null in %s", __func__);
     return;
@@ -389,7 +388,8 @@ static void acl_state_changed_callback(bt_status_t status, RawAddress* bd_addr,
 
   sCallbackEnv->CallVoidMethod(sJniCallbacksObj, method_aclStateChangeCallback,
                                (jint)status, addr.get(), (jint)state,
-                               (jint)transport_link_type, (jint)hci_reason);
+                               (jint)transport_link_type, (jint)hci_reason,
+                               (jint)acl_handle);
 }
 
 static void discovery_state_changed_callback(bt_discovery_state_t state) {
@@ -685,11 +685,6 @@ static void dut_mode_recv_callback(uint16_t opcode, uint8_t* buf, uint8_t len) {
 
 }
 
-static void le_test_mode_recv_callback(bt_status_t status,
-                                       uint16_t packet_count) {
-  ALOGV("%s: status:%d packet_count:%d ", __func__, status, packet_count);
-}
-
 static void energy_info_recv_callback(bt_activity_energy_info* p_energy_info,
                                       bt_uid_traffic_t* uid_data) {
   CallbackEnv sCallbackEnv(__func__);
@@ -734,7 +729,6 @@ static bt_callbacks_t sBluetoothCallbacks = {sizeof(sBluetoothCallbacks),
                                              acl_state_changed_callback,
                                              callback_thread_event,
                                              dut_mode_recv_callback,
-                                             le_test_mode_recv_callback,
                                              energy_info_recv_callback,
                                              link_quality_report_callback,
                                              generate_local_oob_data_callback,
@@ -961,8 +955,8 @@ static void classInitNative(JNIEnv* env, jclass clazz) {
   method_leAddressAssociateCallback = env->GetMethodID(
       jniCallbackClass, "leAddressAssociateCallback", "([B[B)V");
 
-  method_aclStateChangeCallback =
-      env->GetMethodID(jniCallbackClass, "aclStateChangeCallback", "(I[BIII)V");
+  method_aclStateChangeCallback = env->GetMethodID(
+      jniCallbackClass, "aclStateChangeCallback", "(I[BIIII)V");
 
   method_linkQualityReportCallback = env->GetMethodID(
       jniCallbackClass, "linkQualityReportCallback", "(JIIIIII)V");
@@ -1810,6 +1804,7 @@ static jboolean allowLowLatencyAudioNative(JNIEnv* env, jobject obj,
     jniThrowIOException(env, EINVAL);
     return false;
   }
+
   RawAddress addr_obj = {};
   addr_obj.FromOctets((uint8_t*)addr);
   sBluetoothInterface->allow_low_latency_audio(allowed, addr_obj);
@@ -1843,6 +1838,11 @@ static void metadataChangedNative(JNIEnv* env, jobject obj, jbyteArray address,
 
   sBluetoothInterface->metadata_changed(addr_obj, key, std::move(val_vec));
   return;
+}
+
+static jboolean isLogRedactionEnabled(JNIEnv* env, jobject obj) {
+  ALOGV("%s", __func__);
+  return bluetooth::os::should_log_be_redacted();
 }
 
 static JNINativeMethod sMethods[] = {
@@ -1888,6 +1888,7 @@ static JNINativeMethod sMethods[] = {
      (void*)requestMaximumTxDataLengthNative},
     {"allowLowLatencyAudioNative", "(Z[B)Z", (void*)allowLowLatencyAudioNative},
     {"metadataChangedNative", "([BI[B)V", (void*)metadataChangedNative},
+    {"isLogRedactionEnabled", "()Z", (void*)isLogRedactionEnabled},
 };
 
 int register_com_android_bluetooth_btservice_AdapterService(JNIEnv* env) {

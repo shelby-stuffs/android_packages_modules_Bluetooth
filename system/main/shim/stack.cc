@@ -44,7 +44,6 @@
 #include "gd/neighbor/connectability.h"
 #include "gd/neighbor/discoverability.h"
 #include "gd/neighbor/inquiry.h"
-#include "gd/neighbor/name.h"
 #include "gd/neighbor/name_db.h"
 #include "gd/neighbor/page.h"
 #include "gd/neighbor/scan.h"
@@ -169,7 +168,6 @@ void Stack::StartEverything() {
     modules.add<neighbor::ConnectabilityModule>();
     modules.add<neighbor::DiscoverabilityModule>();
     modules.add<neighbor::InquiryModule>();
-    modules.add<neighbor::NameModule>();
     modules.add<neighbor::NameDbModule>();
     modules.add<neighbor::PageModule>();
     modules.add<neighbor::ScanModule>();
@@ -317,6 +315,11 @@ os::Handler* Stack::GetHandler() {
 bool Stack::IsDumpsysModuleStarted() const {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   return GetStackManager()->IsStarted<Dumpsys>();
+}
+
+void Stack::LockForDumpsys(std::function<void()> dumpsys_callback) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  dumpsys_callback();
 }
 
 }  // namespace shim

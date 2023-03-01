@@ -23,6 +23,7 @@ import android.annotation.RequiresPermission;
 import android.app.admin.SecurityLog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothAssignedNumbers;
+import android.bluetooth.BluetoothAudioPolicy;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHeadset;
@@ -40,6 +41,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
+import android.os.SystemProperties;
 import android.util.Log;
 
 import com.android.bluetooth.BluetoothStatsLog;
@@ -305,6 +307,8 @@ final class RemoteDevices {
         private String mIdentityAddress;
         private boolean mIsConsolidated = false;
         private int mBluetoothClass = BluetoothClass.Device.Major.UNCATEGORIZED;
+        private int mBredrConnectionHandle = BluetoothDevice.ERROR;
+        private int mLeConnectionHandle = BluetoothDevice.ERROR;
         private short mRssi;
         private String mAlias;
         private BluetoothDevice mDevice;
@@ -314,6 +318,7 @@ final class RemoteDevices {
         @VisibleForTesting int mBondState;
         @VisibleForTesting int mDeviceType;
         @VisibleForTesting ParcelUuid[] mUuids;
+        private BluetoothAudioPolicy mAudioPolicy;
 
         DeviceProperties() {
             mBondState = BluetoothDevice.BOND_NONE;
@@ -388,6 +393,38 @@ final class RemoteDevices {
         void setBluetoothClass(int bluetoothClass) {
             synchronized (mObject) {
                 this.mBluetoothClass = bluetoothClass;
+            }
+        }
+
+        /**
+         * @param transport the transport on which the connection exists
+         * @return the mConnectionHandle
+         */
+        int getConnectionHandle(int transport) {
+            synchronized (mObject) {
+                if (transport == BluetoothDevice.TRANSPORT_BREDR) {
+                    return mBredrConnectionHandle;
+                } else if (transport == BluetoothDevice.TRANSPORT_LE) {
+                    return mLeConnectionHandle;
+                } else {
+                    return BluetoothDevice.ERROR;
+                }
+            }
+        }
+
+        /**
+         * @param connectionHandle the connectionHandle to set
+         * @param transport the transport on which to set the handle
+         */
+        void setConnectionHandle(int connectionHandle, int transport) {
+            synchronized (mObject) {
+                if (transport == BluetoothDevice.TRANSPORT_BREDR) {
+                    mBredrConnectionHandle = connectionHandle;
+                } else if (transport == BluetoothDevice.TRANSPORT_LE) {
+                    mLeConnectionHandle = connectionHandle;
+                } else {
+                    errorLog("setConnectionHandle() unexpected transport value " + transport);
+                }
             }
         }
 
@@ -594,6 +631,14 @@ final class RemoteDevices {
             synchronized (mObject) {
                 this.mIsCoordinatedSetMember = isCoordinatedSetMember;
             }
+        }
+
+        public void setHfAudioPolicyForRemoteAg(BluetoothAudioPolicy policies) {
+            mAudioPolicy = policies;
+        }
+
+        public BluetoothAudioPolicy getHfAudioPolicyForRemoteAg() {
+            return mAudioPolicy;
         }
     }
 
@@ -850,6 +895,12 @@ final class RemoteDevices {
             errorLog("Device Properties is null for Device:" + device);
             return;
         }
+        boolean restrict_device_found =
+                SystemProperties.getBoolean("bluetooth.restrict_discovered_device.enabled", false);
+        if (restrict_device_found && (deviceProp.mName == null || deviceProp.mName.isEmpty())) {
+            debugLog("Device name is null or empty: " + device);
+            return;
+        }
 
         Intent intent = new Intent(BluetoothDevice.ACTION_FOUND);
         intent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
@@ -928,7 +979,7 @@ final class RemoteDevices {
             android.Manifest.permission.BLUETOOTH_PRIVILEGED,
     })
     void aclStateChangeCallback(int status, byte[] address, int newState,
-                                int transportLinkType, int hciReason) {
+                                int transportLinkType, int hciReason, int handle) {
         if (status != AbstractionLayer.BT_STATUS_SUCCESS) {
             debugLog("aclStateChangeCallback status is " + status + ", skipping");
             return;
@@ -941,10 +992,14 @@ final class RemoteDevices {
                     + Utils.getAddressStringFromByte(address) + ", newState=" + newState);
             return;
         }
+
+        DeviceProperties deviceProperties = getDeviceProperties(device);
+
         int state = mAdapterService.getState();
 
         Intent intent = null;
         if (newState == AbstractionLayer.BT_ACL_STATE_CONNECTED) {
+            deviceProperties.setConnectionHandle(handle, transportLinkType);
             if (state == BluetoothAdapter.STATE_ON || state == BluetoothAdapter.STATE_TURNING_ON) {
                 intent = new Intent(BluetoothDevice.ACTION_ACL_CONNECTED);
                 intent.putExtra(BluetoothDevice.EXTRA_TRANSPORT, transportLinkType);
@@ -962,6 +1017,7 @@ final class RemoteDevices {
                     "aclStateChangeCallback: Adapter State: " + BluetoothAdapter.nameForState(state)
                             + " Connected: " + device);
         } else {
+            deviceProperties.setConnectionHandle(BluetoothDevice.ERROR, transportLinkType);
             if (device.getBondState() == BluetoothDevice.BOND_BONDING) {
                 // Send PAIRING_CANCEL intent to dismiss any dialog requesting bonding.
                 intent = new Intent(BluetoothDevice.ACTION_PAIRING_CANCEL);

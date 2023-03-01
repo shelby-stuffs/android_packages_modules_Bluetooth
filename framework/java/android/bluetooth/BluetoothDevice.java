@@ -655,7 +655,9 @@ public final class BluetoothDevice implements Parcelable, Attributable {
             METADATA_UNTETHERED_CASE_LOW_BATTERY_THRESHOLD,
             METADATA_SPATIAL_AUDIO,
             METADATA_FAST_PAIR_CUSTOMIZED_FIELDS,
-            METADATA_LE_AUDIO})
+            METADATA_LE_AUDIO,
+            METADATA_GMCS_CCCD,
+            METADATA_GTBS_CCCD})
     @Retention(RetentionPolicy.SOURCE)
     public @interface MetadataKey{}
 
@@ -808,6 +810,21 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     public static final int METADATA_ENHANCED_SETTINGS_UI_URI = 16;
 
     /**
+     * @hide
+     */
+    public static final String COMPANION_TYPE_PRIMARY = "COMPANION_PRIMARY";
+
+    /**
+     * @hide
+     */
+    public static final String COMPANION_TYPE_SECONDARY = "COMPANION_SECONDARY";
+
+    /**
+     * @hide
+     */
+    public static final String COMPANION_TYPE_NONE = "COMPANION_NONE";
+
+    /**
      * Type of the Bluetooth device, must be within the list of
      * BluetoothDevice.DEVICE_TYPE_*
      * Data type should be {@String} as {@link Byte} array.
@@ -888,6 +905,21 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     @SystemApi
     public static final int METADATA_LE_AUDIO = 26;
 
+    /**
+     * The UUIDs (16-bit) of registered to CCC characteristics from Media Control services.
+     * Data type should be {@link Byte} array.
+     * @hide
+     */
+    public static final int METADATA_GMCS_CCCD = 27;
+
+    /**
+     * The UUIDs (16-bit) of registered to CCC characteristics from Telephony Bearer service.
+     * Data type should be {@link Byte} array.
+     * @hide
+     */
+    public static final int METADATA_GTBS_CCCD = 28;
+
+    private static final int METADATA_MAX_KEY = METADATA_GTBS_CCCD;
 
     /**
      * Device type which is used in METADATA_DEVICE_TYPE
@@ -913,6 +945,14 @@ public final class BluetoothDevice implements Parcelable, Attributable {
      */
     @SystemApi
     public static final String DEVICE_TYPE_UNTETHERED_HEADSET = "Untethered Headset";
+
+    /**
+     * Device type which is used in METADATA_DEVICE_TYPE
+     * Indicates this Bluetooth device is a stylus.
+     * @hide
+     */
+    @SystemApi
+    public static final String DEVICE_TYPE_STYLUS = "Stylus";
 
     /**
      * Broadcast Action: This intent is used to broadcast the {@link UUID}
@@ -1431,6 +1471,9 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     private final String mAddress;
     @AddressType private final int mAddressType;
 
+    private static boolean sIsLogRedactionFlagSynced = false;
+    private static boolean sIsLogRedactionEnabled = true;
+
     private AttributionSource mAttributionSource;
 
     static IBluetooth getService() {
@@ -1475,6 +1518,19 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     @UnsupportedAppUsage
     /*package*/ BluetoothDevice(String address) {
         this(address, ADDRESS_TYPE_PUBLIC);
+    }
+
+    /**
+     * Create a new BluetoothDevice.
+     *
+     * @param in valid parcel
+     * @throws RuntimeException Bluetooth is not available on this platform
+     * @throws IllegalArgumentException address is invalid
+     * @hide
+     */
+    @UnsupportedAppUsage
+    /*package*/ BluetoothDevice(Parcel in) {
+        this(in.readString(), in.readInt());
     }
 
     /** {@hide} */
@@ -1523,6 +1579,46 @@ public final class BluetoothDevice implements Parcelable, Attributable {
         return mAddress;
     }
 
+    private static boolean shouldLogBeRedacted() {
+        boolean defaultValue = true;
+        if (!sIsLogRedactionFlagSynced) {
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter == null || !adapter.isEnabled()) {
+                return defaultValue;
+            }
+            IBluetooth service = adapter.getBluetoothService();
+
+            if (service == null) {
+                Log.e(TAG, "Bluetooth service is not enabled");
+                return defaultValue;
+            }
+
+            try {
+                sIsLogRedactionEnabled = service.isLogRedactionEnabled();
+                sIsLogRedactionFlagSynced = true;
+            } catch (RemoteException e) {
+                // by default, set to true
+                Log.e(TAG, "Failed to call IBluetooth.isLogRedactionEnabled"
+                            + e.toString() + "\n"
+                            + Log.getStackTraceString(new Throwable()));
+                return true;
+            }
+        }
+        return sIsLogRedactionEnabled;
+    }
+
+    /**
+     * Returns a string representation of this BluetoothDevice for logging.
+     * So far, this function only returns hardware address.
+     * If more information is needed, add it here
+     *
+     * @return string representation of this BluetoothDevice used for logging
+     * @hide
+     */
+    public String toStringForLogging() {
+        return getAddressForLogging();
+    }
+
     @Override
     public int describeContents() {
         return 0;
@@ -1530,7 +1626,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
 
     public static final @NonNull Creator<BluetoothDevice> CREATOR = new Creator<>() {
         public BluetoothDevice createFromParcel(Parcel in) {
-            return new BluetoothDevice(in.readString());
+            return new BluetoothDevice(in);
         }
 
         public BluetoothDevice[] newArray(int size) {
@@ -1541,6 +1637,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeString(mAddress);
+        out.writeInt(mAddressType);
     }
 
     /**
@@ -1550,7 +1647,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
      * @return Bluetooth hardware address as string
      */
     public String getAddress() {
-        if (DBG) Log.d(TAG, "mAddress: " + mAddress);
+        if (DBG) Log.d(TAG, "getAddress: mAddress=" + getAddressForLogging());
         return mAddress;
     }
 
@@ -1577,7 +1674,25 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     @NonNull
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public String getAnonymizedAddress() {
-        return "XX:XX:XX" + getAddress().substring(8);
+        return BluetoothUtils.toAnonymizedAddress(mAddress);
+    }
+
+    /**
+     * Returns string representation of the hardware address of this BluetoothDevice
+     * for logging purpose. Depending on the build type and device config,
+     * this function returns either full address string (returned by getAddress),
+     * or a redacted string with the leftmost 4 bytes shown as 'xx',
+     * <p> For example, "xx:xx:xx:xx:aa:bb".
+     * This function is intended to avoid leaking full address in logs.
+     *
+     * @return string representation of the hardware address for logging
+     * @hide
+     */
+    public String getAddressForLogging() {
+        if (shouldLogBeRedacted()) {
+            return getAnonymizedAddress();
+        }
+        return mAddress;
     }
 
     /**
@@ -1974,7 +2089,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
             Log.e(TAG, "BT not enabled. Cannot cancel Remote Device bond");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else {
-            Log.i(TAG, "cancelBondProcess() for device " + getAddress()
+            Log.i(TAG, "cancelBondProcess() for device " + toStringForLogging()
                     + " called by pid: " + Process.myPid()
                     + " tid: " + Process.myTid());
             try {
@@ -2013,7 +2128,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
                     + adapter.getState());
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else {
-            Log.i(TAG, "removeBond() for device " + getAddress()
+            Log.i(TAG, "removeBond() for device " + toStringForLogging()
                     + " called by pid: " + Process.myPid()
                     + " tid: " + Process.myTid());
             try {
@@ -2058,7 +2173,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
                     AttributionSource source = pairQuery.second.first;
                     BluetoothDevice device = pairQuery.second.second;
                     if (DBG) {
-                        log("getBondState(" + device.getAnonymizedAddress() + ") uncached");
+                        log("getBondState(" + device.toStringForLogging() + ") uncached");
                     }
                     try {
                         final SynchronousResultReceiver<Integer> recv =
@@ -2100,7 +2215,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     public int getBondState() {
-        if (DBG) log("getBondState(" + getAnonymizedAddress() + ")");
+        if (DBG) log("getBondState(" + toStringForLogging() + ")");
         final IBluetooth service = getService();
         if (service == null) {
             Log.e(TAG, "BT not enabled. Cannot get bond state");
@@ -2134,7 +2249,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
             android.Manifest.permission.BLUETOOTH_PRIVILEGED,
     })
     public boolean canBondWithoutDialog() {
-        if (DBG) log("canBondWithoutDialog, device: " + this);
+        if (DBG) log("canBondWithoutDialog, device: " + toStringForLogging());
         final IBluetooth service = getService();
         final boolean defaultValue = false;
         if (service == null || !isBluetoothEnabled()) {
@@ -2285,6 +2400,42 @@ public final class BluetoothDevice implements Parcelable, Attributable {
         }
         // BT is not enabled, we cannot be connected.
         return false;
+    }
+
+    /**
+     * Returns the ACL connection handle associated with an open connection to
+     * this device on the given transport.
+     *
+     * @return the ACL handle, or {@link BluetoothDevice#ERROR} if no connection currently exists on
+     *         the given transport.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+    })
+    public int getConnectionHandle(@Transport int transport) {
+        if (DBG) {
+            log("getConnectionHandle()");
+        }
+        final IBluetooth service = getService();
+        if (service == null || !isBluetoothEnabled()) {
+            Log.w(TAG, "Proxy not attached to service");
+            if (DBG) {
+                log(Log.getStackTraceString(new Throwable()));
+            }
+        } else {
+            try {
+                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
+                service.getConnectionHandle(this, transport, mAttributionSource, recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(-1);
+            } catch (RemoteException | TimeoutException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+        // BT is not enabled, we cannot be connected.
+        return BluetoothDevice.ERROR;
     }
 
     /**
@@ -3473,7 +3624,152 @@ public final class BluetoothDevice implements Parcelable, Attributable {
      * @hide
      */
     public static @MetadataKey int getMaxMetadataKey() {
-        return METADATA_LE_AUDIO;
+        return METADATA_MAX_KEY;
+    }
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+        prefix = { "REMOTE_STATUS_" },
+        value = {
+            /** Remote support status of audio policy feature is unknown/unconfigured **/
+            BluetoothAudioPolicy.FEATURE_UNCONFIGURED_BY_REMOTE,
+            /** Remote support status of audio policy feature is supported **/
+            BluetoothAudioPolicy.FEATURE_SUPPORTED_BY_REMOTE,
+            /** Remote support status of audio policy feature is not supported **/
+            BluetoothAudioPolicy.FEATURE_NOT_SUPPORTED_BY_REMOTE,
+        }
+    )
+
+    public @interface AudioPolicyRemoteSupport {}
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(value = {
+            BluetoothStatusCodes.SUCCESS,
+            BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED,
+            BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ALLOWED,
+            BluetoothStatusCodes.ERROR_DEVICE_NOT_BONDED,
+            BluetoothStatusCodes.ERROR_MISSING_BLUETOOTH_CONNECT_PERMISSION,
+            BluetoothStatusCodes.FEATURE_NOT_SUPPORTED,
+            BluetoothStatusCodes.ERROR_PROFILE_NOT_CONNECTED,
+    })
+    public @interface AudioPolicyReturnValues{}
+
+    /**
+     * Returns whether the audio policy feature is supported by the remote.
+     * This requires a vendor specific command, so the API returns
+     * {@link BluetoothAudioPolicy#FEATURE_UNCONFIGURED_BY_REMOTE} to indicate the remote
+     * device has not yet relayed this information. After the internal configuration,
+     * the support status will be set to either
+     * {@link BluetoothAudioPolicy#FEATURE_NOT_SUPPORTED_BY_REMOTE} or
+     * {@link BluetoothAudioPolicy#FEATURE_SUPPORTED_BY_REMOTE}.
+     * The rest of the APIs related to this feature in both {@link BluetoothDevice}
+     * and {@link BluetoothAudioPolicy} should be invoked  only after getting a
+     * {@link BluetoothAudioPolicy#FEATURE_SUPPORTED_BY_REMOTE} response from this API.
+     *
+     * @return if call audio policy feature is supported or not
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+    })
+    public @AudioPolicyRemoteSupport int getAudioPolicyRemoteSupported() {
+        if (DBG) log("getAudioPolicyRemoteSupported()");
+        final IBluetooth service = getService();
+        final int defaultValue = BluetoothAudioPolicy.FEATURE_UNCONFIGURED_BY_REMOTE;
+        if (service == null || !isBluetoothEnabled()) {
+            Log.e(TAG, "BT not enabled. Cannot retrieve audio policy support status.");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else {
+            try {
+                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
+                service.getAudioPolicyRemoteSupported(this, mAttributionSource, recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
+            } catch (TimeoutException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            } catch (RemoteException e) {
+                Log.e(TAG, "", e);
+                throw e.rethrowFromSystemServer();
+            }
+        }
+        return defaultValue;
+    }
+
+    /**
+     * Sets call audio preferences and sends them to the remote device.
+     *
+     * @param policies call audio policy preferences
+     * @return whether audio policy was set successfully or not
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+    })
+    public @AudioPolicyReturnValues int setAudioPolicy(@NonNull BluetoothAudioPolicy policies) {
+        if (DBG) log("setAudioPolicy");
+        final IBluetooth service = getService();
+        final int defaultValue = BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
+        if (service == null || !isBluetoothEnabled()) {
+            Log.e(TAG, "Bluetooth is not enabled. Cannot set Audio Policy.");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else {
+            try {
+                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
+                service.setAudioPolicy(this, policies, mAttributionSource, recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
+            } catch (RemoteException | TimeoutException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+        return defaultValue;
+    }
+
+    /**
+     * Gets the call audio preferences for the remote device.
+     * <p>Note that the caller should check if the feature is supported by
+     * invoking {@link BluetoothDevice#getAudioPolicyRemoteSupported} first.
+     * <p>This API will return null if
+     * 1. The bleutooth service is not started yet,
+     * 2. It is invoked for a device which is not bonded, or
+     * 3. The used transport, for example, HFP Client profile is not enabled or
+     * connected yet.
+     *
+     * @return call audio policy as {@link BluetoothAudioPolicy} object
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+    })
+    public @Nullable BluetoothAudioPolicy getAudioPolicy() {
+        if (DBG) log("getAudioPolicy");
+        final IBluetooth service = getService();
+        if (service == null || !isBluetoothEnabled()) {
+            Log.e(TAG, "Bluetooth is not enabled. Cannot get Audio Policy.");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else {
+            try {
+                final SynchronousResultReceiver<BluetoothAudioPolicy>
+                        recv = SynchronousResultReceiver.get();
+                service.getAudioPolicy(this, mAttributionSource, recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+            } catch (RemoteException | TimeoutException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+        return null;
     }
 
     /**

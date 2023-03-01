@@ -61,6 +61,7 @@
 #include <shared_mutex>
 
 #include "com_android_bluetooth.h"
+#include "gd/common/init_flags.h"
 #include "hardware/bt_gatt.h"
 #include "utils/Log.h"
 #define info(fmt, ...) ALOGI("%s(L%d): " fmt, __func__, __LINE__, ##__VA_ARGS__)
@@ -607,8 +608,10 @@ void btgattc_service_changed_cb(int conn_id) {
   sCallbackEnv->CallVoidMethod(mCallbacksObj, method_onServiceChanged, conn_id);
 }
 
-void btgattc_subrate_change_cb(int conn_id, uint16_t subrate_factor, uint16_t latency,
-                               uint16_t cont_num, uint16_t timeout, uint8_t status) {
+void btgattc_subrate_change_cb(int conn_id, uint16_t subrate_factor,
+                               uint16_t latency, uint16_t cont_num,
+                               uint16_t timeout, uint8_t status) {
+  std::shared_lock<std::shared_mutex> lock(callbacks_mutex);
   CallbackEnv sCallbackEnv(__func__);
   if (!sCallbackEnv.valid()) return;
   if (!mCallbacksObj) {
@@ -617,7 +620,8 @@ void btgattc_subrate_change_cb(int conn_id, uint16_t subrate_factor, uint16_t la
   }
 
   sCallbackEnv->CallVoidMethod(mCallbacksObj, method_onClientSubrateChange,
-                               conn_id, subrate_factor, latency, cont_num, timeout, status);
+                               conn_id, subrate_factor, latency, cont_num,
+                               timeout, status);
 }
 
 static const btgatt_scanner_callbacks_t sGattScannerCallbacks = {
@@ -845,8 +849,10 @@ void btgatts_conn_updated_cb(int conn_id, uint16_t interval, uint16_t latency,
                                conn_id, interval, latency, timeout, status);
 }
 
-void btgatts_subrate_change_cb(int conn_id, uint16_t subrate_factor, uint16_t latency,
-                               uint16_t cont_num, uint16_t timeout, uint8_t status) {
+void btgatts_subrate_change_cb(int conn_id, uint16_t subrate_factor,
+                               uint16_t latency, uint16_t cont_num,
+                               uint16_t timeout, uint8_t status) {
+  std::shared_lock<std::shared_mutex> lock(callbacks_mutex);
   CallbackEnv sCallbackEnv(__func__);
   if (!sCallbackEnv.valid()) return;
   if (!mCallbacksObj) {
@@ -855,7 +861,8 @@ void btgatts_subrate_change_cb(int conn_id, uint16_t subrate_factor, uint16_t la
   }
 
   sCallbackEnv->CallVoidMethod(mCallbacksObj, method_onServerSubrateChange,
-                               conn_id, subrate_factor, latency, cont_num, timeout, status);
+                               conn_id, subrate_factor, latency, cont_num,
+                               timeout, status);
 }
 
 static const btgatt_server_callbacks_t sGattServerCallbacks = {
@@ -1278,7 +1285,7 @@ static void classInitNative(JNIEnv* env, jclass clazz) {
   method_onServerConnUpdate =
       env->GetMethodID(clazz, "onServerConnUpdate", "(IIIII)V");
   method_onServerSubrateChange =
-        env->GetMethodID(clazz, "onServerSubrateChange", "(IIIIII)V");
+      env->GetMethodID(clazz, "onServerSubrateChange", "(IIIIII)V");
 
   info("classInitNative: Success!");
 }
@@ -1868,9 +1875,9 @@ static void gattSubrateRequestNative(JNIEnv* env, jobject object,
                                      jint max_latency, jint cont_num,
                                      jint sup_timeout) {
   if (!sGattIf) return;
-  sGattIf->client->subrate_request(
-      str2addr(env, address), subrate_min, subrate_max, max_latency, cont_num,
-      sup_timeout);
+  sGattIf->client->subrate_request(str2addr(env, address), subrate_min,
+                                   subrate_max, max_latency, cont_num,
+                                   sup_timeout);
 }
 
 void batchscan_cfg_storage_cb(uint8_t client_if, uint8_t status) {
@@ -2112,7 +2119,6 @@ static void gattServerSendResponseNative(JNIEnv* env, jobject object,
     if (env->GetArrayLength(val) < BTGATT_MAX_ATTR_LEN) {
       response.attr_value.len = (uint16_t)env->GetArrayLength(val);
     } else {
-      android_errorWriteLog(0x534e4554, "78787521");
       response.attr_value.len = BTGATT_MAX_ATTR_LEN;
     }
 
@@ -2238,7 +2244,8 @@ static PeriodicAdvertisingParameters parsePeriodicParams(JNIEnv* env,
   uint16_t interval = env->CallIntMethod(i, methodId);
 
   p.enable = true;
-  p.include_adi = false;
+  p.include_adi =
+      bluetooth::common::init_flags::periodic_advertising_adi_is_enabled();
   p.min_interval = interval;
   p.max_interval = interval + 16; /* 20ms difference betwen min and max */
   uint16_t props = 0;
@@ -2436,7 +2443,8 @@ static void setPeriodicAdvertisingEnableNative(JNIEnv* env, jobject object,
                                                jboolean enable) {
   if (!sGattIf) return;
 
-  bool include_adi = false;
+  bool include_adi =
+      bluetooth::common::init_flags::periodic_advertising_adi_is_enabled();
   sGattIf->advertiser->SetPeriodicAdvertisingEnable(
       advertiser_id, enable, include_adi,
       base::Bind(&enablePeriodicSetCb, advertiser_id, enable));

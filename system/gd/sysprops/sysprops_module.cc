@@ -68,6 +68,7 @@ void SyspropsModule::parse_config(std::string file_path) {
       // General
       "bluetooth.device.default_name",
       "bluetooth.core.gap.le.privacy.enabled",
+      "bluetooth.core.gap.le.conn.only_init_1m_phy.enabled",
       "bluetooth.device.class_of_device",
       // BR/EDR
       "bluetooth.core.classic.page_scan_type",
@@ -98,6 +99,8 @@ void SyspropsModule::parse_config(std::string file_path) {
       "bluetooth.core.le.inquiry_scan_window",
       // SCO
       "bluetooth.sco.disable_enhanced_connection",
+      // Profile
+      "persist.bluetooth.avrcpcontrolversion",
   };
 
   auto config = storage::LegacyConfigFile::FromPath(file_path).Read(kDefaultCapacity);

@@ -153,12 +153,11 @@ typedef void (*conn_updated_callback)(int conn_id, uint16_t interval,
                                       uint16_t latency, uint16_t timeout,
                                       uint8_t status);
 
-/** Callback invoked when the connection's subrate parameters for a given connection
- * changes */
+/** Callback invoked when the subrate change event for a given connection
+ * is received */
 typedef void (*subrate_change_callback)(int conn_id, uint16_t subrate_factor,
-                                        uint16_t latency, uint16_t cont_num, 
+                                        uint16_t latency, uint16_t cont_num,
                                         uint16_t timeout, uint8_t status);
-
 typedef struct {
   register_server_callback register_server_cb;
   connection_callback connection_cb;

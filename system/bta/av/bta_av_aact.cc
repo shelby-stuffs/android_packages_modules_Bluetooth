@@ -1636,30 +1636,31 @@ void bta_av_open_failed(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
      don't send disconnect req, just report the open event with
      BTA_AV_FAIL_GET_CAP status */
   if (is_av_opened) {
-    tBTA_AV_OPEN open;
-    open.bd_addr = p_scb->PeerAddress();
-    open.chnl = p_scb->chnl;
-    open.hndl = p_scb->hndl;
-    open.status = BTA_AV_FAIL_GET_CAP;
-    open.starting = bta_av_chk_start(p_scb);
-    open.edr = 0;
+    tBTA_AV bta_av_data = {.open = {
+                               .chnl = p_scb->chnl,
+                               .hndl = p_scb->hndl,
+                               .bd_addr = p_scb->PeerAddress(),
+                               .status = BTA_AV_FAIL_GET_CAP,
+                               .starting = bta_av_chk_start(p_scb),
+                               .edr = 0,
+                               .sep = AVDT_TSEP_INVALID,
+                           }};
     /* set the state back to initial state */
     bta_av_set_scb_sst_init(p_scb);
 
     if (p_scb->seps[p_scb->sep_idx].tsep == AVDT_TSEP_SRC) {
-      open.sep = AVDT_TSEP_SNK;
+      bta_av_data.open.sep = AVDT_TSEP_SNK;
     } else if (p_scb->seps[p_scb->sep_idx].tsep == AVDT_TSEP_SNK) {
-      open.sep = AVDT_TSEP_SRC;
+      bta_av_data.open.sep = AVDT_TSEP_SRC;
     }
 
     APPL_TRACE_ERROR(
         "%s: there is already an active connection: peer_addr=%s chnl=%d "
         "hndl=0x%x status=%d starting=%d edr=%d",
-        __func__, ADDRESS_TO_LOGGABLE_CSTR(open.bd_addr), open.chnl, open.hndl,
-        open.status, open.starting, open.edr);
+        __func__, ADDRESS_TO_LOGGABLE_CSTR(bta_av_data.open.bd_addr),
+        bta_av_data.open.chnl, bta_av_data.open.hndl, bta_av_data.open.status,
+        bta_av_data.open.starting, bta_av_data.open.edr);
 
-    tBTA_AV bta_av_data;
-    bta_av_data.open = open;
     (*bta_av_cb.p_cback)(BTA_AV_OPEN_EVT, &bta_av_data);
   } else {
     AVDT_DisconnectReq(p_scb->PeerAddress(), &bta_av_proc_stream_evt);
@@ -1734,9 +1735,13 @@ void bta_av_getcap_results(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
     if ((uuid_int == UUID_SERVCLASS_AUDIO_SINK) &&
         (p_scb->seps[p_scb->sep_idx].p_app_sink_data_cback != NULL)) {
       APPL_TRACE_DEBUG("%s: configure decoder for Sink connection", __func__);
-      tBTA_AV_MEDIA av_sink_codec_info;
-      av_sink_codec_info.avk_config.bd_addr = p_scb->PeerAddress();
-      av_sink_codec_info.avk_config.codec_info = p_scb->cfg.codec_info;
+      tBTA_AV_MEDIA av_sink_codec_info = {
+          .avk_config =
+              {
+                  .codec_info = p_scb->cfg.codec_info,
+                  .bd_addr = p_scb->PeerAddress(),
+              },
+      };
       p_scb->seps[p_scb->sep_idx].p_app_sink_data_cback(
           p_scb->PeerAddress(), BTA_AV_SINK_MEDIA_CFG_EVT, &av_sink_codec_info);
     }
@@ -1765,7 +1770,6 @@ void bta_av_getcap_results(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
  *
  ******************************************************************************/
 void bta_av_setconfig_rej(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
-  tBTA_AV_REJECT reject;
   uint8_t avdt_handle = p_data->ci_setconfig.avdt_handle;
 
   bta_av_adjust_seps_idx(p_scb, avdt_handle);
@@ -1773,11 +1777,14 @@ void bta_av_setconfig_rej(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
            p_scb->sep_idx, p_scb->avdt_handle, p_scb->hndl);
   AVDT_ConfigRsp(p_scb->avdt_handle, p_scb->avdt_label, AVDT_ERR_UNSUP_CFG, 0);
 
-  reject.bd_addr = p_data->str_msg.bd_addr;
-  reject.hndl = p_scb->hndl;
+  tBTA_AV bta_av_data = {
+      .reject =
+          {
+              .bd_addr = p_data->str_msg.bd_addr,
+              .hndl = p_scb->hndl,
+          },
+  };
 
-  tBTA_AV bta_av_data;
-  bta_av_data.reject = reject;
   (*bta_av_cb.p_cback)(BTA_AV_REJECT_EVT, &bta_av_data);
 }
 
@@ -1828,7 +1835,7 @@ void bta_av_do_start(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
   LOG_INFO(
       "A2dp stream start peer:%s sco_occupied:%s av_role:0x%x started:%s "
       "wait:0x%x",
-      PRIVATE_ADDRESS(p_scb->PeerAddress()),
+      ADDRESS_TO_LOGGABLE_CSTR(p_scb->PeerAddress()),
       logbool(bta_av_cb.sco_occupied).c_str(), p_scb->role,
       logbool(p_scb->started).c_str(), p_scb->wait);
   if (bta_av_cb.sco_occupied) {
@@ -1909,7 +1916,6 @@ void bta_av_do_start(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
  *
  ******************************************************************************/
 void bta_av_str_stopped(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
-  tBTA_AV_SUSPEND suspend_rsp;
   uint8_t start = p_scb->started;
   bool sus_evt = true;
   BT_HDR* p_buf;
@@ -1951,6 +1957,7 @@ void bta_av_str_stopped(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
       L2CA_FlushChannel(p_scb->l2c_cid, L2CAP_FLUSH_CHANS_ALL);
   }
 
+  tBTA_AV_SUSPEND suspend_rsp = {};
   suspend_rsp.chnl = p_scb->chnl;
   suspend_rsp.hndl = p_scb->hndl;
 
@@ -2003,7 +2010,7 @@ void bta_av_str_stopped(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
  ******************************************************************************/
 void bta_av_reconfig(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
   AvdtpSepConfig* p_cfg;
-  tBTA_AV_API_STOP stop;
+  tBTA_AV_API_STOP stop = {};
   tBTA_AV_API_RCFG* p_rcfg = &p_data->api_reconfig;
 
   APPL_TRACE_DEBUG("%s: r:%d, s:%d idx: %d (o:%d)", __func__, p_scb->recfg_sup,
@@ -2272,13 +2279,16 @@ void bta_av_start_ok(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
     p_scb->wait &= ~BTA_AV_WAIT_ROLE_SW_BITS;
     if (p_data->hdr.offset == BTA_AV_RS_FAIL) {
       bta_sys_idle(BTA_ID_AV, bta_av_cb.audio_open_cnt, p_scb->PeerAddress());
-      tBTA_AV_START start;
-      start.chnl = p_scb->chnl;
-      start.status = BTA_AV_FAIL_ROLE;
-      start.hndl = p_scb->hndl;
-      start.initiator = initiator;
-      tBTA_AV bta_av_data;
-      bta_av_data.start = start;
+      tBTA_AV bta_av_data = {
+          .start =
+              {
+                  .chnl = p_scb->chnl,
+                  .hndl = p_scb->hndl,
+                  .status = BTA_AV_FAIL_ROLE,
+                  .initiator = initiator,
+                  .suspending = false,
+              },
+      };
       (*bta_av_cb.p_cback)(BTA_AV_START_EVT, &bta_av_data);
       return;
     }

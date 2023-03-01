@@ -1107,12 +1107,14 @@ void btm_process_inq_results(const uint8_t* p, uint8_t hci_evt_len,
   uint16_t clock_offset;
   const uint8_t* p_eir_data = NULL;
 
-#if (BTM_INQ_DEBUG == TRUE)
-  BTM_TRACE_DEBUG("btm_process_inq_results inq_active:0x%x state:%d",
-                  btm_cb.btm_inq_vars.inq_active, btm_cb.btm_inq_vars.state);
-#endif
+  LOG_DEBUG("Received inquiry result inq_active:0x%x state:%d",
+            btm_cb.btm_inq_vars.inq_active, btm_cb.btm_inq_vars.state);
+
   /* Only process the results if the BR inquiry is still active */
-  if (!(p_inq->inq_active & BTM_BR_INQ_ACTIVE_MASK)) return;
+  if (!(p_inq->inq_active & BTM_BR_INQ_ACTIVE_MASK)) {
+    LOG_INFO("Inquiry is inactive so dropping inquiry result");
+    return;
+  }
 
   STREAM_TO_UINT8(num_resp, p);
 
@@ -1125,7 +1127,6 @@ void btm_process_inq_results(const uint8_t* p, uint8_t hci_evt_len,
 
     constexpr uint16_t extended_inquiry_result_size = 254;
     if (hci_evt_len - 1 != extended_inquiry_result_size) {
-      android_errorWriteLog(0x534e4554, "141620271");
       BTM_TRACE_ERROR("%s: can't fit %d results in %d bytes", __func__,
                       num_resp, hci_evt_len);
       return;
@@ -1134,7 +1135,6 @@ void btm_process_inq_results(const uint8_t* p, uint8_t hci_evt_len,
              inq_res_mode == BTM_INQ_RESULT_WITH_RSSI) {
     constexpr uint16_t inquiry_result_size = 14;
     if (hci_evt_len < num_resp * inquiry_result_size) {
-      android_errorWriteLog(0x534e4554, "141620271");
       BTM_TRACE_ERROR("%s: can't fit %d results in %d bytes", __func__,
                       num_resp, hci_evt_len);
       return;
@@ -1258,7 +1258,7 @@ void btm_process_inq_results(const uint8_t* p, uint8_t hci_evt_len,
         (p_inq_results_cb)((tBTM_INQ_RESULTS*)p_cur, p_eir_data,
                            HCI_EXT_INQ_RESPONSE_LEN);
       } else {
-        BTM_TRACE_DEBUG("No callback is registered");
+        LOG_WARN("No callback is registered for inquiry result");
       }
     }
   }

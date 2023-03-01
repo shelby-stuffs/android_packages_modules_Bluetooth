@@ -74,6 +74,10 @@ static void bta_gattc_phy_update_cback(tGATT_IF gatt_if, uint16_t conn_id,
 static void bta_gattc_conn_update_cback(tGATT_IF gatt_if, uint16_t conn_id,
                                         uint16_t interval, uint16_t latency,
                                         uint16_t timeout, tGATT_STATUS status);
+static void bta_gattc_subrate_chg_cback(tGATT_IF gatt_if, uint16_t conn_id,
+                                        uint16_t subrate_factor,
+                                        uint16_t latency, uint16_t cont_num,
+                                        uint16_t timeout, tGATT_STATUS status);
 static void bta_gattc_init_bk_conn(const tBTA_GATTC_API_OPEN* p_data,
                                    tBTA_GATTC_RCB* p_clreg);
 
@@ -87,6 +91,7 @@ static tGATT_CBACK bta_gattc_cl_cback = {
     .p_congestion_cb = bta_gattc_cong_cback,
     .p_phy_update_cb = bta_gattc_phy_update_cback,
     .p_conn_update_cb = bta_gattc_conn_update_cback,
+    .p_subrate_chg_cb = bta_gattc_subrate_chg_cback,
 };
 
 /* opcode(tGATTC_OPTYPE) order has to be comply with internal event order */
@@ -280,7 +285,7 @@ void bta_gattc_process_api_open(const tBTA_GATTC_DATA* p_msg) {
     return;
   }
 
-  if (!p_msg->api_conn.is_direct) {
+  if (p_msg->api_conn.connection_type != BTM_BLE_DIRECT_CONNECTION) {
     bta_gattc_init_bk_conn(&p_msg->api_conn, p_clreg);
     return;
   }
@@ -383,8 +388,9 @@ void bta_gattc_open(tBTA_GATTC_CLCB* p_clcb, const tBTA_GATTC_DATA* p_data) {
   tBTA_GATTC_DATA gattc_data;
 
   /* open/hold a connection */
-  if (!GATT_Connect(p_clcb->p_rcb->client_if, p_data->api_conn.remote_bda, true,
-                    p_data->api_conn.transport, p_data->api_conn.opportunistic,
+  if (!GATT_Connect(p_clcb->p_rcb->client_if, p_data->api_conn.remote_bda,
+                    BTM_BLE_DIRECT_CONNECTION, p_data->api_conn.transport,
+                    p_data->api_conn.opportunistic,
                     p_data->api_conn.initiating_phys)) {
     LOG(ERROR) << "Connection open failure";
     bta_gattc_sm_execute(p_clcb, BTA_GATTC_INT_OPEN_FAIL_EVT, p_data);
@@ -423,8 +429,8 @@ static void bta_gattc_init_bk_conn(const tBTA_GATTC_API_OPEN* p_data,
   }
 
   /* always call open to hold a connection */
-  if (!GATT_Connect(p_data->client_if, p_data->remote_bda, false,
-                    p_data->transport, false)) {
+  if (!GATT_Connect(p_data->client_if, p_data->remote_bda,
+                    p_data->connection_type, p_data->transport, false)) {
     LOG_ERROR("Unable to connect to remote bd_addr=%s",
               ADDRESS_TO_LOGGABLE_CSTR(p_data->remote_bda));
     bta_gattc_send_open_cback(p_clreg, GATT_ERROR, p_data->remote_bda,
@@ -443,7 +449,7 @@ static void bta_gattc_init_bk_conn(const tBTA_GATTC_API_OPEN* p_data,
       p_data->client_if, p_data->remote_bda, BT_TRANSPORT_LE);
   if (!p_clcb) {
     LOG_WARN("Unable to find connection link for device:%s",
-             PRIVATE_ADDRESS(p_data->remote_bda));
+             ADDRESS_TO_LOGGABLE_CSTR(p_data->remote_bda));
     return;
   }
 
@@ -636,6 +642,18 @@ void bta_gattc_close(tBTA_GATTC_CLCB* p_clcb, const tBTA_GATTC_DATA* p_data) {
         p_clreg->notif_reg[i].remote_bda == p_clcb->bda) {
       p_clreg->notif_reg[i].app_disconnected = true;
     }
+  }
+
+  if (p_data->hdr.event == BTA_GATTC_INT_DISCONN_EVT) {
+    /* Since link has been disconnected by and it is possible that here are
+     * already some new p_clcb created for the background connect, the number of
+     * p_srcb->num_clcb is NOT 0. This will prevent p_srcb to be cleared inside
+     * the bta_gattc_clcb_dealloc.
+     *
+     * In this point of time, we know that link does not exist, so let's make
+     * sure the connection state, mtu and database is cleared.
+     */
+    bta_gattc_server_disconnected(p_clcb->p_srcb);
   }
 
   bta_gattc_clcb_dealloc(p_clcb);
@@ -1234,13 +1252,13 @@ static void bta_gattc_conn_cback(tGATT_IF gattc_if, const RawAddress& bdaddr,
                                  tBT_TRANSPORT transport) {
   if (connected) {
     LOG_INFO("Connected client_if:%hhu addr:%s, transport:%s reason:%s",
-             gattc_if, PRIVATE_ADDRESS(bdaddr),
+             gattc_if, ADDRESS_TO_LOGGABLE_CSTR(bdaddr),
              bt_transport_text(transport).c_str(),
              gatt_disconnection_reason_text(reason).c_str());
     btif_debug_conn_state(bdaddr, BTIF_DEBUG_CONNECTED, GATT_CONN_OK);
   } else {
     LOG_INFO("Disconnected att_id:%hhu addr:%s, transport:%s reason:%s",
-             gattc_if, PRIVATE_ADDRESS(bdaddr),
+             gattc_if, ADDRESS_TO_LOGGABLE_CSTR(bdaddr),
              bt_transport_text(transport).c_str(),
              gatt_disconnection_reason_text(reason).c_str());
     btif_debug_conn_state(bdaddr, BTIF_DEBUG_DISCONNECTED, GATT_CONN_OK);
@@ -1572,4 +1590,25 @@ static void bta_gattc_conn_update_cback(tGATT_IF gatt_if, uint16_t conn_id,
   cb_data.conn_update.timeout = timeout;
   cb_data.conn_update.status = status;
   (*p_clreg->p_cback)(BTA_GATTC_CONN_UPDATE_EVT, &cb_data);
+}
+
+static void bta_gattc_subrate_chg_cback(tGATT_IF gatt_if, uint16_t conn_id,
+                                        uint16_t subrate_factor,
+                                        uint16_t latency, uint16_t cont_num,
+                                        uint16_t timeout, tGATT_STATUS status) {
+  tBTA_GATTC_RCB* p_clreg = bta_gattc_cl_get_regcb(gatt_if);
+
+  if (!p_clreg || !p_clreg->p_cback) {
+    LOG(ERROR) << __func__ << ": client_if=" << gatt_if << " not found";
+    return;
+  }
+
+  tBTA_GATTC cb_data;
+  cb_data.subrate_chg.conn_id = conn_id;
+  cb_data.subrate_chg.subrate_factor = subrate_factor;
+  cb_data.subrate_chg.latency = latency;
+  cb_data.subrate_chg.cont_num = cont_num;
+  cb_data.subrate_chg.timeout = timeout;
+  cb_data.subrate_chg.status = status;
+  (*p_clreg->p_cback)(BTA_GATTC_SUBRATE_CHG_EVT, &cb_data);
 }

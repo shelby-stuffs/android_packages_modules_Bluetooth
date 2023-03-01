@@ -39,7 +39,7 @@ enum Type {
 // SendLinkLayerPacket as forwarding packets to a registered handler.
 class BaseController : public DualModeController {
  public:
-  BaseController() : DualModeController() {
+  BaseController() {
     RegisterTaskScheduler(
         [this](std::chrono::milliseconds delay, TaskCallback const& task) {
           return this->async_manager_.ExecAsync(0, delay, task);
@@ -77,8 +77,7 @@ class BaseController : public DualModeController {
 
   virtual void SendLinkLayerPacket(
       std::shared_ptr<model::packets::LinkLayerPacketBuilder> packet,
-      Phy::Type phy_type_) override {
-    (void)phy_type_;
+      Phy::Type /*phy_type*/, int8_t /*tx_power*/) override {
     auto bytes = std::make_shared<std::vector<uint8_t>>();
     bluetooth::packet::BitInserter inserter(*bytes);
     bytes->reserve(packet->size());
@@ -88,8 +87,8 @@ class BaseController : public DualModeController {
 
  private:
   std::function<void(std::shared_ptr<std::vector<uint8_t>>)> send_ll_{};
-  AsyncManager async_manager_;
-  AsyncTaskId timer_task_id_;
+  AsyncManager async_manager_{};
+  AsyncTaskId timer_task_id_{kInvalidTaskId};
 
   BaseController(BaseController const&) = delete;
   DualModeController& operator=(BaseController const&) = delete;
@@ -116,6 +115,10 @@ PYBIND11_MODULE(lib_rootcanal_python3, m) {
 
         bluetooth::hci::Address rpa =
             rootcanal::LinkLayerController::generate_rpa(irk);
+        // Python address representation keeps the same
+        // byte order as the string representation, instead of using
+        // little endian order.
+        std::reverse(rpa.address.begin(), rpa.address.end());
         return rpa.address;
       },
       "Bluetooth RPA generation");
@@ -126,10 +129,17 @@ PYBIND11_MODULE(lib_rootcanal_python3, m) {
 
   // Implement the constructor with two callback parameters to
   // handle emitted HCI packets and LL packets.
-  basic_controller.def(py::init([](py::object hci_handler,
+  basic_controller.def(py::init([](std::string address_str,
+                                   py::object hci_handler,
                                    py::object ll_handler) {
     std::shared_ptr<BaseController> controller =
         std::make_shared<BaseController>();
+
+    std::optional<bluetooth::hci::Address> address =
+        bluetooth::hci::Address::FromString(address_str);
+    if (address.has_value()) {
+      controller->SetAddress(address.value());
+    }
     controller->RegisterEventChannel(
         [=](std::shared_ptr<std::vector<uint8_t>> data) {
           pybind11::gil_scoped_acquire acquire;
@@ -201,11 +211,11 @@ PYBIND11_MODULE(lib_rootcanal_python3, m) {
         }
       });
 
-  // Implement method BaseController.receive_hci which
+  // Implement method BaseController.send_ll which
   // injects LL packets into the controller as if sent over the air.
   basic_controller.def(
       "send_ll", [](std::shared_ptr<rootcanal::BaseController> controller,
-                    py::bytes data) {
+                    py::bytes data, int rssi) {
         std::string data_str = data;
         std::shared_ptr<std::vector<uint8_t>> bytes =
             std::make_shared<std::vector<uint8_t>>(data_str.begin(),
@@ -219,7 +229,7 @@ PYBIND11_MODULE(lib_rootcanal_python3, m) {
           std::cerr << "Dropping malformed LL packet" << std::endl;
           return;
         }
-        controller->IncomingPacket(std::move(packet));
+        controller->IncomingPacket(std::move(packet), rssi);
       });
 }
 

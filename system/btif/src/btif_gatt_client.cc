@@ -241,6 +241,13 @@ static void btif_gattc_upstreams_evt(uint16_t event, char* p_param) {
                 p_data->service_changed.conn_id);
       break;
 
+    case BTA_GATTC_SUBRATE_CHG_EVT:
+      HAL_CBACK(bt_gatt_callbacks, client->subrate_chg_cb,
+                p_data->subrate_chg.conn_id, p_data->subrate_chg.subrate_factor,
+                p_data->subrate_chg.latency, p_data->subrate_chg.cont_num,
+                p_data->subrate_chg.timeout, p_data->subrate_chg.status);
+      break;
+
     default:
       LOG_ERROR("Unhandled event (%d)!", event);
       break;
@@ -360,7 +367,9 @@ void btif_gattc_open_impl(int client_if, RawAddress address, bool is_direct,
   // Connect!
   LOG_INFO("Transport=%d, device type=%d, address type =%d, phy=%d", transport,
            device_type, addr_type, initiating_phys);
-  BTA_GATTC_Open(client_if, address, is_direct, transport, opportunistic,
+  tBTM_BLE_CONN_TYPE type =
+      is_direct ? BTM_BLE_DIRECT_CONNECTION : BTM_BLE_BKG_CONNECT_ALLOW_LIST;
+  BTA_GATTC_Open(client_if, address, type, transport, opportunistic,
                  initiating_phys);
 }
 
@@ -376,7 +385,7 @@ static bt_status_t btif_gattc_open(int client_if, const RawAddress& bd_addr,
 
 void btif_gattc_close_impl(int client_if, RawAddress address, int conn_id) {
   LOG_INFO("client_if=%d, conn_id=%d, address=%s", client_if, conn_id,
-           PRIVATE_ADDRESS(address));
+           ADDRESS_TO_LOGGABLE_CSTR(address));
   // Disconnect established connections
   if (conn_id != 0) {
     BTA_GATTC_Close(conn_id);
@@ -681,12 +690,23 @@ static bt_status_t btif_gattc_test_command(int command,
   return btif_gattc_test_command_impl(command, &params);
 }
 
-bt_status_t btif_gattc_subrate_request(const RawAddress& bd_addr,
-                                       int subrate_min, int subrate_max,
-                                       int max_latency, int cont_num,
-                                       int sup_timeout) {
+static void btif_gattc_subrate_request_impl(RawAddress addr, int subrate_min,
+                                            int subrate_max, int max_latency,
+                                            int cont_num, int sup_timeout) {
+  if (BTA_DmGetConnectionState(addr)) {
+    BTA_DmBleSubrateRequest(addr, subrate_min, subrate_max, max_latency,
+                            cont_num, sup_timeout);
+  }
+}
+
+static bt_status_t btif_gattc_subrate_request(const RawAddress& bd_addr,
+                                              int subrate_min, int subrate_max,
+                                              int max_latency, int cont_num,
+                                              int sup_timeout) {
   CHECK_BTGATT_INIT();
-  return BT_STATUS_SUCCESS;
+  return do_in_jni_thread(
+      Bind(base::IgnoreResult(&btif_gattc_subrate_request_impl), bd_addr,
+           subrate_min, subrate_max, max_latency, cont_num, sup_timeout));
 }
 
 }  // namespace

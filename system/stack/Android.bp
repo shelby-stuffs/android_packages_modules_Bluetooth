@@ -369,6 +369,7 @@ cc_test {
     ],
     srcs: [
         ":TestCommonMockFunctions",
+        ":TestCommonLogMsg",
         ":TestMockHci",
         ":TestMockStackMetrics",
         "rfcomm/port_api.cc",
@@ -428,7 +429,9 @@ cc_test {
         "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: crypto_toolbox_srcs + [
+        ":TestCommonLogMsg",
         ":TestCommonMainHandler",
+        ":TestCommonMockFunctions",
         ":TestMockBtif",
         ":TestMockCommon",
         ":TestMockDevice",
@@ -546,27 +549,31 @@ cc_test {
         "fluoride_defaults",
         "mts_defaults",
     ],
+    host_supported: true,
     test_suites: ["general-tests"],
     local_include_dirs: [
         "include",
         "btm",
+        "test/common",
     ],
     include_dirs: [
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/internal_include",
-        "packages/modules/Bluetooth/system/internal_include",
         "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
         "gatt/connection_manager.cc",
+        "test/common/mock_btm_api_layer.cc",
         "test/gatt_connection_manager_test.cc",
+        ":TestCommonMainHandler",
     ],
     shared_libs: [
         "libcutils",
     ],
     static_libs: [
         "libbluetooth-types",
+        "libbt-common",
         "liblog",
         "libgmock",
     ],
@@ -596,7 +603,9 @@ cc_test {
         "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
+        ":TestCommonMockFunctions",
         ":TestMockStackBtm",
+        ":TestMockStackSdp",
         "gatt/gatt_utils.cc",
         "test/common/mock_eatt.cc",
         "test/common/mock_gatt_layer.cc",
@@ -652,6 +661,8 @@ cc_test {
         "avdt/avdt_scb_act.cc",
         "test/common/mock_btu_layer.cc",
         "test/common/mock_stack_avdt_msg.cc",
+        ":TestCommonLogMsg",
+        ":TestCommonMockFunctions",
         ":TestMockStackL2cap",
         ":TestMockStackAcl",
         ":TestMockStackA2dp",
@@ -743,8 +754,10 @@ cc_test {
         "a2dp/a2dp_vendor_opus_decoder.cc",
         "test/a2dp/a2dp_aac_unittest.cc",
         "test/a2dp/a2dp_sbc_unittest.cc",
+        "test/a2dp/a2dp_sbc_regression_tests.cc",
         "test/a2dp/a2dp_opus_unittest.cc",
         "test/a2dp/a2dp_vendor_ldac_unittest.cc",
+        "test/a2dp/a2dp_vendor_regression_tests.cc",
         "test/a2dp/mock_bta_av_codec.cc",
         "test/a2dp/test_util.cc",
         "test/a2dp/wav_reader.cc",
@@ -842,6 +855,7 @@ cc_test {
     ],
     srcs: crypto_toolbox_srcs + [
         ":TestCommonMainHandler",
+        ":TestCommonMockFunctions",
         ":TestMockStackBtm",
         "gatt/gatt_db.cc",
         "gatt/gatt_sr_hash.cc",
@@ -1047,6 +1061,7 @@ cc_test {
         "metrics/stack_metrics_logging.cc",
         "test/btm/sco_hci_test.cc",
         "test/btm/stack_btm_test.cc",
+        "test/btm/stack_btm_regression_tests.cc",
         "test/btm/peer_packet_types_test.cc",
         "test/common/mock_eatt.cc",
     ],
@@ -1093,6 +1108,7 @@ cc_test {
         "packages/modules/Bluetooth/system/vnd/ble",
     ],
     srcs: crypto_toolbox_srcs + [
+        ":TestCommonMockFunctions",
         "test/hci/stack_hci_test.cc",
     ],
     static_libs: [
@@ -1135,8 +1151,10 @@ cc_test {
     include_dirs: [
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
+        "packages/modules/Bluetooth/system/stack/btm",
     ],
     srcs: crypto_toolbox_srcs + [
+        ":TestCommonMockFunctions",
         ":TestMockStackL2cap",
         ":TestMockStackSdp",
         ":TestMockStackBtm",
@@ -1188,12 +1206,15 @@ cc_test {
     include_dirs: [
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
+        "packages/modules/Bluetooth/system/stack/btm",
     ],
     generated_headers: [
         "BluetoothGeneratedDumpsysDataSchema_h",
         "BluetoothGeneratedPackets_h",
     ],
     srcs: [
+        ":TestCommonLogMsg",
+        ":TestCommonMockFunctions",
         ":TestMockBta",
         ":TestMockBtif",
         ":TestMockHci",
@@ -1250,6 +1271,7 @@ cc_test {
     include_dirs: [
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
+        "packages/modules/Bluetooth/system/stack/btm",
         "packages/modules/Bluetooth/system/utils/include",
     ],
     generated_headers: [
@@ -1259,6 +1281,7 @@ cc_test {
     srcs: [
         ":OsiCompatSources",
         ":TestCommonMainHandler",
+        ":TestCommonMockFunctions",
         ":TestCommonStackConfig",
         ":TestMockBta",
         ":TestMockBtif",
@@ -1326,6 +1349,7 @@ cc_test {
     include_dirs: [
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
+        "packages/modules/Bluetooth/system/stack/btm",
         "packages/modules/Bluetooth/system/utils/include",
     ],
     generated_headers: [
@@ -1334,6 +1358,7 @@ cc_test {
     ],
     srcs: [
         ":OsiCompatSources",
+        ":TestCommonLogMsg",
         ":TestCommonMainHandler",
         ":TestCommonMockFunctions",
         ":TestCommonStackConfig",
@@ -1405,6 +1430,7 @@ cc_test {
     include_dirs: [
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
+        "packages/modules/Bluetooth/system/stack/btm",
         "packages/modules/Bluetooth/system/utils/include",
     ],
     generated_headers: [
@@ -1413,6 +1439,7 @@ cc_test {
     ],
     srcs: [
         ":OsiCompatSources",
+        ":TestCommonLogMsg",
         ":TestCommonMainHandler",
         ":TestCommonMockFunctions",
         ":TestCommonStackConfig",
@@ -1481,6 +1508,7 @@ cc_test {
         "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
+        ":TestCommonLogMsg",
         ":TestCommonMockFunctions",
         ":TestMockBtif",
         ":TestMockOsi",

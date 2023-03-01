@@ -11,15 +11,16 @@
 use crate::{ast, lint};
 use quote::{format_ident, quote};
 use std::path::Path;
-use syn::parse_quote;
 
-mod chunk;
-mod field;
+mod declarations;
+mod parser;
 mod preamble;
+mod serializer;
 mod types;
 
-use chunk::Chunk;
-use field::Field;
+use declarations::FieldDeclarations;
+use parser::FieldParser;
+use serializer::FieldSerializer;
 
 /// Generate a block of code.
 ///
@@ -32,161 +33,89 @@ macro_rules! quote_block {
     }
 }
 
-/// Find byte indices covering `offset..offset+width` bits.
-pub fn get_field_range(offset: usize, width: usize) -> std::ops::Range<usize> {
-    let start = offset / 8;
-    let mut end = (offset + width) / 8;
-    if (offset + width) % 8 != 0 {
-        end += 1;
-    }
-    start..end
-}
-
 /// Generate a bit-mask which masks out `n` least significant bits.
 pub fn mask_bits(n: usize) -> syn::LitInt {
-    syn::parse_str::<syn::LitInt>(&format!("{:#x}", (1u64 << n) - 1)).unwrap()
+    // The literal needs a suffix if it's larger than an i32.
+    let suffix = if n > 31 { "u64" } else { "" };
+    syn::parse_str::<syn::LitInt>(&format!("{:#x}{suffix}", (1u64 << n) - 1)).unwrap()
 }
 
 /// Generate code for an `ast::Decl::Packet` enum value.
 fn generate_packet_decl(
     scope: &lint::Scope<'_>,
-    file: &ast::File,
+    //  File:
+    endianness: ast::EndiannessValue,
+    // Packet:
     id: &str,
-    fields: &[Field],
-    parent_id: &Option<String>,
-) -> String {
+    _constraints: &[ast::Constraint],
+    fields: &[ast::Field],
+    _parent_id: Option<&str>,
+) -> proc_macro2::TokenStream {
     // TODO(mgeisler): use the convert_case crate to convert between
     // `FooBar` and `foo_bar` in the code below.
-    let mut code = String::new();
-    let child_ids = scope
-        .typedef
-        .values()
-        .filter_map(|p| match p {
-            ast::Decl::Packet { id, parent_id, .. } if parent_id.as_deref() == Some(id) => Some(id),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let has_children = !child_ids.is_empty();
-    let child_idents = child_ids.iter().map(|id| format_ident!("{id}")).collect::<Vec<_>>();
-
-    let ident = format_ident!("{}", id.to_lowercase());
-    let data_child_ident = format_ident!("{id}DataChild");
-    let child_decl_packet_name =
-        child_idents.iter().map(|ident| format_ident!("{ident}Packet")).collect::<Vec<_>>();
-    let child_name = format_ident!("{id}Child");
-    if has_children {
-        let child_data_idents = child_idents.iter().map(|ident| format_ident!("{ident}Data"));
-        code.push_str(&quote_block! {
-            #[derive(Debug)]
-            enum #data_child_ident {
-                #(#child_idents(Arc<#child_data_idents>),)*
-                None,
-            }
-
-            impl #data_child_ident {
-                fn get_total_size(&self) -> usize {
-                    // TODO(mgeisler): use Self instad of #data_child_ident.
-                    match self {
-                        #(#data_child_ident::#child_idents(value) => value.get_total_size(),)*
-                        #data_child_ident::None => 0,
-                    }
-                }
-            }
-
-            #[derive(Debug)]
-            pub enum #child_name {
-                #(#child_idents(#child_decl_packet_name),)*
-                None,
-            }
-        });
+    let span = format_ident!("bytes");
+    let serializer_span = format_ident!("buffer");
+    let mut field_declarations = FieldDeclarations::new();
+    let mut field_parser = FieldParser::new(scope, endianness, id, &span);
+    let mut field_serializer = FieldSerializer::new(scope, endianness, id, &serializer_span);
+    for field in fields {
+        field_declarations.add(field);
+        field_parser.add(field);
+        field_serializer.add(field);
     }
+    field_parser.done();
 
-    let data_name = format_ident!("{id}Data");
-    let child_field = has_children.then(|| {
-        quote! {
-            child: #data_child_ident,
-        }
-    });
-    let plain_fields = fields.iter().map(|field| field.generate_decl(parse_quote!()));
-    code.push_str(&quote_block! {
-        #[derive(Debug)]
-        struct #data_name {
-            #(#plain_fields,)*
-            #child_field
-        }
-    });
+    let id_lower = format_ident!("{}", id.to_lowercase());
+    let id_data = format_ident!("{id}Data");
+    let id_packet = format_ident!("{id}Packet");
+    let id_builder = format_ident!("{id}Builder");
 
-    let parent = parent_id.as_ref().map(|parent_id| match scope.typedef.get(parent_id.as_str()) {
-        Some(ast::Decl::Packet { id, .. }) => {
-            let parent_ident = format_ident!("{}", id.to_lowercase());
-            let parent_data = format_ident!("{id}Data");
-            quote! {
-                #parent_ident: Arc<#parent_data>,
-            }
-        }
-        _ => panic!("Could not find {parent_id}"),
-    });
+    let field_names =
+        fields.iter().map(|f| format_ident!("{}", f.id().unwrap())).collect::<Vec<_>>();
+    let field_types = fields.iter().map(types::rust_type).collect::<Vec<_>>();
 
-    let packet_name = format_ident!("{id}Packet");
-    code.push_str(&quote_block! {
-        #[derive(Debug, Clone)]
-        pub struct #packet_name {
-            #parent
-            #ident: Arc<#data_name>,
-        }
-    });
+    let getter_names = field_names.iter().map(|id| format_ident!("get_{id}"));
 
-    let builder_name = format_ident!("{id}Builder");
-    let pub_fields = fields.iter().map(|field| field.generate_decl(parse_quote!(pub)));
-    code.push_str(&quote_block! {
-        #[derive(Debug)]
-        pub struct #builder_name {
-            #(#pub_fields,)*
-        }
-    });
-
-    let mut chunk_width = 0;
-    let chunks = fields.split_inclusive(|field| {
-        chunk_width += field.get_width();
-        chunk_width % 8 == 0
-    });
-    let mut field_parsers = Vec::new();
-    let mut field_writers = Vec::new();
-    let mut offset = 0;
-    for fields in chunks {
-        let chunk = Chunk::new(fields);
-        field_parsers.push(chunk.generate_read(id, file.endianness.value, offset));
-        field_writers.push(chunk.generate_write(file.endianness.value, offset));
-        offset += chunk.get_width();
-    }
-
-    let field_names = fields.iter().map(Field::get_ident).collect::<Vec<_>>();
-
-    let packet_size_bits = Chunk::new(fields).get_width();
-    if packet_size_bits % 8 != 0 {
-        panic!("packet {id} does not end on a byte boundary, size: {packet_size_bits} bits",);
-    }
-    let packet_size_bytes = syn::Index::from(packet_size_bits / 8);
-
-    let conforms = if packet_size_bytes.index == 0 {
+    let packet_size =
+        syn::Index::from(fields.iter().filter_map(|f| f.width(scope)).sum::<usize>() / 8);
+    let conforms = if packet_size.index == 0 {
         quote! { true }
     } else {
-        quote! { bytes.len() >= #packet_size_bytes }
+        quote! { #span.len() >= #packet_size }
     };
 
-    code.push_str(&quote_block! {
-        impl #data_name {
-            fn conforms(bytes: &[u8]) -> bool {
+    quote! {
+        #[derive(Debug)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        struct #id_data {
+            #field_declarations
+        }
+
+        #[derive(Debug, Clone)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        pub struct #id_packet {
+            #[cfg_attr(feature = "serde", serde(flatten))]
+            #id_lower: Arc<#id_data>,
+        }
+
+        #[derive(Debug)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        pub struct #id_builder {
+            #(pub #field_names: #field_types),*
+        }
+
+        impl #id_data {
+            fn conforms(#span: &[u8]) -> bool {
                 #conforms
             }
 
-            fn parse(bytes: &[u8]) -> Result<Self> {
-                #(#field_parsers)*
+            fn parse(mut #span: &[u8]) -> Result<Self> {
+                #field_parser
                 Ok(Self { #(#field_names),* })
             }
 
             fn write_to(&self, buffer: &mut BytesMut) {
-                #(#field_writers)*
+                #field_serializer
             }
 
             fn get_total_size(&self) -> usize {
@@ -194,91 +123,131 @@ fn generate_packet_decl(
             }
 
             fn get_size(&self) -> usize {
-                #packet_size_bytes
+                #packet_size
             }
         }
-    });
 
-    code.push_str(&quote_block! {
-        impl Packet for #packet_name {
+        impl Packet for #id_packet {
             fn to_bytes(self) -> Bytes {
-                let mut buffer = BytesMut::new();
-                buffer.resize(self.#ident.get_total_size(), 0);
-                self.#ident.write_to(&mut buffer);
+                let mut buffer = BytesMut::with_capacity(self.#id_lower.get_total_size());
+                self.#id_lower.write_to(&mut buffer);
                 buffer.freeze()
             }
+
             fn to_vec(self) -> Vec<u8> {
                 self.to_bytes().to_vec()
             }
         }
-        impl From<#packet_name> for Bytes {
-            fn from(packet: #packet_name) -> Self {
+
+        impl From<#id_packet> for Bytes {
+            fn from(packet: #id_packet) -> Self {
                 packet.to_bytes()
             }
         }
-        impl From<#packet_name> for Vec<u8> {
-            fn from(packet: #packet_name) -> Self {
+
+        impl From<#id_packet> for Vec<u8> {
+            fn from(packet: #id_packet) -> Self {
                 packet.to_vec()
             }
         }
-    });
 
-    let specialize = has_children.then(|| {
-        quote! {
-            pub fn specialize(&self) -> #child_name {
-                match &self.#ident.child {
-                    #(#data_child_ident::#child_idents(_) =>
-                      #child_name::#child_idents(
-                          #child_decl_packet_name::new(self.#ident.clone()).unwrap()),)*
-                    #data_child_ident::None => #child_name::None,
+        impl #id_packet {
+            pub fn parse(mut bytes: &[u8]) -> Result<Self> {
+                Ok(Self::new(Arc::new(#id_data::parse(bytes)?)).unwrap())
+            }
+            fn new(root: Arc<#id_data>) -> std::result::Result<Self, &'static str> {
+                let #id_lower = root;
+                Ok(Self { #id_lower })
+            }
+
+            #(pub fn #getter_names(&self) -> #field_types {
+                self.#id_lower.as_ref().#field_names
+            })*
+        }
+
+        impl #id_builder {
+            pub fn build(self) -> #id_packet {
+                let #id_lower = Arc::new(#id_data {
+                    #(#field_names: self.#field_names),*
+                });
+                #id_packet::new(#id_lower).unwrap()
+            }
+        }
+    }
+}
+
+fn generate_enum_decl(id: &str, tags: &[ast::Tag]) -> proc_macro2::TokenStream {
+    let name = format_ident!("{id}");
+    let variants = tags.iter().map(|t| format_ident!("{}", t.id)).collect::<Vec<_>>();
+    let values = tags
+        .iter()
+        .map(|t| syn::parse_str::<syn::LitInt>(&format!("{:#x}", t.value)).unwrap())
+        .collect::<Vec<_>>();
+    let visitor_name = format_ident!("{id}Visitor");
+
+    quote! {
+        #[derive(FromPrimitive, ToPrimitive, Debug, Hash, Eq, PartialEq, Clone, Copy)]
+        #[repr(u64)]
+        pub enum #name {
+            #(#variants = #values,)*
+        }
+
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for #name {
+            fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_u64(*self as u64)
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        struct #visitor_name;
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::de::Visitor<'de> for #visitor_name {
+            type Value = #name;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a valid discriminant")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    #(#values => Ok(#name::#variants),)*
+                    _ => Err(E::custom(format!("invalid discriminant: {value}"))),
                 }
             }
         }
-    });
-    let field_getters = fields.iter().map(|field| field.generate_getter(&ident));
-    code.push_str(&quote_block! {
-        impl #packet_name {
-            pub fn parse(bytes: &[u8]) -> Result<Self> {
-                Ok(Self::new(Arc::new(#data_name::parse(bytes)?)).unwrap())
-            }
 
-            #specialize
-
-            fn new(root: Arc<#data_name>) -> std::result::Result<Self, &'static str> {
-                let #ident = root;
-                Ok(Self { #ident })
-            }
-
-            #(#field_getters)*
-        }
-    });
-
-    let child = has_children.then(|| {
-        quote! {
-            child: #data_child_ident::None,
-        }
-    });
-    code.push_str(&quote_block! {
-        impl #builder_name {
-            pub fn build(self) -> #packet_name {
-                let #ident = Arc::new(#data_name {
-                    #(#field_names: self.#field_names,)*
-                    #child
-                });
-                #packet_name::new(#ident).unwrap()
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for #name {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                deserializer.deserialize_u64(#visitor_name)
             }
         }
-    });
-
-    code
+    }
 }
 
 fn generate_decl(scope: &lint::Scope<'_>, file: &ast::File, decl: &ast::Decl) -> String {
     match decl {
-        ast::Decl::Packet { id, fields, parent_id, .. } => {
-            let fields = fields.iter().map(Field::from).collect::<Vec<_>>();
-            generate_packet_decl(scope, file, id, &fields, parent_id)
-        }
+        ast::Decl::Packet { id, constraints, fields, parent_id, .. } => generate_packet_decl(
+            scope,
+            file.endianness.value,
+            id,
+            constraints,
+            fields,
+            parent_id.as_deref(),
+        )
+        .to_string(),
+        ast::Decl::Enum { id, tags, .. } => generate_enum_decl(id, tags).to_string(),
         _ => todo!("unsupported Decl::{:?}", decl),
     }
 }
@@ -308,144 +277,121 @@ mod tests {
     use crate::ast;
     use crate::parser::parse_inline;
     use crate::test_utils::{assert_snapshot_eq, rustfmt};
+    use paste::paste;
 
-    /// Parse a string fragment as a PDL file.
+    /// Create a unit test for the given PDL `code`.
     ///
-    /// # Panics
+    /// The unit test will compare the generated Rust code for all
+    /// declarations with previously saved snapshots. The snapshots
+    /// are read from `"tests/generated/{name}_{endianness}_{id}.rs"`
+    /// where `is` taken from the declaration.
     ///
-    /// Panics on parse errors.
-    pub fn parse_str(text: &str) -> ast::File {
-        let mut db = ast::SourceDatabase::new();
-        parse_inline(&mut db, String::from("stdin"), String::from(text)).expect("parse error")
+    /// When adding new tests or modifying existing ones, use
+    /// `UPDATE_SNAPSHOTS=1 cargo test` to automatically populate the
+    /// snapshots with the expected output.
+    ///
+    /// The `code` cannot have an endianness declaration, instead you
+    /// must supply either `little_endian` or `big_endian` as
+    /// `endianness`.
+    macro_rules! make_pdl_test {
+        ($name:ident, $code:expr, $endianness:ident) => {
+            paste! {
+                #[test]
+                fn [< test_ $name _ $endianness >]() {
+                    let name = stringify!($name);
+                    let endianness = stringify!($endianness);
+                    let code = format!("{endianness}_packets\n{}", $code);
+                    let mut db = ast::SourceDatabase::new();
+                    let file = parse_inline(&mut db, String::from("test"), code).unwrap();
+                    let actual_code = generate(&db, &file);
+                    assert_snapshot_eq(
+                        &format!("tests/generated/{name}_{endianness}.rs"),
+                        &rustfmt(&actual_code),
+                    );
+                }
+            }
+        };
     }
 
-    #[test]
-    fn test_generate_packet_decl_empty() {
-        let file = parse_str(
-            r#"
-              big_endian_packets
-              packet Foo {}
-            "#,
-        );
-        let scope = lint::Scope::new(&file).unwrap();
-        let decl = &file.declarations[0];
-        let actual_code = generate_decl(&scope, &file, decl);
-        assert_snapshot_eq("tests/generated/packet_decl_empty.rs", &rustfmt(&actual_code));
+    /// Create little- and bit-endian tests for the given PDL `code`.
+    ///
+    /// The `code` cannot have an endianness declaration: we will
+    /// automatically generate unit tests for both
+    /// "little_endian_packets" and "big_endian_packets".
+    macro_rules! test_pdl {
+        ($name:ident, $code:expr $(,)?) => {
+            make_pdl_test!($name, $code, little_endian);
+            make_pdl_test!($name, $code, big_endian);
+        };
     }
 
-    #[test]
-    fn test_generate_packet_decl_simple_little_endian() {
-        let file = parse_str(
-            r#"
-              little_endian_packets
+    test_pdl!(packet_decl_empty, "packet Foo {}");
 
-              packet Foo {
-                x: 8,
-                y: 16,
-                z: 24,
-              }
-            "#,
-        );
-        let scope = lint::Scope::new(&file).unwrap();
-        let decl = &file.declarations[0];
-        let actual_code = generate_decl(&scope, &file, decl);
-        assert_snapshot_eq(
-            "tests/generated/packet_decl_simple_little_endian.rs",
-            &rustfmt(&actual_code),
-        );
-    }
+    test_pdl!(packet_decl_8bit_scalar, " packet Foo { x:  8 }");
+    test_pdl!(packet_decl_24bit_scalar, "packet Foo { x: 24 }");
+    test_pdl!(packet_decl_64bit_scalar, "packet Foo { x: 64 }");
 
-    #[test]
-    fn test_generate_packet_decl_simple_big_endian() {
-        let file = parse_str(
-            r#"
-              big_endian_packets
+    test_pdl!(
+        packet_decl_simple_scalars,
+        r#"
+          packet Foo {
+            x: 8,
+            y: 16,
+            z: 24,
+          }
+        "#
+    );
 
-              packet Foo {
-                x: 8,
-                y: 16,
-                z: 24,
-              }
-            "#,
-        );
-        let scope = lint::Scope::new(&file).unwrap();
-        let decl = &file.declarations[0];
-        let actual_code = generate_decl(&scope, &file, decl);
-        assert_snapshot_eq(
-            "tests/generated/packet_decl_simple_big_endian.rs",
-            &rustfmt(&actual_code),
-        );
-    }
+    test_pdl!(
+        packet_decl_complex_scalars,
+        r#"
+          packet Foo {
+            a: 3,
+            b: 8,
+            c: 5,
+            d: 24,
+            e: 12,
+            f: 4,
+          }
+        "#,
+    );
 
-    #[test]
-    fn test_generate_packet_decl_complex_little_endian() {
-        let file = parse_str(
-            r#"
-              little_endian_packets
+    // Test that we correctly mask a byte-sized value in the middle of
+    // a chunk.
+    test_pdl!(
+        packet_decl_mask_scalar_value,
+        r#"
+          packet Foo {
+            a: 2,
+            b: 24,
+            c: 6,
+          }
+        "#,
+    );
 
-              packet Foo {
-                a: 3,
-                b: 8,
-                c: 5,
-                d: 24,
-                e: 12,
-                f: 4,
-              }
-            "#,
-        );
-        let scope = lint::Scope::new(&file).unwrap();
-        let decl = &file.declarations[0];
-        let actual_code = generate_decl(&scope, &file, decl);
-        assert_snapshot_eq(
-            "tests/generated/packet_decl_complex_little_endian.rs",
-            &rustfmt(&actual_code),
-        );
-    }
+    test_pdl!(packet_decl_8bit_enum, " enum Foo :  8 { A = 1, B = 2 } packet Bar { x: Foo }");
+    test_pdl!(packet_decl_24bit_enum, "enum Foo : 24 { A = 1, B = 2 } packet Bar { x: Foo }");
+    test_pdl!(packet_decl_64bit_enum, "enum Foo : 64 { A = 1, B = 2 } packet Bar { x: Foo }");
 
-    #[test]
-    fn test_generate_packet_decl_complex_big_endian() {
-        let file = parse_str(
-            r#"
-              big_endian_packets
+    test_pdl!(
+        packet_decl_mixed_scalars_enums,
+        "
+          enum Enum7 : 7 {
+            A = 1,
+            B = 2,
+          }
 
-              packet Foo {
-                a: 3,
-                b: 8,
-                c: 5,
-                d: 24,
-                e: 12,
-                f: 4,
-              }
-            "#,
-        );
-        let scope = lint::Scope::new(&file).unwrap();
-        let decl = &file.declarations[0];
-        let actual_code = generate_decl(&scope, &file, decl);
-        assert_snapshot_eq(
-            "tests/generated/packet_decl_complex_big_endian.rs",
-            &rustfmt(&actual_code),
-        );
-    }
+          enum Enum9 : 9 {
+            A = 1,
+            B = 2,
+          }
 
-    #[test]
-    fn test_get_field_range() {
-        // Zero widths will give you an empty slice iff the offset is
-        // byte aligned. In both cases, the slice covers the empty
-        // width. In practice, PDL doesn't allow zero-width fields.
-        assert_eq!(get_field_range(/*offset=*/ 0, /*width=*/ 0), (0..0));
-        assert_eq!(get_field_range(/*offset=*/ 5, /*width=*/ 0), (0..1));
-        assert_eq!(get_field_range(/*offset=*/ 8, /*width=*/ 0), (1..1));
-        assert_eq!(get_field_range(/*offset=*/ 9, /*width=*/ 0), (1..2));
-
-        // Non-zero widths work as expected.
-        assert_eq!(get_field_range(/*offset=*/ 0, /*width=*/ 1), (0..1));
-        assert_eq!(get_field_range(/*offset=*/ 0, /*width=*/ 5), (0..1));
-        assert_eq!(get_field_range(/*offset=*/ 0, /*width=*/ 8), (0..1));
-        assert_eq!(get_field_range(/*offset=*/ 0, /*width=*/ 20), (0..3));
-
-        assert_eq!(get_field_range(/*offset=*/ 5, /*width=*/ 1), (0..1));
-        assert_eq!(get_field_range(/*offset=*/ 5, /*width=*/ 3), (0..1));
-        assert_eq!(get_field_range(/*offset=*/ 5, /*width=*/ 4), (0..2));
-        assert_eq!(get_field_range(/*offset=*/ 5, /*width=*/ 20), (0..4));
-    }
+          packet Foo {
+            x: Enum7,
+            y: 5,
+            z: Enum9,
+            w: 3,
+          }
+        "
+    );
 }

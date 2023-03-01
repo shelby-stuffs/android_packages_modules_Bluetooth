@@ -157,18 +157,6 @@ struct BTM_BleReadPhy {
 };
 extern struct BTM_BleReadPhy BTM_BleReadPhy;
 
-// Name: BTM_BleReceiverTest
-// Params: uint8_t rx_freq, tBTM_CMPL_CB* p_cmd_cmpl_cback
-// Return: void
-struct BTM_BleReceiverTest {
-  std::function<void(uint8_t rx_freq, tBTM_CMPL_CB* p_cmd_cmpl_cback)> body{
-      [](uint8_t rx_freq, tBTM_CMPL_CB* p_cmd_cmpl_cback) {}};
-  void operator()(uint8_t rx_freq, tBTM_CMPL_CB* p_cmd_cmpl_cback) {
-    body(rx_freq, p_cmd_cmpl_cback);
-  };
-};
-extern struct BTM_BleReceiverTest BTM_BleReceiverTest;
-
 // Name: BTM_BleSecureConnectionOobDataReply
 // Params: const RawAddress& bd_addr, uint8_t* p_c, uint8_t* p_r
 // Return: void
@@ -216,31 +204,6 @@ struct BTM_BleSetPrefConnParams {
   };
 };
 extern struct BTM_BleSetPrefConnParams BTM_BleSetPrefConnParams;
-
-// Name: BTM_BleTestEnd
-// Params: tBTM_CMPL_CB* p_cmd_cmpl_cback
-// Return: void
-struct BTM_BleTestEnd {
-  std::function<void(tBTM_CMPL_CB* p_cmd_cmpl_cback)> body{
-      [](tBTM_CMPL_CB* p_cmd_cmpl_cback) {}};
-  void operator()(tBTM_CMPL_CB* p_cmd_cmpl_cback) { body(p_cmd_cmpl_cback); };
-};
-extern struct BTM_BleTestEnd BTM_BleTestEnd;
-
-// Name: BTM_BleTransmitterTest
-// Params: uint8_t tx_freq, uint8_t test_data_len, uint8_t packet_payload,
-// tBTM_CMPL_CB* p_cmd_cmpl_cback Return: void
-struct BTM_BleTransmitterTest {
-  std::function<void(uint8_t tx_freq, uint8_t test_data_len,
-                     uint8_t packet_payload, tBTM_CMPL_CB* p_cmd_cmpl_cback)>
-      body{[](uint8_t tx_freq, uint8_t test_data_len, uint8_t packet_payload,
-              tBTM_CMPL_CB* p_cmd_cmpl_cback) {}};
-  void operator()(uint8_t tx_freq, uint8_t test_data_len,
-                  uint8_t packet_payload, tBTM_CMPL_CB* p_cmd_cmpl_cback) {
-    body(tx_freq, test_data_len, packet_payload, p_cmd_cmpl_cback);
-  };
-};
-extern struct BTM_BleTransmitterTest BTM_BleTransmitterTest;
 
 // Name: BTM_BleVerifySignature
 // Params: const RawAddress& bd_addr, uint8_t* p_orig, uint16_t len, uint32_t
@@ -562,13 +525,13 @@ extern struct btm_ble_ltk_request_reply btm_ble_ltk_request_reply;
 // Params: uint8_t* p, uint16_t op_code, tBTM_RAND_ENC_CB* p_enc_cplt_cback
 // Return: void
 struct btm_ble_rand_enc_complete {
-  std::function<void(uint8_t* p, uint16_t op_code,
+  std::function<void(uint8_t* p, uint16_t evt_len, uint16_t op_code,
                      tBTM_RAND_ENC_CB* p_enc_cplt_cback)>
-      body{[](uint8_t* p, uint16_t op_code,
+  body{[](uint8_t* p, uint16_t evt_len, uint16_t op_code,
               tBTM_RAND_ENC_CB* p_enc_cplt_cback) {}};
-  void operator()(uint8_t* p, uint16_t op_code,
+  void operator()(uint8_t* p, uint16_t evt_len, uint16_t op_code,
                   tBTM_RAND_ENC_CB* p_enc_cplt_cback) {
-    body(p, op_code, p_enc_cplt_cback);
+    body(p, evt_len, op_code, p_enc_cplt_cback);
   };
 };
 extern struct btm_ble_rand_enc_complete btm_ble_rand_enc_complete;

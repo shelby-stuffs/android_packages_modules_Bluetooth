@@ -170,6 +170,9 @@ cc_defaults {
                 "libutils",
                 "libstatslog_bt",
             ],
+            whole_static_libs: [
+                "android.hardware.bluetooth-V1-ndk",
+            ],
         },
     },
     srcs: [
@@ -213,6 +216,10 @@ cc_defaults {
         "libbt_callbacks_cxx",
         "libbt_shim_bridge",
         "libbt_shim_ffi",
+    ],
+    include_dirs: [
+        "packages/modules/Bluetooth/system/include",
+        "packages/modules/Bluetooth/system/types",
     ],
     export_static_lib_headers: [ "libbluetooth_rust_interop" ],
 }
@@ -396,6 +403,7 @@ cc_test {
         ":BluetoothShimTestSources",
         ":BluetoothSecurityUnitTestSources",
         ":BluetoothStorageUnitTestSources",
+        ":BluetoothBtaaSources_linux_generic_tests",
     ],
     generated_headers: [
         "BluetoothGeneratedBundlerSchema_h_bfbs",
@@ -423,6 +431,7 @@ cc_test {
     sanitize: {
         address: true,
     },
+    min_sdk_version: "30",
 }
 
 cc_test {
@@ -477,6 +486,7 @@ cc_test {
             ],
         },
     },
+    min_sdk_version: "30",
 }
 
 cc_defaults {

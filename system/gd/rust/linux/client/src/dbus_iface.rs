@@ -5,7 +5,9 @@ use bt_topshim::btif::{
     BtTransport, Uuid, Uuid128Bit,
 };
 use bt_topshim::profiles::gatt::{AdvertisingStatus, GattStatus, LePhy};
+use bt_topshim::profiles::hid_host::BthhReportType;
 use bt_topshim::profiles::socket::SocketType;
+use bt_topshim::profiles::ProfileConnectionState;
 
 use btstack::bluetooth::{
     BluetoothDevice, IBluetooth, IBluetoothCallback, IBluetoothConnectionCallback, IBluetoothQA,
@@ -18,8 +20,8 @@ use btstack::bluetooth_adv::{
 use btstack::bluetooth_gatt::{
     BluetoothGattCharacteristic, BluetoothGattDescriptor, BluetoothGattService,
     GattWriteRequestStatus, GattWriteType, IBluetoothGatt, IBluetoothGattCallback,
-    IScannerCallback, ScanFilter, ScanFilterCondition, ScanFilterPattern, ScanResult, ScanSettings,
-    ScanType,
+    IBluetoothGattServerCallback, IScannerCallback, ScanFilter, ScanFilterCondition,
+    ScanFilterPattern, ScanResult, ScanSettings, ScanType,
 };
 use btstack::socket_manager::{
     BluetoothServerSocket, BluetoothSocket, CallbackId, IBluetoothSocketManager,
@@ -29,7 +31,6 @@ use btstack::{RPCProxy, SuspendMode};
 
 use btstack::suspend::{ISuspend, ISuspendCallback, SuspendType};
 
-use btstack::uuid::Profile;
 use dbus::arg::RefArg;
 use dbus::nonblock::SyncConnection;
 
@@ -69,12 +70,13 @@ impl_dbus_arg_enum!(GattStatus);
 impl_dbus_arg_enum!(GattWriteRequestStatus);
 impl_dbus_arg_enum!(GattWriteType);
 impl_dbus_arg_enum!(LePhy);
-impl_dbus_arg_enum!(Profile);
+impl_dbus_arg_enum!(ProfileConnectionState);
 impl_dbus_arg_enum!(ScanType);
 impl_dbus_arg_enum!(SocketType);
 impl_dbus_arg_enum!(SuspendMode);
 impl_dbus_arg_enum!(SuspendType);
 impl_dbus_arg_from_into!(Uuid, Vec<u8>);
+impl_dbus_arg_enum!(BthhReportType);
 
 impl RefArgToRust for Uuid {
     type RustType = Vec<u8>;
@@ -336,6 +338,11 @@ impl IScannerCallback for IScannerCallbackDBus {
         dbus_generated!()
     }
 
+    #[dbus_method("OnScanResultLost")]
+    fn on_scan_result_lost(&self, scan_result: ScanResult) {
+        dbus_generated!()
+    }
+
     #[dbus_method("OnSuspendModeChange")]
     fn on_suspend_mode_change(&self, suspend_mode: SuspendMode) {
         dbus_generated!()
@@ -567,7 +574,7 @@ impl IBluetooth for BluetoothDBus {
     }
 
     #[dbus_method("GetProfileConnectionState")]
-    fn get_profile_connection_state(&self, profile: Profile) -> u32 {
+    fn get_profile_connection_state(&self, profile: Uuid128Bit) -> ProfileConnectionState {
         dbus_generated!()
     }
 
@@ -630,6 +637,29 @@ impl IBluetoothQA for BluetoothQADBus {
     fn set_connectable(&mut self, mode: bool) -> bool {
         dbus_generated!()
     }
+
+    #[dbus_method("GetHIDReport")]
+    fn get_hid_report(
+        &mut self,
+        addr: String,
+        report_type: BthhReportType,
+        report_id: u8,
+    ) -> BtStatus {
+        dbus_generated!()
+    }
+
+    #[dbus_method("SetHIDReport")]
+    fn set_hid_report(
+        &mut self,
+        addr: String,
+        report_type: BthhReportType,
+        report: String,
+    ) -> BtStatus {
+        dbus_generated!()
+    }
+
+    #[dbus_method("SendHIDData")]
+    fn send_hid_data(&mut self, addr: String, data: String) -> BtStatus;
 }
 
 #[dbus_propmap(AdapterWithEnabled)]
@@ -1066,6 +1096,11 @@ impl IBluetoothGatt for BluetoothGattDBus {
         dbus_generated!()
     }
 
+    #[dbus_method("SetRawAdvertisingData")]
+    fn set_raw_adv_data(&mut self, advertiser_id: i32, data: Vec<u8>) {
+        dbus_generated!()
+    }
+
     #[dbus_method("SetScanResponseData")]
     fn set_scan_response_data(&mut self, advertiser_id: i32, data: AdvertiseData) {
         dbus_generated!()
@@ -1259,6 +1294,39 @@ impl IBluetoothGatt for BluetoothGattDBus {
     ) {
         dbus_generated!()
     }
+
+    // GATT Server
+
+    #[dbus_method("RegisterServer")]
+    fn register_server(
+        &mut self,
+        app_uuid: String,
+        callback: Box<dyn IBluetoothGattServerCallback + Send>,
+        eatt_support: bool,
+    ) {
+        dbus_generated!()
+    }
+
+    #[dbus_method("UnregisterServer")]
+    fn unregister_server(&mut self, server_id: i32) {
+        dbus_generated!()
+    }
+
+    #[dbus_method("ServerConnect")]
+    fn server_connect(
+        &self,
+        server_id: i32,
+        addr: String,
+        is_direct: bool,
+        transport: BtTransport,
+    ) -> bool {
+        dbus_generated!()
+    }
+
+    #[dbus_method("ServerDisconnect")]
+    fn server_disconnect(&self, server_id: i32, addr: String) -> bool {
+        dbus_generated!()
+    }
 }
 
 struct IBluetoothGattCallbackDBus {}
@@ -1342,6 +1410,18 @@ impl IBluetoothGattCallback for IBluetoothGattCallbackDBus {
 
     #[dbus_method("OnServiceChanged")]
     fn on_service_changed(&self, addr: String) {}
+}
+
+#[generate_dbus_exporter(
+    export_gatt_server_callback_dbus_intf,
+    "org.chromium.bluetooth.BluetoothGattServerCallback"
+)]
+impl IBluetoothGattServerCallback for IBluetoothGattCallbackDBus {
+    #[dbus_method("OnServerRegistered")]
+    fn on_server_registered(&self, status: GattStatus, client_id: i32) {}
+
+    #[dbus_method("OnServerConnectionState")]
+    fn on_server_connection_state(&self, server_id: i32, connected: bool, addr: String) {}
 }
 
 #[dbus_propmap(BluetoothServerSocket)]

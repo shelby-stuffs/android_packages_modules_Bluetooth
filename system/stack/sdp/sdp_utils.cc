@@ -136,7 +136,6 @@ static uint16_t sdpu_find_most_specific_service_uuid(tSDP_DISC_REC* p_rec) {
         SDP_DISC_ATTR_TYPE(p_attr->attr_len_type) == DATA_ELE_SEQ_DESC_TYPE) {
       tSDP_DISC_ATTR* p_first_attr = p_attr->attr_value.v.p_sub_attr;
       if (p_first_attr == nullptr) {
-        android_errorWriteLog(0x534e4554, "227203684");
         return 0;
       }
       if (SDP_DISC_ATTR_TYPE(p_first_attr->attr_len_type) == UUID_DESC_TYPE &&
@@ -179,7 +178,8 @@ void sdpu_log_attribute_metrics(const RawAddress& bda,
        p_rec = p_rec->p_next_rec) {
     uint16_t service_uuid = sdpu_find_most_specific_service_uuid(p_rec);
     if (service_uuid == 0) {
-      LOG(INFO) << __func__ << ": skipping record without service uuid " << bda;
+      LOG(INFO) << __func__ << ": skipping record without service uuid "
+                << ADDRESS_TO_LOGGABLE_STR(bda);
       continue;
     }
     // Log the existence of a profile role

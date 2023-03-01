@@ -58,18 +58,19 @@ class Device {
 
   void UnregisterPhyLayer(Phy::Type phy_type, uint32_t factory_id);
 
-  virtual void IncomingPacket(model::packets::LinkLayerPacketView){};
+  virtual void IncomingPacket(model::packets::LinkLayerPacketView packet,
+                              int8_t rssi){};
 
   virtual void SendLinkLayerPacket(
       std::shared_ptr<model::packets::LinkLayerPacketBuilder> packet,
-      Phy::Type phy_type);
+      Phy::Type phy_type, int8_t tx_power = 0);
 
   virtual void SendLinkLayerPacket(model::packets::LinkLayerPacketView packet,
-                                   Phy::Type phy_type);
+                                   Phy::Type phy_type, int8_t tx_power = 0);
 
   virtual void Close();
 
-  void RegisterCloseCallback(std::function<void()>);
+  void RegisterCloseCallback(std::function<void()> close_callback);
 
  protected:
   // List phy layers this device is listening on.

@@ -125,7 +125,6 @@ bt_callbacks_t bt_callbacks = {
     .acl_state_changed_cb = nullptr,        // acl_state_changed_callback
     .thread_evt_cb = nullptr,               // callback_thread_event
     .dut_mode_recv_cb = nullptr,            // dut_mode_recv_callback
-    .le_test_mode_cb = nullptr,             // le_test_mode_callback
     .energy_info_cb = nullptr,              // energy_info_callback
     .link_quality_report_cb = nullptr,      // link_quality_report_callback
     .generate_local_oob_data_cb = nullptr,  // generate_local_oob_data_callback
@@ -181,9 +180,8 @@ class BtifHhWithHalCallbacksTest : public BtifHhWithMockTest {
       g_thread_evt_promise.set_value(evt);
     };
     set_hal_cbacks(&bt_callbacks);
-    InitializeCoreInterface();
     // Start the jni callback thread
-    ASSERT_EQ(BT_STATUS_SUCCESS, btif_init_bluetooth());
+    InitializeCoreInterface();
     ASSERT_EQ(std::future_status::ready, future.wait_for(2s));
     ASSERT_EQ(ASSOCIATE_JVM, future.get());
 
@@ -196,8 +194,7 @@ class BtifHhWithHalCallbacksTest : public BtifHhWithMockTest {
     bt_callbacks.thread_evt_cb = [](bt_cb_thread_evt evt) {
       g_thread_evt_promise.set_value(evt);
     };
-    // Shutdown the jni callback thread
-    ASSERT_EQ(BT_STATUS_SUCCESS, btif_cleanup_bluetooth());
+    CleanCoreInterface();
     ASSERT_EQ(std::future_status::ready, future.wait_for(2s));
     ASSERT_EQ(DISASSOCIATE_JVM, future.get());
 

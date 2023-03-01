@@ -428,6 +428,13 @@ typedef struct t_l2c_linkcb {
   tL2C_LINK_STATE link_state;
 
   alarm_t* l2c_lcb_timer; /* Timer entry for timeout evt */
+
+  //  This tracks if the link has ever either (a)
+  //  been used for a dynamic channel (EATT or L2CAP CoC), or (b) has been a
+  //  GATT client. If false, the local device is just a GATT server, so for
+  //  backwards compatibility we never do a link timeout.
+  bool with_active_local_clients{false};
+
  private:
   uint16_t handle_; /* The handle used with LM */
   friend void l2cu_set_lcb_handle(struct t_l2c_linkcb& p_lcb, uint16_t handle);
@@ -535,6 +542,19 @@ typedef struct t_l2c_linkcb {
   uint16_t timeout;
   uint16_t min_ce_len;
   uint16_t max_ce_len;
+
+#define L2C_BLE_SUBRATE_REQ_DISABLE 0x1  // disable subrate req
+#define L2C_BLE_NEW_SUBRATE_PARAM 0x2    // new subrate req parameter to be set
+#define L2C_BLE_SUBRATE_REQ_PENDING 0x4  // waiting for subrate to be completed
+
+  /* subrate req params */
+  uint16_t subrate_min;
+  uint16_t subrate_max;
+  uint16_t max_latency;
+  uint16_t cont_num;
+  uint16_t supervision_tout;
+
+  uint8_t subrate_req_mask;
 
   /* each priority group is limited burst transmission */
   /* round robin service for the same priority channels */
@@ -865,5 +885,11 @@ extern tL2CAP_LE_RESULT_CODE l2ble_sec_access_req(const RawAddress& bd_addr,
 extern void l2cble_update_data_length(tL2C_LCB* p_lcb);
 
 extern void l2cu_process_fixed_disc_cback(tL2C_LCB* p_lcb);
+
+extern void l2cble_process_subrate_change_evt(uint16_t handle, uint8_t status,
+                                              uint16_t subrate_factor,
+                                              uint16_t peripheral_latency,
+                                              uint16_t cont_num,
+                                              uint16_t timeout);
 
 #endif

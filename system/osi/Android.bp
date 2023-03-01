@@ -55,6 +55,12 @@ filegroup {
 // libosi static library for target
 cc_library_static {
     name: "libosi",
+    export_include_dirs: [
+        "include",
+    ],
+    local_include_dirs: [
+        "include_internal",
+    ],
     defaults: ["fluoride_osi_defaults", "fluoride_basic_defaults"],
     // TODO(mcchou): Remove socket_utils sources after platform specific
     // dependencies are abstracted.
@@ -75,13 +81,15 @@ cc_library_static {
         "src/properties.cc",
         "src/reactor.cc",
         "src/ringbuffer.cc",
-        "src/semaphore.cc",
         "src/socket.cc",
         "src/socket_utils/socket_local_client.cc",
         "src/socket_utils/socket_local_server.cc",
         "src/thread.cc",
         "src/thread_scheduler.cc",
         "src/wakelock.cc",
+
+        // internal source that should not be used outside of libosi
+        "src/internal/semaphore.cc",
     ],
     host_supported: true,
     // TODO(armansito): Setting _GNU_SOURCE isn't very platform-independent but
@@ -95,7 +103,10 @@ cc_library_static {
             ],
         },
     },
-    min_sdk_version: "Tiramisu"
+    cflags: [
+        "-DLIB_OSI_INTERNAL",
+    ],
+    min_sdk_version: "Tiramisu",
 }
 
 // libosi unit tests for target and host
@@ -123,9 +134,11 @@ cc_test {
         "test/rand_test.cc",
         "test/reactor_test.cc",
         "test/ringbuffer_test.cc",
-        "test/semaphore_test.cc",
         "test/thread_test.cc",
         "test/wakelock_test.cc",
+
+        // test internal sources only used inside the libosi
+        "test/internal/semaphore_test.cc",
     ],
     shared_libs: [
         "android.hardware.bluetooth@1.0",
@@ -135,6 +148,10 @@ cc_test {
         "libprotobuf-cpp-lite",
         "libcutils",
         "libcrypto",
+    ],
+    local_include_dirs: [
+        "include_internal",
+        "test",
     ],
     static_libs: [
         "libbt-common",
@@ -148,6 +165,9 @@ cc_test {
             cflags: ["-DOS_GENERIC"],
         },
     },
+    cflags: [
+        "-DLIB_OSI_INTERNAL",
+    ],
     sanitize: {
         cfi: false,
     },

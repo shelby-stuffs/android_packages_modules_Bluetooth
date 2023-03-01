@@ -87,7 +87,24 @@ class Security(private val context: Context) : SecurityImplBase() {
       val bluetoothDevice = request.connection.toBluetoothDevice(bluetoothAdapter)
       val transport = request.connection.transport
       Log.i(TAG, "secure: $bluetoothDevice transport: $transport")
-      var reached = true
+      var reached =
+        when (transport) {
+          TRANSPORT_LE -> {
+            check(request.getLevelCase() == SecureRequest.LevelCase.LE);
+            val level = request.le
+            if (level == LE_LEVEL1) true
+            if (level == LE_LEVEL4) throw Status.UNKNOWN.asException()
+            false
+          }
+          TRANSPORT_BREDR -> {
+            check(request.getLevelCase() == SecureRequest.LevelCase.CLASSIC)
+            val level = request.classic
+            if (level == LEVEL0) true
+            if (level >= LEVEL3) throw Status.UNKNOWN.asException()
+            false
+          }
+          else -> throw Status.UNKNOWN.asException()
+        }
       if (!reached) {
         bluetoothDevice.createBond(transport)
         val bondState =

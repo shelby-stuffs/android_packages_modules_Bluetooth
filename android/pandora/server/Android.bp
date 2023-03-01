@@ -18,6 +18,7 @@ java_library_static {
     static_libs: [
         "androidx.test.runner",
         "androidx.test.core",
+        "androidx.test.uiautomator_uiautomator",
         "grpc-java-netty-shaded-test",
         "grpc-java-lite",
         "guava",
@@ -71,4 +72,5 @@ android_test {
         ":mmi2grpc"
     ],
     test_suites: ["mts-bluetooth"],
+    min_sdk_version: "33",
 }

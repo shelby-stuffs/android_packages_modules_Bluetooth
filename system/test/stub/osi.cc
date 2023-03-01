@@ -41,7 +41,6 @@ extern std::map<std::string, int> mock_function_count_map;
 #include "osi/include/osi.h"
 #include "osi/include/reactor.h"
 #include "osi/include/ringbuffer.h"
-#include "osi/include/semaphore.h"
 #include "osi/include/socket.h"
 #include "osi/include/thread.h"
 #include "osi/include/wakelock.h"
@@ -381,7 +380,7 @@ void* fixed_queue_try_remove_from_queue(fixed_queue_t* queue, void* data) {
 
 alarm_t* alarm_new(const char* name) {
   mock_function_count_map[__func__]++;
-  return nullptr;
+  return (alarm_t*)new uint8_t[30];
 }
 alarm_t* alarm_new_periodic(const char* name) {
   mock_function_count_map[__func__]++;
@@ -404,7 +403,11 @@ void alarm_cancel(alarm_t* alarm) {
 }
 void alarm_cleanup(void) { mock_function_count_map[__func__]++; }
 void alarm_debug_dump(int fd) { mock_function_count_map[__func__]++; }
-void alarm_free(alarm_t* alarm) { mock_function_count_map[__func__]++; }
+void alarm_free(alarm_t* alarm) {
+  uint8_t* ptr = (uint8_t*)alarm;
+  delete[] ptr;
+  mock_function_count_map[__func__]++;
+}
 void alarm_set(alarm_t* alarm, uint64_t interval_ms, alarm_callback_t cb,
                void* data) {
   mock_function_count_map[__func__]++;
@@ -624,28 +627,6 @@ int osi_property_set(const char* key, const char* value) {
 int32_t osi_property_get_int32(const char* key, int32_t default_value) {
   mock_function_count_map[__func__]++;
   return 0;
-}
-
-bool semaphore_try_wait(semaphore_t* semaphore) {
-  mock_function_count_map[__func__]++;
-  return false;
-}
-int semaphore_get_fd(const semaphore_t* semaphore) {
-  mock_function_count_map[__func__]++;
-  return 0;
-}
-semaphore_t* semaphore_new(unsigned int value) {
-  mock_function_count_map[__func__]++;
-  return nullptr;
-}
-void semaphore_free(semaphore_t* semaphore) {
-  mock_function_count_map[__func__]++;
-}
-void semaphore_post(semaphore_t* semaphore) {
-  mock_function_count_map[__func__]++;
-}
-void semaphore_wait(semaphore_t* semaphore) {
-  mock_function_count_map[__func__]++;
 }
 
 bool wakelock_acquire(void) {

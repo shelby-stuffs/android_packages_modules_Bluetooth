@@ -84,18 +84,18 @@ class TestHciHal : public hal::HciHal {
   void sendHciCommand(hal::HciPacket command) override {
     outgoing_commands_.push_back(std::move(command));
     if (sent_command_promise_ != nullptr) {
-      auto promise = std::move(sent_command_promise_);
-      sent_command_promise_.reset();
-      promise->set_value();
+      std::promise<void>* prom = sent_command_promise_.release();
+      prom->set_value();
+      delete prom;
     }
   }
 
   void sendAclData(hal::HciPacket data) override {
     outgoing_acl_.push_back(std::move(data));
     if (sent_acl_promise_ != nullptr) {
-      auto promise = std::move(sent_acl_promise_);
-      sent_acl_promise_.reset();
-      promise->set_value();
+      std::promise<void>* prom = sent_acl_promise_.release();
+      prom->set_value();
+      delete prom;
     }
   }
 
@@ -106,9 +106,9 @@ class TestHciHal : public hal::HciHal {
   void sendIsoData(hal::HciPacket data) override {
     outgoing_iso_.push_back(std::move(data));
     if (sent_iso_promise_ != nullptr) {
-      auto promise = std::move(sent_iso_promise_);
-      sent_iso_promise_.reset();
-      promise->set_value();
+      std::promise<void>* prom = sent_iso_promise_.release();
+      prom->set_value();
+      delete prom;
     }
   }
 
@@ -456,6 +456,45 @@ TEST_F(HciTest, leMetaEvent) {
 
   auto event = upper->GetReceivedEvent();
   ASSERT_TRUE(LeConnectionCompleteView::Create(LeMetaEventView::Create(EventView::Create(event))).IsValid());
+}
+
+TEST_F(HciTest, postEventsOnceOnHciHandler) {
+  auto event_future = upper->GetReceivedEventFuture();
+  auto command_future = hal->GetSentCommandFuture();
+
+  // Send a CreateConnection command.
+  Address addr;
+  Address::FromString("01:02:03:04:05:06", addr);
+  upper->SendHciCommandExpectingStatus(CreateConnectionBuilder::Create(
+      addr,
+      0,
+      PageScanRepetitionMode::R0,
+      0,
+      ClockOffsetValid::INVALID,
+      CreateConnectionRoleSwitch::ALLOW_ROLE_SWITCH));
+  auto sent_status = command_future.wait_for(kTimeout);
+  ASSERT_EQ(sent_status, std::future_status::ready);
+
+  // Validate the received command.
+  auto command = CreateConnectionView::Create(
+      ConnectionManagementCommandView::Create(AclCommandView::Create(hal->GetSentCommand())));
+  ASSERT_TRUE(command.IsValid());
+
+  // Send a status and a connection complete at the same time.
+  uint8_t num_packets = 1;
+  hal->callbacks->hciEventReceived(
+      GetPacketBytes(CreateConnectionStatusBuilder::Create(ErrorCode::SUCCESS, num_packets)));
+  hal->callbacks->hciEventReceived(GetPacketBytes(ConnectionCompleteBuilder::Create(
+      ErrorCode::SUCCESS, 0x123, addr, LinkType::ACL, Enable::DISABLED)));
+
+  auto event_status = event_future.wait_for(kTimeout);
+  ASSERT_EQ(event_status, std::future_status::ready);
+
+  // Make sure the status comes first.
+  auto event = upper->GetReceivedEvent();
+  ASSERT_TRUE(
+      CreateConnectionStatusView::Create(CommandStatusView::Create(EventView::Create(event)))
+          .IsValid());
 }
 
 TEST_F(HciTest, DISABLED_hciTimeOut) {
