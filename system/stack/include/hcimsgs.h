@@ -284,12 +284,15 @@ extern void btsnd_hcic_enhanced_accept_synchronous_connection(
     const RawAddress& bd_addr, enh_esco_params_t* p_parms);
 
 #define HCI_DATA_HANDLE_MASK 0x0FFF
+#define HCI_DATA_PKT_STATUS_MASK 0x3000
 
 #define HCID_GET_HANDLE_EVENT(p)                     \
   (uint16_t)((*((uint8_t*)((p) + 1) + (p)->offset) + \
               (*((uint8_t*)((p) + 1) + (p)->offset + 1) << 8)))
 
 #define HCID_GET_HANDLE(u16) (uint16_t)((u16)&HCI_DATA_HANDLE_MASK)
+#define HCID_GET_PKT_STATUS(u16) \
+  (uint16_t)(((u16)&HCI_DATA_PKT_STATUS_MASK) >> 12)
 
 #define HCI_DATA_EVENT_MASK 3
 #define HCI_DATA_EVENT_OFFSET 12
@@ -348,10 +351,6 @@ extern void btsnd_hcic_ble_create_ll_conn(
 extern void btsnd_hcic_ble_create_conn_cancel(void);
 
 extern void btsnd_hcic_ble_read_acceptlist_size(void);
-
-extern void btsnd_hcic_ble_remove_from_acceptlist(
-    tBLE_ADDR_TYPE addr_type, const RawAddress& bda,
-    base::OnceCallback<void(uint8_t*, uint16_t)> cb);
 
 extern void btsnd_hcic_ble_upd_ll_conn_params(
     uint16_t handle, uint16_t conn_int_min, uint16_t conn_int_max,

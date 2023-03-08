@@ -72,6 +72,7 @@ package android.bluetooth {
     method public boolean isBleScanAlwaysAvailable();
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int isDistanceMeasurementSupported();
     method public boolean isLeEnabled();
+    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int isOffloadedTransportDiscoveryDataScanSupported();
     method @NonNull public static String nameForState(int);
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int notifyActiveDeviceChangeApplied(@NonNull android.bluetooth.BluetoothDevice);
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public boolean registerBluetoothConnectionCallback(@NonNull java.util.concurrent.Executor, @NonNull android.bluetooth.BluetoothAdapter.BluetoothConnectionCallback);
@@ -129,27 +130,10 @@ package android.bluetooth {
     method public void onPreferredAudioProfilesChanged(@NonNull android.bluetooth.BluetoothDevice, @NonNull android.os.Bundle, int);
   }
 
-  public final class BluetoothAudioPolicy implements android.os.Parcelable {
-    method public int getCallEstablishPolicy();
-    method public int getConnectingTimePolicy();
-    method public int getInBandRingtonePolicy();
-    method public void writeToParcel(@NonNull android.os.Parcel, int);
-    field @NonNull public static final android.os.Parcelable.Creator<android.bluetooth.BluetoothAudioPolicy> CREATOR;
-    field public static final int FEATURE_NOT_SUPPORTED_BY_REMOTE = 2; // 0x2
-    field public static final int FEATURE_SUPPORTED_BY_REMOTE = 1; // 0x1
-    field public static final int FEATURE_UNCONFIGURED_BY_REMOTE = 0; // 0x0
-    field public static final int POLICY_ALLOWED = 1; // 0x1
-    field public static final int POLICY_NOT_ALLOWED = 2; // 0x2
-    field public static final int POLICY_UNCONFIGURED = 0; // 0x0
-  }
-
-  public static final class BluetoothAudioPolicy.Builder {
-    ctor public BluetoothAudioPolicy.Builder();
-    ctor public BluetoothAudioPolicy.Builder(@NonNull android.bluetooth.BluetoothAudioPolicy);
-    method @NonNull public android.bluetooth.BluetoothAudioPolicy build();
-    method @NonNull public android.bluetooth.BluetoothAudioPolicy.Builder setCallEstablishPolicy(int);
-    method @NonNull public android.bluetooth.BluetoothAudioPolicy.Builder setConnectingTimePolicy(int);
-    method @NonNull public android.bluetooth.BluetoothAudioPolicy.Builder setInBandRingtonePolicy(int);
+  public class BluetoothAssignedNumbers.OrganizationId {
+    field public static final int BLUETOOTH_SIG = 1; // 0x1
+    field public static final int WIFI_ALLIANCE_NEIGHBOR_AWARENESS_NETWORKING = 2; // 0x2
+    field public static final int WIFI_ALLIANCE_SERVICE_ADVERTISEMENT = 3; // 0x3
   }
 
   public final class BluetoothClass implements android.os.Parcelable {
@@ -185,23 +169,23 @@ package android.bluetooth {
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int disconnect();
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public boolean fetchUuidsWithSdp(int);
     method @NonNull @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED) public String getAnonymizedAddress();
-    method @Nullable @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public android.bluetooth.BluetoothAudioPolicy getAudioPolicy();
-    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int getAudioPolicyRemoteSupported();
     method @IntRange(from=0xffffff9c, to=100) @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public int getBatteryLevel();
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int getConnectionHandle(int);
-    method @Nullable @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public String getCreateBondCaller();
     method @Nullable @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public String getIdentityAddress();
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public int getMessageAccessPermission();
     method @Nullable @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public byte[] getMetadata(int);
+    method @Nullable @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public String getPackageNameOfBondingApplication();
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public int getPhonebookAccessPermission();
+    method @Nullable @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public android.bluetooth.BluetoothSinkAudioPolicy getRequestedAudioPolicyAsSink();
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public int getSimAccessPermission();
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public boolean isBondingInitiatedLocally();
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public boolean isConnected();
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public boolean isEncrypted();
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public boolean isInSilenceMode();
+    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int isRequestAudioPolicyAsSinkSupported();
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED) public void prepareToEnterProcess(@NonNull android.content.AttributionSource);
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public boolean removeBond();
-    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int setAudioPolicy(@NonNull android.bluetooth.BluetoothAudioPolicy);
+    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int requestAudioPolicyAsSink(@NonNull android.bluetooth.BluetoothSinkAudioPolicy);
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public boolean setLowLatencyAudioAllowed(boolean);
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public boolean setMessageAccessPermission(int);
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public boolean setMetadata(int, @NonNull byte[]);
@@ -379,6 +363,7 @@ package android.bluetooth {
   }
 
   public final class BluetoothHearingAid implements android.bluetooth.BluetoothProfile {
+    method @Nullable @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public android.bluetooth.BluetoothHearingAid.AdvertisementServiceData getAdvertisementServiceData(@NonNull android.bluetooth.BluetoothDevice);
     method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int getConnectionPolicy(@NonNull android.bluetooth.BluetoothDevice);
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public int getDeviceMode(@NonNull android.bluetooth.BluetoothDevice);
     method @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public int getDeviceSide(@NonNull android.bluetooth.BluetoothDevice);
@@ -393,6 +378,16 @@ package android.bluetooth {
     field public static final int SIDE_LEFT = 0; // 0x0
     field public static final int SIDE_RIGHT = 1; // 0x1
     field public static final int SIDE_UNKNOWN = -1; // 0xffffffff
+  }
+
+  public static final class BluetoothHearingAid.AdvertisementServiceData implements android.os.Parcelable {
+    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int getDeviceMode();
+    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int getDeviceSide();
+    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public int getTruncatedHiSyncId();
+    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public boolean isCsipSupported();
+    method @RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_PRIVILEGED}) public boolean isInPairWith(@Nullable android.bluetooth.BluetoothHearingAid.AdvertisementServiceData);
+    method public void writeToParcel(@NonNull android.os.Parcel, int);
+    field @NonNull public static final android.os.Parcelable.Creator<android.bluetooth.BluetoothHearingAid.AdvertisementServiceData> CREATOR;
   }
 
   public final class BluetoothHidDevice implements android.bluetooth.BluetoothProfile {
@@ -773,6 +768,26 @@ package android.bluetooth {
     field @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) public static final String ACTION_CONNECTION_STATE_CHANGED = "android.bluetooth.sap.profile.action.CONNECTION_STATE_CHANGED";
   }
 
+  public final class BluetoothSinkAudioPolicy implements android.os.Parcelable {
+    method public int getActiveDevicePolicyAfterConnection();
+    method public int getCallEstablishPolicy();
+    method public int getInBandRingtonePolicy();
+    method public void writeToParcel(@NonNull android.os.Parcel, int);
+    field @NonNull public static final android.os.Parcelable.Creator<android.bluetooth.BluetoothSinkAudioPolicy> CREATOR;
+    field public static final int POLICY_ALLOWED = 1; // 0x1
+    field public static final int POLICY_NOT_ALLOWED = 2; // 0x2
+    field public static final int POLICY_UNCONFIGURED = 0; // 0x0
+  }
+
+  public static final class BluetoothSinkAudioPolicy.Builder {
+    ctor public BluetoothSinkAudioPolicy.Builder();
+    ctor public BluetoothSinkAudioPolicy.Builder(@NonNull android.bluetooth.BluetoothSinkAudioPolicy);
+    method @NonNull public android.bluetooth.BluetoothSinkAudioPolicy build();
+    method @NonNull public android.bluetooth.BluetoothSinkAudioPolicy.Builder setActiveDevicePolicyAfterConnection(int);
+    method @NonNull public android.bluetooth.BluetoothSinkAudioPolicy.Builder setCallEstablishPolicy(int);
+    method @NonNull public android.bluetooth.BluetoothSinkAudioPolicy.Builder setInBandRingtonePolicy(int);
+  }
+
   public final class BluetoothStatusCodes {
     field public static final int ALLOWED = 400; // 0x190
     field public static final int DISTANCE_MEASUREMENT_ERROR_INTERNAL = 1301; // 0x515
@@ -1078,12 +1093,18 @@ package android.bluetooth.le {
   public final class ScanFilter implements android.os.Parcelable {
     method public int getAddressType();
     method @Nullable public byte[] getIrk();
+    method @Nullable public android.bluetooth.le.TransportBlockFilter getTransportBlockFilter();
   }
 
   public static final class ScanFilter.Builder {
     method @NonNull public android.bluetooth.le.ScanFilter.Builder setDeviceAddress(@NonNull String, int);
     method @NonNull public android.bluetooth.le.ScanFilter.Builder setDeviceAddress(@NonNull String, int, @NonNull byte[]);
+    method @NonNull public android.bluetooth.le.ScanFilter.Builder setTransportBlockFilter(@NonNull android.bluetooth.le.TransportBlockFilter);
     field public static final int LEN_IRK_OCTETS = 16; // 0x10
+  }
+
+  public final class ScanRecord {
+    method @Nullable public android.bluetooth.le.TransportDiscoveryData getTransportDiscoveryData();
   }
 
   public final class ScanSettings implements android.os.Parcelable {
@@ -1094,6 +1115,26 @@ package android.bluetooth.le {
 
   public static final class ScanSettings.Builder {
     method public android.bluetooth.le.ScanSettings.Builder setScanResultType(int);
+  }
+
+  public final class TransportBlockFilter implements android.os.Parcelable {
+    method public int getOrgId();
+    method public int getTdsFlags();
+    method public int getTdsFlagsMask();
+    method @Nullable public byte[] getTransportData();
+    method @Nullable public byte[] getTransportDataMask();
+    method @Nullable public byte[] getWifiNanHash();
+    method public void writeToParcel(@NonNull android.os.Parcel, int);
+    field @NonNull public static final android.os.Parcelable.Creator<android.bluetooth.le.TransportBlockFilter> CREATOR;
+    field public static final int WIFI_NAN_HASH_LENGTH_BYTES = 8; // 0x8
+  }
+
+  public static final class TransportBlockFilter.Builder {
+    ctor public TransportBlockFilter.Builder(int);
+    method @NonNull public android.bluetooth.le.TransportBlockFilter build();
+    method @NonNull public android.bluetooth.le.TransportBlockFilter.Builder setTdsFlags(int, int);
+    method @NonNull public android.bluetooth.le.TransportBlockFilter.Builder setTransportData(@NonNull byte[], @NonNull byte[]);
+    method @NonNull public android.bluetooth.le.TransportBlockFilter.Builder setWifiNanHash(@NonNull byte[]);
   }
 
   @Deprecated public final class TruncatedFilter {

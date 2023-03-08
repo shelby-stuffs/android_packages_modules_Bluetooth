@@ -101,6 +101,9 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -245,8 +248,9 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private boolean mEnable;
     private boolean mShutdownInProgress = false;
 
-    private static CharSequence timeToLog(long timestamp) {
-        return android.text.format.DateFormat.format("MM-dd HH:mm:ss", timestamp);
+    private static String timeToLog(long timestamp) {
+        return DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
+            .format(Instant.ofEpochMilli(timestamp));
     }
 
     /**
@@ -338,10 +342,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
 
     @VisibleForTesting
     public void onInitFlagsChanged() {
-        mHandler.removeMessages(MESSAGE_INIT_FLAGS_CHANGED);
-        mHandler.sendEmptyMessageDelayed(
-                MESSAGE_INIT_FLAGS_CHANGED,
-                DELAY_BEFORE_RESTART_DUE_TO_INIT_FLAGS_CHANGED_MS);
+        // TODO(b/265386284)
     }
 
     public boolean onFactoryReset(AttributionSource attributionSource) {
@@ -387,8 +388,50 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         return false;
     }
 
+    final Runnable mOnAirplaneModeChangedRunnable = () -> {
+        onAirplaneModeChanged();
+    };
+
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public void onAirplaneModeChanged() {
+        if (mHandler != null) {
+            int delayAirplaneMs = 0;
+            int state = getState();
+            Log.d(TAG, "onAirplaneModeChanged state : " + BluetoothAdapter.nameForState(state)
+                + ", isAirplaneModeOn() : " + isAirplaneModeOn());
+            if (mHandler.hasCallbacks(mOnAirplaneModeChangedRunnable)) {
+                mHandler.removeCallbacks(mOnAirplaneModeChangedRunnable);
+            }
+            /** If only LE mode with airplane on, should disable le, and turn off airplane
+             *  should not turn on le.
+             */
+            if (state == BluetoothAdapter.STATE_BLE_ON && isBluetoothPersistedStateOn()) {
+                delayAirplaneMs = SERVICE_RESTART_TIME_MS;
+            } if (state != BluetoothAdapter.STATE_ON && state != BluetoothAdapter.STATE_OFF
+                && state != BluetoothAdapter.STATE_BLE_ON) {
+                // If Bluetooth is turning state, should handle airplane event after delay
+                delayAirplaneMs = ADD_PROXY_DELAY_MS;
+            } else if (mHandler.hasMessages(MESSAGE_ENABLE)
+                || mHandler.hasMessages(MESSAGE_DISABLE)
+                || mHandler.hasMessages(MESSAGE_HANDLE_ENABLE_DELAYED)
+                || mHandler.hasMessages(MESSAGE_HANDLE_DISABLE_DELAYED)
+                || mHandler.hasMessages(MESSAGE_RESTART_BLUETOOTH_SERVICE)
+                || mHandler.hasMessages(MESSAGE_TIMEOUT_BIND)
+                || mHandler.hasMessages(MESSAGE_BIND_PROFILE_SERVICE)) {
+                // If Bluetooth restarting, should handle airplane event after delay
+                delayAirplaneMs = SERVICE_RESTART_TIME_MS;
+            }
+            if (delayAirplaneMs > 0) {
+                Log.d(TAG, "onAirplaneModeChanged delay MS : " + delayAirplaneMs);
+                mHandler.postDelayed(mOnAirplaneModeChangedRunnable, delayAirplaneMs);
+                return;
+            }
+        }
+        handleAirplaneModeChanged();
+    }
+
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
+    private void handleAirplaneModeChanged() {
         synchronized (this) {
             if (isBluetoothPersistedStateOn()) {
                 if (isAirplaneModeOn()) {
@@ -3438,6 +3481,11 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     })
     private void recoverBluetoothServiceFromError(boolean clearBle) {
         Log.e(TAG, "recoverBluetoothServiceFromError");
+        boolean repeatAirplaneRunnable = false;
+        if (mHandler.hasCallbacks(mOnAirplaneModeChangedRunnable)) {
+            mHandler.removeCallbacks(mOnAirplaneModeChangedRunnable);
+            repeatAirplaneRunnable = true;
+        }
         try {
             mBluetoothLock.readLock().lock();
             if (mBluetooth != null) {
@@ -3466,6 +3514,10 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         // Send a Bluetooth Restart message to reenable bluetooth
         Message restartMsg = mHandler.obtainMessage(MESSAGE_RESTART_BLUETOOTH_SERVICE);
         mHandler.sendMessageDelayed(restartMsg, ERROR_RESTART_TIME_MS);
+
+        if (repeatAirplaneRunnable) {
+            mHandler.postDelayed(mOnAirplaneModeChangedRunnable, ERROR_RESTART_TIME_MS);
+        }
     }
 
     private boolean isBluetoothDisallowed() {
