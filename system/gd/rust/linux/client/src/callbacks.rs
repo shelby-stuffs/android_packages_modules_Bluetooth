@@ -333,9 +333,15 @@ impl IScannerCallback for ScannerCallback {
         }
     }
 
-    fn on_scan_result_lost(&self, scan_result: ScanResult) {
+    fn on_advertisement_found(&self, scanner_id: u8, scan_result: ScanResult) {
         if self.context.lock().unwrap().active_scanner_ids.len() > 0 {
-            print_info!("Scan result lost: {:#?}", scan_result);
+            print_info!("Advertisement found for scanner_id {} : {:#?}", scanner_id, scan_result);
+        }
+    }
+
+    fn on_advertisement_lost(&self, scanner_id: u8, scan_result: ScanResult) {
+        if self.context.lock().unwrap().active_scanner_ids.len() > 0 {
+            print_info!("Advertisement lost for scanner_id {} : {:#?}", scanner_id, scan_result);
         }
     }
 
@@ -781,6 +787,10 @@ impl IBluetoothGattServerCallback for BtGattServerCallback {
         print_info!("GATT service added with status = {}, service = {:?}", status, service)
     }
 
+    fn on_service_removed(&self, status: GattStatus, handle: i32) {
+        print_info!("GATT service removed with status = {}, handle = {:?}", status, handle);
+    }
+
     fn on_characteristic_read_request(
         &self,
         addr: String,
@@ -998,7 +1008,7 @@ impl BtSocketManagerCallback {
 
         tokio::spawn(async move {
             for i in 0..num_frame {
-                fd.write_all(SOCKET_TEST_WRITE);
+                fd.write_all(SOCKET_TEST_WRITE).ok();
                 print_info!("data sent: {}", i + 1);
                 tokio::time::sleep(send_interval).await;
             }

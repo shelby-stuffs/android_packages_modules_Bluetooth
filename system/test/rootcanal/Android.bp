@@ -50,7 +50,6 @@ cc_binary {
     ],
     cflags: [
         "-fvisibility=hidden",
-        "-DHAS_NO_BDROID_BUILDCFG",
     ],
     generated_headers: [
         "RootCanalGeneratedPackets_h",
@@ -97,9 +96,6 @@ cc_library_shared {
         "liblog",
         "libutils",
         "libprotobuf-cpp-lite",
-    ],
-    cflags: [
-        "-DHAS_NO_BDROID_BUILDCFG",
     ],
     generated_headers: [
         "RootCanalGeneratedPackets_h",

@@ -185,6 +185,14 @@ public final class BluetoothGatt implements BluetoothProfile {
     public static final int CONNECTION_PRIORITY_LOW_POWER = 2;
 
     /**
+     * Connection parameter update - Request the priority preferred for Digital Car Key for a
+     * lower latency connection. This connection parameter will consume more power than
+     * {@link BluetoothGatt#CONNECTION_PRIORITY_BALANCED}, so it is recommended that apps do not use
+     * this unless it specifically fits their use case.
+     */
+    public static final int CONNECTION_PRIORITY_DCK = 3;
+
+    /**
      * Connection subrate request - Balanced.
      *
      * @hide
@@ -283,8 +291,9 @@ public final class BluetoothGatt implements BluetoothProfile {
                     try {
                         final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
                         // autoConnect is inverse of "isDirect"
-                        mService.clientConnect(mClientIf, mDevice.getAddress(), !mAutoConnect,
-                                mTransport, mOpportunistic, mPhy, mAttributionSource, recv);
+                        mService.clientConnect(mClientIf, mDevice.getAddress(),
+                                mDevice.getAddressType(), !mAutoConnect, mTransport,
+                                mOpportunistic, mPhy, mAttributionSource, recv);
                         recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
                     } catch (RemoteException | TimeoutException e) {
                         Log.e(TAG, "", e);
@@ -1171,8 +1180,8 @@ public final class BluetoothGatt implements BluetoothProfile {
 
             // autoConnect is inverse of "isDirect"
             final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
-            mService.clientConnect(mClientIf, mDevice.getAddress(), !mAutoConnect, mTransport,
-                    mOpportunistic, mPhy, mAttributionSource, recv);
+            mService.clientConnect(mClientIf, mDevice.getAddress(), mDevice.getAddressType(),
+                    !mAutoConnect, mTransport, mOpportunistic, mPhy, mAttributionSource, recv);
             recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
             return true;
         } catch (RemoteException | TimeoutException e) {
