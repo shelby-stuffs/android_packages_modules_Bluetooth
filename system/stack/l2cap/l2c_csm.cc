@@ -23,6 +23,7 @@
  ******************************************************************************/
 #define LOG_TAG "l2c_csm"
 
+#include <base/functional/callback.h>
 #include <base/logging.h>
 #include <frameworks/proto_logging/stats/enums/bluetooth/enums.pb.h>
 
@@ -30,7 +31,9 @@
 
 #include "bt_target.h"
 #include "common/time_util.h"
+#include "gd/hal/snoop_logger.h"
 #include "main/shim/metrics_api.h"
+#include "main/shim/shim.h"
 #include "osi/include/allocator.h"
 #include "osi/include/log.h"
 #include "stack/btm/btm_sec.h"
@@ -224,7 +227,8 @@ static void l2c_csm_closed(tL2C_CCB* p_ccb, tL2CEVT event, void* p_data) {
         btm_acl_notif_conn_collision(p_ccb->p_lcb->remote_bd_addr);
       } else {
         l2cu_release_ccb(p_ccb);
-        (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(local_cid, L2CAP_CONN_OTHER_ERROR);
+        (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(local_cid,
+                                            L2CAP_CONN_ACL_CONNECTION_FAILED);
         bluetooth::shim::CountCounterMetrics(
             android::bluetooth::CodePathCounterKeyEnum::
                 L2CAP_CONNECT_CONFIRM_NEG,
@@ -278,7 +282,8 @@ static void l2c_csm_closed(tL2C_CCB* p_ccb, tL2CEVT event, void* p_data) {
 
     case L2CEVT_SEC_COMP_NEG: /* something is really bad with security */
       l2cu_release_ccb(p_ccb);
-      (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(local_cid, L2CAP_CONN_OTHER_ERROR);
+      (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(
+          local_cid, L2CAP_CONN_CLIENT_SECURITY_CLEARANCE_FAILED);
       bluetooth::shim::CountCounterMetrics(
           android::bluetooth::CodePathCounterKeyEnum::
               L2CAP_SECURITY_NEG_AT_CSM_CLOSED,
@@ -334,7 +339,7 @@ static void l2c_csm_closed(tL2C_CCB* p_ccb, tL2CEVT event, void* p_data) {
 
     case L2CEVT_TIMEOUT:
       l2cu_release_ccb(p_ccb);
-      (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(local_cid, L2CAP_CONN_OTHER_ERROR);
+      (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(local_cid, L2CAP_CONN_TIMEOUT);
       bluetooth::shim::CountCounterMetrics(
           android::bluetooth::CodePathCounterKeyEnum::
               L2CAP_TIMEOUT_AT_CSM_CLOSED,
@@ -438,7 +443,8 @@ static void l2c_csm_orig_w4_sec_comp(tL2C_CCB* p_ccb, tL2CEVT event,
       }
 
       l2cu_release_ccb(p_ccb);
-      (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(local_cid, L2CAP_CONN_OTHER_ERROR);
+      (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(
+          local_cid, L2CAP_CONN_CLIENT_SECURITY_CLEARANCE_FAILED);
       bluetooth::shim::CountCounterMetrics(
           android::bluetooth::CodePathCounterKeyEnum::
               L2CAP_SECURITY_NEG_AT_W4_SEC,
@@ -704,7 +710,12 @@ static void l2c_csm_w4_l2cap_connect_rsp(tL2C_CCB* p_ccb, tL2CEVT event,
                    << loghex(p_ccb->local_cid)
                    << ", reason=" << loghex(p_ci->l2cap_result);
       l2cu_release_ccb(p_ccb);
-      (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(local_cid, L2CAP_CONN_OTHER_ERROR);
+      if (p_lcb->transport == BT_TRANSPORT_LE) {
+        (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(
+            local_cid, le_result_to_l2c_conn(p_ci->l2cap_result));
+      } else {
+        (*p_ccb->p_rcb->api.pL2CA_Error_Cb)(local_cid, p_ci->l2cap_result);
+      }
       bluetooth::shim::CountCounterMetrics(
           android::bluetooth::CodePathCounterKeyEnum::L2CAP_CONNECT_RSP_NEG, 1);
       break;
@@ -1085,6 +1096,14 @@ static void l2c_csm_config(tL2C_CCB* p_ccb, tL2CEVT event, void* p_data) {
         }
       }
 
+      if (p_ccb->config_done & RECONFIG_FLAG) {
+        // Notify only once
+        bluetooth::shim::GetSnoopLogger()->SetL2capChannelOpen(
+            p_ccb->p_lcb->Handle(), p_ccb->local_cid, p_ccb->remote_cid,
+            p_ccb->p_rcb->psm,
+            p_ccb->peer_cfg.fcr.mode != L2CAP_FCR_BASIC_MODE);
+      }
+
       LOG_DEBUG("Calling Config_Rsp_Cb(), CID: 0x%04x", p_ccb->local_cid);
       p_ccb->remote_config_rsp_result = p_cfg->result;
       if (p_ccb->config_done & IB_CFG_DONE) {
@@ -1160,6 +1179,14 @@ static void l2c_csm_config(tL2C_CCB* p_ccb, tL2CEVT event, void* p_data) {
 
       /* If using eRTM and waiting for an ACK, restart the ACK timer */
       if (p_ccb->fcrb.wait_ack) l2c_fcr_start_timer(p_ccb);
+
+      if (p_ccb->config_done & RECONFIG_FLAG) {
+        // Notify only once
+        bluetooth::shim::GetSnoopLogger()->SetL2capChannelOpen(
+            p_ccb->p_lcb->Handle(), p_ccb->local_cid, p_ccb->remote_cid,
+            p_ccb->p_rcb->psm,
+            p_ccb->peer_cfg.fcr.mode != L2CAP_FCR_BASIC_MODE);
+      }
 
       /* See if we can forward anything on the hold queue */
       if ((p_ccb->chnl_state == CST_OPEN) &&

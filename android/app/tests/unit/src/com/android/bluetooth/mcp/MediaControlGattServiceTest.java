@@ -90,6 +90,7 @@ public class MediaControlGattServiceTest {
         mAdapter = BluetoothAdapter.getDefaultAdapter();
 
         doReturn(true).when(mMockGattServer).addService(any(BluetoothGattService.class));
+        doReturn(new BluetoothDevice[0]).when(mAdapterService).getBondedDevices();
 
         mMcpService = new MediaControlGattService(mMockMcpService, mMockMcsCallbacks, TEST_CCID);
         mMcpService.setBluetoothGattServerForTesting(mMockGattServer);

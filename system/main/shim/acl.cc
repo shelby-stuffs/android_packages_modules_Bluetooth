@@ -26,6 +26,7 @@
 #include <future>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -744,6 +745,19 @@ class LeShimAclConnection
     return connection_->GetLocalAddress();
   }
 
+  std::optional<uint8_t> GetAdvertisingSetConnectedTo() {
+    return std::visit(
+        [](auto&& data) {
+          using T = std::decay_t<decltype(data)>;
+          if constexpr (std::is_same_v<T, hci::acl_manager::DataAsPeripheral>) {
+            return data.advertising_set_id;
+          } else {
+            return std::optional<uint8_t>{};
+          }
+        },
+        connection_->GetRoleSpecificData());
+  }
+
   void OnConnectionUpdate(hci::ErrorCode hci_status,
                           uint16_t connection_interval,
                           uint16_t connection_latency,
@@ -791,10 +805,6 @@ class LeShimAclConnection
       LOG_WARN("Not posting OnPhyUpdate callback since it is disabled: (tx:%x, rx:%x, status:%s)",
                tx_phy, rx_phy, hci::ErrorCodeText(hci_status).c_str());
     }
-  }
-
-  void OnLocalAddressUpdate(hci::AddressWithType address_with_type) override {
-    connection_->UpdateLocalAddress(address_with_type);
   }
 
   void OnDisconnection(hci::ErrorCode reason) {
@@ -1479,6 +1489,18 @@ bluetooth::hci::AddressWithType shim::legacy::Acl::GetConnectionLocalAddress(
   return address_with_type;
 }
 
+std::optional<uint8_t> shim::legacy::Acl::GetAdvertisingSetConnectedTo(
+    const RawAddress& remote_bda) {
+  auto remote_address = ToGdAddress(remote_bda);
+  for (auto& [handle, connection] : pimpl_->handle_to_le_connection_map_) {
+    if (connection->GetRemoteAddressWithType().GetAddress() == remote_address) {
+      return connection->GetAdvertisingSetConnectedTo();
+    }
+  }
+  LOG_WARN("address not found!");
+  return {};
+}
+
 void shim::legacy::Acl::OnLeLinkDisconnected(HciHandle handle,
                                              hci::ErrorCode reason) {
   hci::AddressWithType remote_address_with_type =
@@ -1599,6 +1621,19 @@ void shim::legacy::Acl::OnLeConnectSuccess(
   tBLE_ADDR_TYPE peer_addr_type =
       (tBLE_ADDR_TYPE)connection->peer_address_with_type_.GetAddressType();
 
+  auto can_read_discoverable_characteristics = std::visit(
+      [&](auto&& data) {
+        using T = std::decay_t<decltype(data)>;
+        if constexpr (std::is_same_v<T, hci::acl_manager::DataAsPeripheral>) {
+          return data.connected_to_discoverable;
+        } else {
+          // if we are the central, the peer can always see discoverable
+          // characteristics
+          return true;
+        }
+      },
+      connection->GetRoleSpecificData());
+
   pimpl_->handle_to_le_connection_map_.emplace(
       handle, std::make_unique<LeShimAclConnection>(
                   acl_interface_.on_send_data_upwards,
@@ -1638,10 +1673,11 @@ void shim::legacy::Acl::OnLeConnectSuccess(
   tBLE_BD_ADDR legacy_address_with_type =
       ToLegacyAddressWithType(address_with_type);
 
-  TRY_POSTING_ON_MAIN(
-      acl_interface_.connection.le.on_connected, legacy_address_with_type,
-      handle, ToLegacyRole(connection_role), conn_interval, conn_latency,
-      conn_timeout, local_rpa, peer_rpa, peer_addr_type);
+  TRY_POSTING_ON_MAIN(acl_interface_.connection.le.on_connected,
+                      legacy_address_with_type, handle,
+                      ToLegacyRole(connection_role), conn_interval,
+                      conn_latency, conn_timeout, local_rpa, peer_rpa,
+                      peer_addr_type, can_read_discoverable_characteristics);
 
   LOG_DEBUG("Connection successful le remote:%s handle:%hu initiator:%s",
             ADDRESS_TO_LOGGABLE_CSTR(address_with_type), handle,

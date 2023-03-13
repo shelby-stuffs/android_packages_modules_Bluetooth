@@ -25,7 +25,7 @@
 #ifndef BTM_BLE_API_H
 #define BTM_BLE_API_H
 
-#include <base/callback_forward.h>
+#include <base/functional/callback_forward.h>
 #include <hardware/bt_common_types.h>
 
 #include <cstdint>
@@ -459,6 +459,18 @@ extern uint16_t BTM_BleReadConnectability();
 extern void BTM_ReadDevInfo(const RawAddress& remote_bda,
                             tBT_DEVICE_TYPE* p_dev_type,
                             tBLE_ADDR_TYPE* p_addr_type);
+
+/*******************************************************************************
+ *
+ * Function         BTM_GetRemoteDeviceName
+ *
+ * Description      This function is called to get the dev name of remote device
+ *                  from NV
+ *
+ * Returns          true if success; otherwise failed.
+ *
+ *******************************************************************************/
+extern bool BTM_GetRemoteDeviceName(const RawAddress& bda, BD_NAME bd_name);
 
 /*******************************************************************************
  *

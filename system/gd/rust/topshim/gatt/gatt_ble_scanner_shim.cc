@@ -16,8 +16,8 @@
 
 #include "gd/rust/topshim/gatt/gatt_ble_scanner_shim.h"
 
-#include <base/bind.h>
-#include <base/callback.h>
+#include <base/functional/bind.h>
+#include <base/functional/callback.h>
 
 #include <algorithm>
 #include <iterator>
@@ -268,8 +268,8 @@ void BleScannerIntf::MsftAdvMonitorEnable(uint32_t call_id, bool enable) {
 void BleScannerIntf::SetScanParameters(uint8_t scanner_id, uint16_t scan_interval, uint16_t scan_window) {
   scanner_intf_->SetScanParameters(
       scanner_id,
-      scan_interval,
-      scan_window,
+      {scan_interval},
+      {scan_window},
       base::Bind(&BleScannerIntf::OnStatusCallback, base::Unretained(this), scanner_id));
 }
 

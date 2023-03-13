@@ -772,6 +772,8 @@ void gatt_sr_get_sec_info(const RawAddress& rem_bda, tBT_TRANSPORT transport,
   flags.is_link_key_known = BTM_IsLinkKeyKnown(rem_bda, transport);
   flags.is_link_key_authed = BTM_IsLinkKeyAuthed(rem_bda, transport);
   flags.is_encrypted = BTM_IsEncrypted(rem_bda, transport);
+  flags.can_read_discoverable_characteristics =
+      BTM_CanReadDiscoverableCharacteristics(rem_bda);
 
   *p_key_size = btm_ble_read_sec_key_size(rem_bda);
   *p_sec_flag = flags;
@@ -1135,7 +1137,7 @@ uint16_t gatt_tcb_get_payload_size_rx(tGATT_TCB& tcb, uint16_t cid) {
  * Returns         None
  *
  ******************************************************************************/
-void gatt_clcb_dealloc(tGATT_CLCB* p_clcb) {
+static void gatt_clcb_dealloc(tGATT_CLCB* p_clcb) {
   if (p_clcb) {
     alarm_free(p_clcb->gatt_rsp_timer_ent);
     gatt_clcb_invalidate(p_clcb->p_tcb, p_clcb);
@@ -1466,11 +1468,18 @@ bool gatt_cancel_open(tGATT_IF gatt_if, const RawAddress& bda) {
   }
 
   if (!connection_manager::direct_connect_remove(gatt_if, bda)) {
-    BTM_AcceptlistRemove(bda);
-    LOG_INFO(
-        "GATT connection manager has no record but removed filter acceptlist "
-        "gatt_if:%hhu peer:%s",
-        gatt_if, ADDRESS_TO_LOGGABLE_CSTR(bda));
+    if (!connection_manager::is_background_connection(bda)) {
+      BTM_AcceptlistRemove(bda);
+      LOG_INFO(
+          "Gatt connection manager has no background record but "
+          " removed filter acceptlist gatt_if:%hhu peer:%s",
+          gatt_if, ADDRESS_TO_LOGGABLE_CSTR(bda));
+    } else {
+      LOG_INFO(
+          "Gatt connection manager maintains a background record"
+          " preserving filter acceptlist gatt_if:%hhu peer:%s",
+          gatt_if, ADDRESS_TO_LOGGABLE_CSTR(bda));
+    }
   }
   return true;
 }
@@ -1708,10 +1717,12 @@ uint8_t* gatt_dbg_op_name(uint8_t op_code) {
     pseduo_op_code_idx = 0x15; /* just an index to op_code_name */
   }
 
-  if (pseduo_op_code_idx <= GATT_OP_CODE_MAX)
+  #define ARR_SIZE(a) (sizeof(a)/sizeof(a[0]))
+  if (pseduo_op_code_idx < ARR_SIZE(op_code_name))
     return (uint8_t*)op_code_name[pseduo_op_code_idx];
   else
     return (uint8_t*)"Op Code Exceed Max";
+  #undef ARR_SIZE
 }
 
 /** Remove the application interface for the specified background device */

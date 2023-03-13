@@ -1,11 +1,12 @@
 use crate::backends::rust::{mask_bits, types};
+use crate::parser::ast as parser_ast;
 use crate::{ast, lint};
 use quote::{format_ident, quote};
 
 /// A single bit-field.
 struct BitField<'a> {
     shift: usize, // The shift to apply to this field.
-    field: &'a ast::Field,
+    field: &'a parser_ast::Field,
 }
 
 pub struct FieldParser<'a> {
@@ -38,38 +39,7 @@ impl<'a> FieldParser<'a> {
         }
     }
 
-    fn endianness_suffix(&'a self, width: usize) -> &'static str {
-        if width > 8 && self.endianness == ast::EndiannessValue::LittleEndian {
-            "_le"
-        } else {
-            ""
-        }
-    }
-
-    /// Parse an unsigned integer with the given `width`.
-    ///
-    /// The generated code requires that `self.span` is a mutable
-    /// `bytes::Buf` value.
-    fn get_uint(&self, width: usize) -> proc_macro2::TokenStream {
-        let span = &self.span;
-        let suffix = self.endianness_suffix(width);
-        let value_type = types::Integer::new(width);
-        if value_type.width == width {
-            let get_u = format_ident!("get_u{}{}", value_type.width, suffix);
-            quote! {
-                #span.#get_u()
-            }
-        } else {
-            let get_uint = format_ident!("get_uint{}", suffix);
-            let value_nbytes = proc_macro2::Literal::usize_unsuffixed(width / 8);
-            let cast = (value_type.width < 64).then(|| quote!(as #value_type));
-            quote! {
-                #span.#get_uint(#value_nbytes) #cast
-            }
-        }
-    }
-
-    pub fn add(&mut self, field: &'a ast::Field) {
+    pub fn add(&mut self, field: &'a parser_ast::Field) {
         if field.is_bitfield(self.scope) {
             self.add_bit_field(field);
             return;
@@ -78,7 +48,7 @@ impl<'a> FieldParser<'a> {
         todo!("not yet supported: {field:?}")
     }
 
-    fn add_bit_field(&mut self, field: &'a ast::Field) {
+    fn add_bit_field(&mut self, field: &'a parser_ast::Field) {
         self.chunk.push(BitField { shift: self.shift, field });
         self.shift += field.width(self.scope).unwrap();
         if self.shift % 8 != 0 {
@@ -107,7 +77,7 @@ impl<'a> FieldParser<'a> {
         // semantic in Rust.
         let chunk_name = format_ident!("chunk");
 
-        let get = self.get_uint(self.shift);
+        let get = types::get_uint(self.endianness, self.shift, self.span);
         if self.chunk.len() > 1 {
             // Multiple values: we read into a local variable.
             self.code.push(quote! {
@@ -143,14 +113,14 @@ impl<'a> FieldParser<'a> {
                 v = quote! { #v as #value_type };
             }
 
-            self.code.push(match field {
-                ast::Field::Scalar { id, .. } => {
+            self.code.push(match &field.desc {
+                ast::FieldDesc::Scalar { id, .. } => {
                     let id = format_ident!("{id}");
                     quote! {
                         let #id = #v;
                     }
                 }
-                ast::Field::Typedef { id, type_id, .. } => {
+                ast::FieldDesc::Typedef { id, type_id } => {
                     let id = format_ident!("{id}");
                     let type_id = format_ident!("{type_id}");
                     let from_u = format_ident!("from_u{}", value_type.width);
@@ -160,6 +130,10 @@ impl<'a> FieldParser<'a> {
                     quote! {
                         let #id = #type_id::#from_u(#v).unwrap();
                     }
+                }
+                ast::FieldDesc::Reserved { .. } => {
+                    // Nothing to do here.
+                    quote! {}
                 }
                 _ => todo!(),
             });

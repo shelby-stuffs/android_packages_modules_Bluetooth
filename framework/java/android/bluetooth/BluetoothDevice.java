@@ -2267,6 +2267,39 @@ public final class BluetoothDevice implements Parcelable, Attributable {
         return defaultValue;
     }
 
+    /**
+     * Gets the package name of the application that initiate bonding with this device
+     *
+     * @return package name of the application, or null of no application initiate bonding with
+     * this device
+     *
+     * @hide
+     */
+    @SystemApi
+    @Nullable
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+    })
+    public String getCreateBondCaller() {
+        if (DBG) log("getCreateBondCaller()");
+        final IBluetooth service = getService();
+        final String defaultValue = null;
+        if (service == null || !isBluetoothEnabled()) {
+            Log.w(TAG, "BT not enabled, getCreateBondCaller failed");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else {
+            try {
+                final SynchronousResultReceiver<String> recv = SynchronousResultReceiver.get();
+                service.getCreateBondCaller(this, recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
+            } catch (RemoteException | TimeoutException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+        return defaultValue;
+    }
+
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(value = {
@@ -2405,6 +2438,10 @@ public final class BluetoothDevice implements Parcelable, Attributable {
     /**
      * Returns the ACL connection handle associated with an open connection to
      * this device on the given transport.
+     *
+     * This handle is a unique identifier for the connection while it remains
+     * active. Refer to the Bluetooth Core Specification Version 5.4 Vol 4 Part E
+     * Section 5.3.1 Controller Handles for details.
      *
      * @return the ACL handle, or {@link BluetoothDevice#ERROR} if no connection currently exists on
      *         the given transport.
@@ -3471,7 +3508,7 @@ public final class BluetoothDevice implements Parcelable, Attributable {
             }
             BluetoothGatt gatt = new BluetoothGatt(
                     iGatt, this, transport, opportunistic, phy, mAttributionSource);
-            gatt.connect(autoConnect, callback, handler, eattSupport);
+            gatt.connect(autoConnect, callback, handler);
             return gatt;
         } catch (RemoteException e) {
             Log.e(TAG, "", e);

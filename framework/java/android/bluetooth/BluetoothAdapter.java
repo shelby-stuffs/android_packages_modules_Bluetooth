@@ -43,6 +43,7 @@ import android.bluetooth.annotations.RequiresLegacyBluetoothAdminPermission;
 import android.bluetooth.annotations.RequiresLegacyBluetoothPermission;
 import android.bluetooth.le.BluetoothLeAdvertiser;
 import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.DistanceMeasurementManager;
 import android.bluetooth.le.PeriodicAdvertisingManager;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
@@ -855,6 +856,7 @@ public final class BluetoothAdapter {
     private BluetoothLeScanner mBluetoothLeScanner;
     private BluetoothLeAdvertiser mBluetoothLeAdvertiser;
     private PeriodicAdvertisingManager mPeriodicAdvertisingManager;
+    private DistanceMeasurementManager mDistanceMeasurementManager;
 
     private final IBluetoothManager mManagerService;
     private final AttributionSource mAttributionSource;
@@ -1199,6 +1201,40 @@ public final class BluetoothAdapter {
                 mBluetoothLeScanner = new BluetoothLeScanner(this);
             }
             return mBluetoothLeScanner;
+        }
+    }
+
+     /**
+     * Get a {@link DistanceMeasurementManager} object for distance measurement operations.
+     * <p>
+     * Use {@link #isDistanceMeasurementSupported()} to check whether distance
+     * measurement is supported on this device before calling this method.
+     *
+     * @return a new instance of {@link DistanceMeasurementManager}, or {@code null} if Bluetooth is
+     * turned off
+     * @throws UnsupportedOperationException if distance measurement is not supported on this device
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+    })
+    public @Nullable DistanceMeasurementManager getDistanceMeasurementManager() {
+        if (!getLeAccess()) {
+            return null;
+        }
+
+        if (isDistanceMeasurementSupported() != BluetoothStatusCodes.FEATURE_SUPPORTED) {
+            throw new UnsupportedOperationException("Distance measurement is unsupported");
+        }
+
+        synchronized (mLock) {
+            if (mDistanceMeasurementManager == null) {
+                mDistanceMeasurementManager = new DistanceMeasurementManager(this);
+            }
+            return mDistanceMeasurementManager;
         }
     }
 
@@ -2796,6 +2832,44 @@ public final class BluetoothAdapter {
             if (mService != null) {
                 final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
                 mService.isLeAudioBroadcastAssistantSupported(recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout())
+                    .getValue(BluetoothStatusCodes.ERROR_UNKNOWN);
+            } else {
+                throw new IllegalStateException(
+                        "LE state is on, but there is no bluetooth service.");
+            }
+        } catch (TimeoutException e) {
+            Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+        return BluetoothStatusCodes.ERROR_UNKNOWN;
+    }
+
+    /**
+     * Returns whether the distance measurement feature is supported.
+     *
+     * @return whether the Bluetooth distance measurement is supported
+     * @throws IllegalStateException if the bluetooth service is null
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+    })
+    public @LeFeatureReturnValues int isDistanceMeasurementSupported() {
+        if (!getLeAccess()) {
+            return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
+        }
+        mServiceLock.readLock().lock();
+        try {
+            if (mService != null) {
+                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
+                mService.isDistanceMeasurementSupported(mAttributionSource, recv);
                 return recv.awaitResultNoInterrupt(getSyncTimeout())
                     .getValue(BluetoothStatusCodes.ERROR_UNKNOWN);
             } else {
@@ -5281,10 +5355,12 @@ public final class BluetoothAdapter {
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(value = {
             BluetoothStatusCodes.SUCCESS,
+            BluetoothStatusCodes.ERROR_ANOTHER_ACTIVE_REQUEST,
             BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED,
             BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ALLOWED,
             BluetoothStatusCodes.ERROR_DEVICE_NOT_BONDED,
             BluetoothStatusCodes.ERROR_MISSING_BLUETOOTH_CONNECT_PERMISSION,
+            BluetoothStatusCodes.ERROR_NOT_DUAL_MODE_AUDIO_DEVICE,
             BluetoothStatusCodes.ERROR_UNKNOWN
     })
     public @interface SetPreferredAudioProfilesReturnValues {}
@@ -5297,7 +5373,9 @@ public final class BluetoothAdapter {
      * <p>
      * Note: apps that invoke profile-specific audio APIs are not subject to the preference noted
      * here. These preferences will also be ignored if the remote device is not simultaneously
-     * connected to a classic audio profile (A2DP and/or HFP) and LE Audio at the same time.
+     * connected to a classic audio profile (A2DP and/or HFP) and LE Audio at the same time. If the
+     * remote device does not support both BR/EDR audio and LE Audio, this API returns
+     * {@link BluetoothStatusCodes#ERROR_NOT_DUAL_MODE_AUDIO_DEVICE}.
      * <p>
      * The Bundle is expected to contain the following mappings:
      * 1. For key {@link #AUDIO_MODE_OUTPUT_ONLY}, it expects an integer value of either
@@ -5381,12 +5459,15 @@ public final class BluetoothAdapter {
      * Gets the preferred profile for each audio mode for system routed audio. This API
      * returns a Bundle with mappings between each audio mode and its preferred audio profile. If no
      * values are set via {@link #setPreferredAudioProfiles(BluetoothDevice, Bundle)}, this API
-     * returns the default system preferences set via a sysprop.
+     * returns the default system preferences set via the sysprops
+     * {@link BluetoothProperties#getDefaultOutputOnlyAudioProfile()} and
+     * {@link BluetoothProperties#getDefaultDuplexAudioProfile()}.
      * <p>
      * An audio capable device must support at least one audio mode with a preferred audio profile.
      * If a device does not support an audio mode, the audio mode will be omitted from the keys of
-     * the Bundle. If the device is not recognized as an audio capable device (e.g. because it is
-     * not bonded or does not support any audio profiles), this API returns an empty Bundle.
+     * the Bundle. If the device is not recognized as a dual mode audio capable device (e.g. because
+     * it is not bonded, does not support any audio profiles, or does not support both BR/EDR audio
+     * and LE Audio), this API returns an empty Bundle.
      * <p>
      * The Bundle can contain the following mappings:
      * <ul>
@@ -5438,6 +5519,69 @@ public final class BluetoothAdapter {
         return defaultValue;
     }
 
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(value = {
+            BluetoothStatusCodes.SUCCESS,
+            BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED,
+            BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ALLOWED,
+            BluetoothStatusCodes.ERROR_DEVICE_NOT_BONDED,
+            BluetoothStatusCodes.ERROR_MISSING_BLUETOOTH_CONNECT_PERMISSION,
+            BluetoothStatusCodes.ERROR_UNKNOWN
+    })
+    public @interface NotifyActiveDeviceChangeAppliedReturnValues {}
+
+    /**
+     * Called by audio framework to inform the Bluetooth stack that an active device change has
+     * taken effect. If this active device change is triggered by an app calling
+     * {@link #setPreferredAudioProfiles(BluetoothDevice, Bundle)}, the Bluetooth stack will invoke
+     * {@link PreferredAudioProfilesChangedCallback#onPreferredAudioProfilesChanged(
+     * BluetoothDevice, Bundle, int)} if all requested changes for the device have been applied.
+     * <p>
+     * This method will return
+     * {@link BluetoothStatusCodes#ERROR_BLUETOOTH_NOT_ALLOWED} if called outside system server.
+     *
+     * @param device is the BluetoothDevice that had its preferred audio profile changed
+     * @return whether the Bluetooth stack acknowledged the change successfully
+     * @throws NullPointerException if device is null
+     * @throws IllegalArgumentException if the device's address is invalid
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+    })
+    @NotifyActiveDeviceChangeAppliedReturnValues
+    public int notifyActiveDeviceChangeApplied(@NonNull BluetoothDevice device) {
+        if (DBG) Log.d(TAG, "notifyActiveDeviceChangeApplied(" + device + ")");
+        Objects.requireNonNull(device, "device cannot be null");
+        if (!BluetoothAdapter.checkBluetoothAddress(device.getAddress())) {
+            throw new IllegalArgumentException("device cannot have an invalid address");
+        }
+
+        final int defaultValue = BluetoothStatusCodes.ERROR_UNKNOWN;
+        mServiceLock.readLock().lock();
+        try {
+            if (mService != null) {
+                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
+                mService.notifyActiveDeviceChangeApplied(device,
+                        mAttributionSource, recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
+            }
+        } catch (RemoteException e) {
+            Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            throw e.rethrowFromSystemServer();
+        } catch (TimeoutException e) {
+            Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+
+        return defaultValue;
+    }
+
     @SuppressLint("AndroidFrameworkBluetoothPermission")
     private final IBluetoothPreferredAudioProfilesCallback mPreferredAudioProfilesChangedCallback =
             new IBluetoothPreferredAudioProfilesCallback.Stub() {
@@ -5470,7 +5614,7 @@ public final class BluetoothAdapter {
     /**
      * Registers a callback to be notified when the preferred audio profile changes have taken
      * effect. To unregister this callback, call
-     * {@link #unregisterPreferredAudiProfilesChangedCallback(
+     * {@link #unregisterPreferredAudioProfilesChangedCallback(
      * PreferredAudioProfilesChangedCallback)}.
      *
      * @param executor an {@link Executor} to execute the callbacks
@@ -5562,9 +5706,9 @@ public final class BluetoothAdapter {
             android.Manifest.permission.BLUETOOTH_PRIVILEGED,
     })
     @UnRegisterPreferredAudioProfilesCallbackReturnValues
-    public int unregisterPreferredAudiProfilesChangedCallback(
+    public int unregisterPreferredAudioProfilesChangedCallback(
             @NonNull PreferredAudioProfilesChangedCallback callback) {
-        if (DBG) Log.d(TAG, "unregisterPreferredAudiProfilesChangedCallback()");
+        if (DBG) Log.d(TAG, "unregisterPreferredAudioProfilesChangedCallback()");
         Objects.requireNonNull(callback, "callback cannot be null");
 
         synchronized (mAudioProfilesChangedCallbackExecutorMap) {

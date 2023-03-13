@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012 The Android Open Source Project
+ * Copyright (C) 2016-2017 The Linux Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +21,8 @@ import static android.bluetooth.BluetoothDevice.TRANSPORT_AUTO;
 import static android.text.format.DateUtils.MINUTE_IN_MILLIS;
 import static android.text.format.DateUtils.SECOND_IN_MILLIS;
 
+import static com.android.bluetooth.ChangeIds.ENFORCE_CONNECT;
+import static com.android.bluetooth.Utils.callerIsSystem;
 import static com.android.bluetooth.Utils.callerIsSystemOrActiveOrManagedUser;
 import static com.android.bluetooth.Utils.enforceBluetoothPrivilegedPermission;
 import static com.android.bluetooth.Utils.enforceCdmAssociation;
@@ -30,6 +33,7 @@ import static com.android.bluetooth.Utils.hasBluetoothPrivilegedPermission;
 import static com.android.bluetooth.Utils.isPackageNameAccurate;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.app.AlarmManager;
@@ -37,6 +41,7 @@ import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.app.admin.DevicePolicyManager;
+import android.app.compat.CompatChanges;
 import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothActivityEnergyInfo;
 import android.bluetooth.BluetoothAdapter;
@@ -88,7 +93,6 @@ import android.os.PowerManager;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.SystemClock;
-import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.DeviceConfig;
@@ -107,6 +111,7 @@ import com.android.bluetooth.a2dp.A2dpService;
 import com.android.bluetooth.a2dpsink.A2dpSinkService;
 import com.android.bluetooth.bas.BatteryService;
 import com.android.bluetooth.bass_client.BassClientService;
+import com.android.bluetooth.btservice.InteropUtil.InteropFeature;
 import com.android.bluetooth.btservice.RemoteDevices.DeviceProperties;
 import com.android.bluetooth.btservice.activityattribution.ActivityAttributionService;
 import com.android.bluetooth.btservice.bluetoothkeystore.BluetoothKeystoreService;
@@ -195,11 +200,18 @@ public class AdapterService extends Service {
     private static final String ACTION_ALARM_WAKEUP =
             "com.android.bluetooth.btservice.action.ALARM_WAKEUP";
 
-    static final String BLUETOOTH_BTSNOOP_LOG_MODE_PROPERTY = "persist.bluetooth.btsnooplogmode";
-    static final String BLUETOOTH_BTSNOOP_DEFAULT_MODE_PROPERTY =
-            "persist.bluetooth.btsnoopdefaultmode";
-    private String mSnoopLogSettingAtEnable = "empty";
-    private String mDefaultSnoopLogSettingAtEnable = "empty";
+    private static BluetoothProperties.snoop_log_mode_values sSnoopLogSettingAtEnable =
+            BluetoothProperties.snoop_log_mode_values.EMPTY;
+    private static String sDefaultSnoopLogSettingAtEnable = "empty";
+    private static Boolean sSnoopLogFilterHeadersSettingAtEnable = false;
+    private static Boolean sSnoopLogFilterProfileA2dpSettingAtEnable = false;
+    private static Boolean sSnoopLogFilterProfileRfcommSettingAtEnable = false;
+    private static BluetoothProperties.snoop_log_filter_profile_pbap_values
+            sSnoopLogFilterProfilePbapModeSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_profile_pbap_values.EMPTY;
+    private static BluetoothProperties.snoop_log_filter_profile_map_values
+            sSnoopLogFilterProfileMapModeSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_profile_map_values.EMPTY;
 
     public static final String BLUETOOTH_PRIVILEGED =
             android.Manifest.permission.BLUETOOTH_PRIVILEGED;
@@ -283,6 +295,7 @@ public class AdapterService extends Service {
     private Set<IBluetoothConnectionCallback> mBluetoothConnectionCallbacks = new HashSet<>();
     private RemoteCallbackList<IBluetoothPreferredAudioProfilesCallback>
             mPreferredAudioProfilesCallbacks;
+    private Set<BluetoothDevice> mDevicesPendingAudioProfileChanges = new HashSet<>();
     //Only BluetoothManagerService should be registered
     private RemoteCallbackList<IBluetoothCallback> mCallbacks;
     private int mCurrentRequestId;
@@ -815,30 +828,67 @@ public class AdapterService extends Service {
 
         // Turn the Adapter all the way off if we are disabling and the snoop log setting changed.
         if (newState == BluetoothAdapter.STATE_BLE_TURNING_ON) {
-            mSnoopLogSettingAtEnable =
-                    SystemProperties.get(BLUETOOTH_BTSNOOP_LOG_MODE_PROPERTY, "empty");
-            mDefaultSnoopLogSettingAtEnable =
+            sSnoopLogSettingAtEnable = BluetoothProperties.snoop_log_mode()
+                    .orElse(BluetoothProperties.snoop_log_mode_values.EMPTY);
+            sDefaultSnoopLogSettingAtEnable =
                     Settings.Global.getString(getContentResolver(),
                             Settings.Global.BLUETOOTH_BTSNOOP_DEFAULT_MODE);
+
+            sSnoopLogFilterHeadersSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_snoop_headers_enabled().orElse(false);
+            sSnoopLogFilterProfileA2dpSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_profile_a2dp_enabled().orElse(false);
+            sSnoopLogFilterProfileRfcommSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_profile_rfcomm_enabled().orElse(false);
+            sSnoopLogFilterProfilePbapModeSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_profile_pbap()
+                    .orElse(BluetoothProperties.snoop_log_filter_profile_pbap_values.EMPTY);
+            sSnoopLogFilterProfileMapModeSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_profile_map()
+                    .orElse(BluetoothProperties.snoop_log_filter_profile_map_values.EMPTY);
+
             BluetoothProperties.snoop_default_mode(
                     BluetoothProperties.snoop_default_mode_values.DISABLED);
             for (BluetoothProperties.snoop_default_mode_values value :
                     BluetoothProperties.snoop_default_mode_values.values()) {
-                if (value.getPropValue().equals(mDefaultSnoopLogSettingAtEnable)) {
+                if (value.getPropValue().equals(sDefaultSnoopLogSettingAtEnable)) {
                     BluetoothProperties.snoop_default_mode(value);
                 }
             }
         } else if (newState == BluetoothAdapter.STATE_BLE_ON
                    && prevState != BluetoothAdapter.STATE_OFF) {
-            String snoopLogSetting =
-                    SystemProperties.get(BLUETOOTH_BTSNOOP_LOG_MODE_PROPERTY, "empty");
-            String snoopDefaultModeSetting =
+            var snoopLogSetting = BluetoothProperties.snoop_log_mode()
+                    .orElse(BluetoothProperties.snoop_log_mode_values.EMPTY);
+            var snoopDefaultModeSetting =
                     Settings.Global.getString(getContentResolver(),
                             Settings.Global.BLUETOOTH_BTSNOOP_DEFAULT_MODE);
 
-            if (!TextUtils.equals(mSnoopLogSettingAtEnable, snoopLogSetting)
-                    || !TextUtils.equals(mDefaultSnoopLogSettingAtEnable,
-                            snoopDefaultModeSetting)) {
+            var snoopLogFilterHeadersSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_snoop_headers_enabled().orElse(false);
+            var snoopLogFilterProfileA2dpSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_profile_a2dp_enabled().orElse(false);
+            var snoopLogFilterProfileRfcommSettingAtEnable =
+                    BluetoothProperties.snoop_log_filter_profile_rfcomm_enabled().orElse(false);
+
+            var snoopLogFilterProfilePbapModeSetting =
+                    BluetoothProperties.snoop_log_filter_profile_pbap()
+                    .orElse(BluetoothProperties.snoop_log_filter_profile_pbap_values.EMPTY);
+            var snoopLogFilterProfileMapModeSetting =
+                    BluetoothProperties.snoop_log_filter_profile_map()
+                    .orElse(BluetoothProperties.snoop_log_filter_profile_map_values.EMPTY);
+
+            if (!(sSnoopLogSettingAtEnable == snoopLogSetting)
+                    || !(sDefaultSnoopLogSettingAtEnable == snoopDefaultModeSetting)
+                    || !(sSnoopLogFilterHeadersSettingAtEnable
+                            == snoopLogFilterHeadersSettingAtEnable)
+                    || !(sSnoopLogFilterProfileA2dpSettingAtEnable
+                            == snoopLogFilterProfileA2dpSettingAtEnable)
+                    || !(sSnoopLogFilterProfileRfcommSettingAtEnable
+                            == snoopLogFilterProfileRfcommSettingAtEnable)
+                    || !(sSnoopLogFilterProfilePbapModeSettingAtEnable
+                            == snoopLogFilterProfilePbapModeSetting)
+                    || !(sSnoopLogFilterProfileMapModeSettingAtEnable
+                            == snoopLogFilterProfileMapModeSetting)) {
                 mAdapterStateMachine.sendMessage(AdapterState.BLE_TURN_OFF);
             }
         }
@@ -1049,6 +1099,19 @@ public class AdapterService extends Service {
             }
             setProfileServiceState(service, state);
         }
+    }
+
+    /**
+     * Checks whether the remote device is a dual mode audio sink device (supports both classic and
+     * LE Audio sink roles.
+     *
+     * @param device the remote device
+     * @return {@code true} if it's a dual mode audio device, {@code false} otherwise
+     */
+    private boolean isDualModeAudioSinkDevice(BluetoothDevice device) {
+        return isProfileSupported(device, BluetoothProfile.LE_AUDIO)
+                && mLeAudioService != null && (isProfileSupported(device, BluetoothProfile.HEADSET)
+                || isProfileSupported(device, BluetoothProfile.A2DP));
     }
 
     /**
@@ -2316,11 +2379,20 @@ public class AdapterService extends Service {
         @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
         private int getProfileConnectionState(int profile, AttributionSource source) {
             AdapterService service = getService();
+            boolean checkConnect = false;
+            final int callingUid = Binder.getCallingUid();
+            final long token = Binder.clearCallingIdentity();
+            try {
+                checkConnect =
+                        CompatChanges.isChangeEnabled(ENFORCE_CONNECT, callingUid);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
             if (service == null
                     || !callerIsSystemOrActiveOrManagedUser(
                             service, TAG, "getProfileConnectionState")
-                    || !Utils.checkConnectPermissionForDataDelivery(
-                            service, source, "AdapterService getProfileConnectionState")) {
+                    || (checkConnect && !Utils.checkConnectPermissionForDataDelivery(
+                            service, source, "AdapterService getProfileConnectionState"))) {
                 return BluetoothProfile.STATE_DISCONNECTED;
             }
 
@@ -2554,7 +2626,7 @@ public class AdapterService extends Service {
                 BluetoothDevice device, int transport, AttributionSource attributionSource) {
             AdapterService service = getService();
             if (service == null
-                    || !callerIsSystemOrActiveOrManagedUser(service, TAG, "setActiveDevice")
+                    || !callerIsSystemOrActiveOrManagedUser(service, TAG, "getConnectionHandle")
                     || !Utils.checkConnectPermissionForDataDelivery(
                         service, attributionSource, TAG)) {
                 return BluetoothDevice.ERROR;
@@ -2588,6 +2660,32 @@ public class AdapterService extends Service {
             enforceBluetoothPrivilegedPermission(service);
 
             return service.canBondWithoutDialog(device);
+        }
+
+        @Override
+        public void getCreateBondCaller(BluetoothDevice device,
+                SynchronousResultReceiver receiver) {
+            try {
+                receiver.send(getCreateBondCaller(device));
+            } catch (RuntimeException e) {
+                receiver.propagateException(e);
+            }
+        }
+
+        @RequiresPermission(allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+        })
+        private String getCreateBondCaller(BluetoothDevice device)  {
+            AdapterService service = getService();
+
+            if (service == null) {
+                return null;
+            }
+
+            enforceBluetoothPrivilegedPermission(service);
+
+            return service.getCreateBondCaller(device);
         }
 
         @Override
@@ -3720,6 +3818,30 @@ public class AdapterService extends Service {
         }
 
         @Override
+        public void isDistanceMeasurementSupported(AttributionSource source,
+                SynchronousResultReceiver receiver) {
+            try {
+                receiver.send(isDistanceMeasurementSupported(source));
+            } catch (RuntimeException e) {
+                receiver.propagateException(e);
+            }
+        }
+        public int isDistanceMeasurementSupported(AttributionSource source) {
+            AdapterService service = getService();
+            if (service == null) {
+                return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
+            } else if (!callerIsSystemOrActiveOrManagedUser(service, TAG,
+                    "isDistanceMeasurementSupported")) {
+                return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ALLOWED;
+            } else if (!Utils.checkConnectPermissionForDataDelivery(
+                    service, source, TAG)) {
+                return BluetoothStatusCodes.ERROR_MISSING_BLUETOOTH_CONNECT_PERMISSION;
+            }
+            enforceBluetoothPrivilegedPermission(service);
+            return BluetoothStatusCodes.FEATURE_SUPPORTED;
+        }
+
+        @Override
         public void getLeMaximumAdvertisingDataLength(SynchronousResultReceiver receiver) {
             try {
                 receiver.send(getLeMaximumAdvertisingDataLength());
@@ -4280,6 +4402,40 @@ public class AdapterService extends Service {
         }
 
         @Override
+        public void notifyActiveDeviceChangeApplied(BluetoothDevice device,
+                AttributionSource source, SynchronousResultReceiver receiver) {
+            try {
+                receiver.send(notifyActiveDeviceChangeApplied(device, source));
+            } catch (RuntimeException e) {
+                receiver.propagateException(e);
+            }
+        }
+
+        private int notifyActiveDeviceChangeApplied(BluetoothDevice device,
+                AttributionSource source) {
+            AdapterService service = getService();
+            if (service == null) {
+                return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
+            }
+            if (!callerIsSystem(TAG, "setPreferredAudioProfiles")) {
+                return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ALLOWED;
+            }
+            Objects.requireNonNull(device);
+            if (!BluetoothAdapter.checkBluetoothAddress(device.getAddress())) {
+                throw new IllegalArgumentException("device cannot have an invalid address");
+            }
+            if (service.getBondState(device) != BluetoothDevice.BOND_BONDED) {
+                return BluetoothStatusCodes.ERROR_DEVICE_NOT_BONDED;
+            }
+            if (!Utils.checkConnectPermissionForDataDelivery(service, source, TAG)) {
+                return BluetoothStatusCodes.ERROR_MISSING_BLUETOOTH_CONNECT_PERMISSION;
+            }
+            enforceBluetoothPrivilegedPermission(service);
+
+            return service.notifyActiveDeviceChangeApplied(device);
+        }
+
+        @Override
         public void registerPreferredAudioProfilesChangedCallback(
                 IBluetoothPreferredAudioProfilesCallback callback,
                 AttributionSource attributionSource, SynchronousResultReceiver receiver) {
@@ -4362,7 +4518,7 @@ public class AdapterService extends Service {
      * @return a Bundle containing the preferred audio profiles for the device
      */
     private Bundle getPreferredAudioProfiles(BluetoothDevice device) {
-        if (mLeAudioService == null) {
+        if (mLeAudioService == null || !isDualModeAudioSinkDevice(device)) {
             return Bundle.EMPTY;
         }
         // Gets the lead device in the CSIP group to set the preference
@@ -4374,9 +4530,22 @@ public class AdapterService extends Service {
         // If there are no preferences stored, return the defaults
         Bundle storedBundle = mDatabaseManager.getPreferredAudioProfiles(groupLead);
         if (storedBundle.isEmpty()) {
-            //TODO(b/265077414): replace with default audio policy sysprop
-            int outputOnlyDefault = BluetoothProfile.LE_AUDIO;
-            int duplexDefault = BluetoothProfile.LE_AUDIO;
+            // Gets the default output only audio profile or defaults to LE_AUDIO if not present
+            int outputOnlyDefault = BluetoothProperties.getDefaultOutputOnlyAudioProfile().orElse(
+                    BluetoothProfile.LE_AUDIO);
+            if (outputOnlyDefault != BluetoothProfile.A2DP
+                    && outputOnlyDefault != BluetoothProfile.LE_AUDIO) {
+                outputOnlyDefault = BluetoothProfile.LE_AUDIO;
+            }
+
+            // Gets the default duplex audio profile or defaults to LE_AUDIO if not present
+            int duplexDefault = BluetoothProperties.getDefaultDuplexAudioProfile().orElse(
+                    BluetoothProfile.LE_AUDIO);
+            if (duplexDefault != BluetoothProfile.HEADSET
+                    && duplexDefault != BluetoothProfile.LE_AUDIO) {
+                duplexDefault = BluetoothProfile.LE_AUDIO;
+            }
+
             if (isOutputOnlyAudioSupported(groupLead)) {
                 storedBundle.putInt(BluetoothAdapter.AUDIO_MODE_OUTPUT_ONLY, outputOnlyDefault);
             }
@@ -4399,27 +4568,82 @@ public class AdapterService extends Service {
         if (mLeAudioService == null) {
             return BluetoothStatusCodes.ERROR_PROFILE_NOT_CONNECTED;
         }
+        if (!isDualModeAudioSinkDevice(device)) {
+            return BluetoothStatusCodes.ERROR_NOT_DUAL_MODE_AUDIO_DEVICE;
+        }
         // Gets the lead device in the CSIP group to set the preference
         BluetoothDevice groupLead = mLeAudioService.getLeadDevice(device);
         if (groupLead == null) {
             return BluetoothStatusCodes.ERROR_DEVICE_NOT_BONDED;
         }
 
-        // Copies relevant keys & values from modeToProfile bundle
-        Bundle strippedPreferences = new Bundle();
-        if (modeToProfileBundle.containsKey(BluetoothAdapter.AUDIO_MODE_OUTPUT_ONLY)
-                && isOutputOnlyAudioSupported(groupLead)) {
-            strippedPreferences.putInt(BluetoothAdapter.AUDIO_MODE_OUTPUT_ONLY,
-                    modeToProfileBundle.getInt(BluetoothAdapter.AUDIO_MODE_OUTPUT_ONLY));
+        synchronized (mDevicesPendingAudioProfileChanges) {
+            if (mDevicesPendingAudioProfileChanges.contains(groupLead)) {
+                return BluetoothStatusCodes.ERROR_ANOTHER_ACTIVE_REQUEST;
+            }
+
+            // Copies relevant keys & values from modeToProfile bundle
+            Bundle strippedPreferences = new Bundle();
+            if (modeToProfileBundle.containsKey(BluetoothAdapter.AUDIO_MODE_OUTPUT_ONLY)
+                    && isOutputOnlyAudioSupported(groupLead)) {
+                strippedPreferences.putInt(BluetoothAdapter.AUDIO_MODE_OUTPUT_ONLY,
+                        modeToProfileBundle.getInt(BluetoothAdapter.AUDIO_MODE_OUTPUT_ONLY));
+            }
+            if (modeToProfileBundle.containsKey(BluetoothAdapter.AUDIO_MODE_DUPLEX)
+                    && isDuplexAudioSupported(groupLead)) {
+                strippedPreferences.putInt(BluetoothAdapter.AUDIO_MODE_DUPLEX,
+                        modeToProfileBundle.getInt(BluetoothAdapter.AUDIO_MODE_DUPLEX));
+            }
+
+            mDevicesPendingAudioProfileChanges.add(groupLead);
+            return mDatabaseManager.setPreferredAudioProfiles(groupLead,
+                    strippedPreferences);
         }
-        if (modeToProfileBundle.containsKey(BluetoothAdapter.AUDIO_MODE_DUPLEX)
-                && isDuplexAudioSupported(groupLead)) {
-            strippedPreferences.putInt(BluetoothAdapter.AUDIO_MODE_DUPLEX,
-                    modeToProfileBundle.getInt(BluetoothAdapter.AUDIO_MODE_DUPLEX));
+    }
+
+    /**
+     * Notification from the audio framework that an active device change has taken effect.
+     * See {@link BluetoothAdapter#notifyActiveDeviceChangeApplied(BluetoothDevice)} for
+     * more details.
+     *
+     * @param device the remote device whose preferred audio profiles have been changed
+     * @return whether the Bluetooth stack acknowledged the change successfully
+     */
+    private int notifyActiveDeviceChangeApplied(BluetoothDevice device) {
+        // Gets the lead device in the CSIP group to set the preference
+        BluetoothDevice groupLead = mLeAudioService.getLeadDevice(device);
+        if (groupLead == null) {
+            return BluetoothStatusCodes.ERROR_DEVICE_NOT_BONDED;
         }
 
-        return mDatabaseManager.setPreferredAudioProfiles(groupLead,
-                strippedPreferences);
+        synchronized (mDevicesPendingAudioProfileChanges) {
+            if (!mDevicesPendingAudioProfileChanges.contains(groupLead)) {
+                Log.e(TAG, "notifyActiveDeviceChangeApplied, but no pending request for "
+                        + "device: " + groupLead);
+                return BluetoothStatusCodes.ERROR_UNKNOWN;
+            }
+
+            if (mPreferredAudioProfilesCallbacks != null) {
+                int n = mPreferredAudioProfilesCallbacks.beginBroadcast();
+                debugLog("notifyActiveDeviceChangeApplied() - Broadcasting audio profile "
+                        + "change applied to device: " + groupLead + " to " + n + " receivers.");
+                for (int i = 0; i < n; i++) {
+                    try {
+                        mPreferredAudioProfilesCallbacks.getBroadcastItem(i)
+                                .onPreferredAudioProfilesChanged(device,
+                                        getPreferredAudioProfiles(device),
+                                        BluetoothStatusCodes.SUCCESS);
+                    } catch (RemoteException e) {
+                        debugLog("notifyActiveDeviceChangeApplied() - Callback #" + i
+                                + " failed (" + e + ")");
+                    }
+                }
+                mPreferredAudioProfilesCallbacks.finishBroadcast();
+            }
+            mDevicesPendingAudioProfileChanges.remove(groupLead);
+        }
+
+        return BluetoothStatusCodes.SUCCESS;
     }
 
     // ----API Methods--------
@@ -4758,6 +4982,19 @@ public class AdapterService extends Service {
                     device.getAddress(), bondCallerInfo.user);
         }
         return false;
+    }
+
+    /**
+     * Returns the package name of the most recent caller that called
+     * {@link BluetoothDevice#createBond} on the given device.
+     */
+    @Nullable
+    public String getCreateBondCaller(BluetoothDevice device) {
+        CallerInfo info = mBondAttemptCallerInfo.get(device.getAddress());
+        if (info == null) {
+            return null;
+        }
+        return info.callerPackageName;
     }
 
     /**
@@ -5405,6 +5642,10 @@ public class AdapterService extends Service {
         return mAdapterProperties.isA2dpOffloadEnabled();
     }
 
+    public String[] getAllowlistedMediaPlayers() {
+        return mAdapterProperties.getAllowlistedMediaPlayers();
+    }
+
     @VisibleForTesting
     BluetoothActivityEnergyInfo reportActivityInfo() {
         if (mAdapterProperties.getState() != BluetoothAdapter.STATE_ON
@@ -5691,8 +5932,8 @@ public class AdapterService extends Service {
 
         writer.println();
         mAdapterProperties.dump(fd, writer, args);
-        writer.println("mSnoopLogSettingAtEnable = " + mSnoopLogSettingAtEnable);
-        writer.println("mDefaultSnoopLogSettingAtEnable = " + mDefaultSnoopLogSettingAtEnable);
+        writer.println("sSnoopLogSettingAtEnable = " + sSnoopLogSettingAtEnable);
+        writer.println("sDefaultSnoopLogSettingAtEnable = " + sDefaultSnoopLogSettingAtEnable);
 
         writer.println();
         writer.println("Enabled Profile Services:");
@@ -6183,6 +6424,35 @@ public class AdapterService extends Service {
         mRemoteDevices.updateBatteryLevel(device, batteryLevel);
     }
 
+    public boolean interopMatchAddr(InteropFeature feature, String address) {
+        return interopMatchAddrNative(feature.name(), address);
+    }
+
+    public boolean interopMatchName(InteropFeature feature, String name) {
+        return interopMatchNameNative(feature.name(), name);
+    }
+
+    public boolean interopMatchAddrOrName(InteropFeature feature, String address) {
+        return interopMatchAddrOrNameNative(feature.name(), address);
+    }
+
+    public void interopDatabaseAddAddr(InteropFeature feature,
+            String address, int length) {
+        interopDatabaseAddRemoveAddrNative(true, feature.name(), address, length);
+    }
+
+    public void interopDatabaseRemoveAddr(InteropFeature feature, String address) {
+        interopDatabaseAddRemoveAddrNative(false, feature.name(), address, 0);
+    }
+
+    public void interopDatabaseAddName(InteropFeature feature, String name) {
+        interopDatabaseAddRemoveNameNative(true, feature.name(), name);
+    }
+
+    public void interopDatabaseRemoveName(InteropFeature feature, String name) {
+        interopDatabaseAddRemoveNameNative(false, feature.name(), name);
+    }
+
     static native void classInitNative();
 
     native boolean initNative(boolean startRestricted, boolean isCommonCriteriaMode,
@@ -6215,8 +6485,8 @@ public class AdapterService extends Service {
     /*package*/
     native boolean getDevicePropertyNative(byte[] address, int type);
 
-    /*package*/
-    public native boolean createBondNative(byte[] address, int transport);
+    /** package */
+    public native boolean createBondNative(byte[] address, int addressType, int transport);
 
     /*package*/
     native boolean createBondOutOfBandNative(byte[] address, int transport,
@@ -6279,6 +6549,14 @@ public class AdapterService extends Service {
     private native boolean allowLowLatencyAudioNative(boolean allowed, byte[] address);
 
     private native void metadataChangedNative(byte[] address, int key, byte[] value);
+
+    private native boolean interopMatchAddrNative(String featureName, String address);
+    private native boolean interopMatchNameNative(String featureName, String name);
+    private native boolean interopMatchAddrOrNameNative(String featureName, String address);
+    private native void interopDatabaseAddRemoveAddrNative(boolean doAdd,
+            String featureName, String address, int length);
+    private native void interopDatabaseAddRemoveNameNative(boolean doAdd,
+            String featureBame, String name);
 
     // Returns if this is a mock object. This is currently used in testing so that we may not call
     // System.exit() while finalizing the object. Otherwise GC of mock objects unfortunately ends up

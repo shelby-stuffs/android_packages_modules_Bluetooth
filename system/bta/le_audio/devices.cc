@@ -867,7 +867,8 @@ bool LeAudioDeviceGroup::IsInTransition(void) {
 }
 
 bool LeAudioDeviceGroup::IsReleasingOrIdle(void) {
-  return target_state_ == AseState::BTA_LE_AUDIO_ASE_STATE_IDLE;
+  return (target_state_ == AseState::BTA_LE_AUDIO_ASE_STATE_IDLE) ||
+         (current_state_ == AseState::BTA_LE_AUDIO_ASE_STATE_IDLE);
 }
 
 bool LeAudioDeviceGroup::IsGroupStreamReady(void) {
@@ -2012,7 +2013,7 @@ void LeAudioDeviceGroup::PrintDebugState(void) {
     auto sdu_mts = GetSduInterval(le_audio::types::kLeAudioDirectionSink);
     auto sdu_stom = GetSduInterval(le_audio::types::kLeAudioDirectionSource);
 
-    debug_str << "\n resentation_delay for sink (speaker): " << +sink_delay
+    debug_str << "\n presentation_delay for sink (speaker): " << +sink_delay
               << " us, presentation_delay for source (microphone): "
               << +source_delay << "us, \n MtoS transport latency:  "
               << +max_transport_latency_mtos

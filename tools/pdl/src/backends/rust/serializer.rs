@@ -1,4 +1,5 @@
 use crate::backends::rust::{mask_bits, types};
+use crate::parser::ast as parser_ast;
 use crate::{ast, lint};
 use quote::{format_ident, quote};
 
@@ -36,42 +37,7 @@ impl<'a> FieldSerializer<'a> {
         }
     }
 
-    fn endianness_suffix(&'a self, width: usize) -> &'static str {
-        if width > 8 && self.endianness == ast::EndiannessValue::LittleEndian {
-            "_le"
-        } else {
-            ""
-        }
-    }
-
-    /// Write an unsigned integer `value` to `self.span`.
-    ///
-    /// The generated code requires that `self.span` is a mutable
-    /// `bytes::BufMut` value.
-    fn put_uint(
-        &'a self,
-        value: &proc_macro2::TokenStream,
-        width: usize,
-    ) -> proc_macro2::TokenStream {
-        let span = &self.span;
-        let suffix = self.endianness_suffix(width);
-        let value_type = types::Integer::new(width);
-        if value_type.width == width {
-            let put_u = format_ident!("put_u{}{}", width, suffix);
-            quote! {
-                #span.#put_u(#value)
-            }
-        } else {
-            let put_uint = format_ident!("put_uint{}", suffix);
-            let value_nbytes = proc_macro2::Literal::usize_unsuffixed(width / 8);
-            let cast = (value_type.width < 64).then(|| quote!(as u64));
-            quote! {
-                #span.#put_uint(#value #cast, #value_nbytes)
-            }
-        }
-    }
-
-    pub fn add(&mut self, field: &ast::Field) {
+    pub fn add(&mut self, field: &parser_ast::Field) {
         if field.is_bitfield(self.scope) {
             self.add_bit_field(field);
             return;
@@ -80,11 +46,11 @@ impl<'a> FieldSerializer<'a> {
         todo!("not yet supported: {field:?}")
     }
 
-    fn add_bit_field(&mut self, field: &ast::Field) {
+    fn add_bit_field(&mut self, field: &parser_ast::Field) {
         let width = field.width(self.scope).unwrap();
 
-        match field {
-            ast::Field::Scalar { id, width, .. } => {
+        match &field.desc {
+            ast::FieldDesc::Scalar { id, width } => {
                 let field_name = format_ident!("{id}");
                 let field_type = types::Integer::new(*width);
                 if field_type.width > *width {
@@ -101,7 +67,7 @@ impl<'a> FieldSerializer<'a> {
                 }
                 self.chunk.push(BitField { value: quote!(self.#field_name), shift: self.shift });
             }
-            ast::Field::Typedef { id, .. } => {
+            ast::FieldDesc::Typedef { id, .. } => {
                 let field_name = format_ident!("{id}");
                 let field_type = types::Integer::new(width);
                 let to_u = format_ident!("to_u{}", field_type.width);
@@ -111,6 +77,9 @@ impl<'a> FieldSerializer<'a> {
                     value: quote!(self.#field_name.#to_u().unwrap()),
                     shift: self.shift,
                 });
+            }
+            ast::FieldDesc::Reserved { .. } => {
+                // Nothing to do here.
             }
             _ => todo!(),
         }
@@ -132,7 +101,7 @@ impl<'a> FieldSerializer<'a> {
                 if chunk_len > 1 {
                     // We will be combining values with `|`, so we
                     // need to cast them first. If there is a single
-                    // value in the chunk, `self.put_uint` will cast.
+                    // value in the chunk, `put_uint` will cast.
                     value = quote! { (#value as #chunk_type) };
                 }
                 if shift > 0 {
@@ -145,15 +114,21 @@ impl<'a> FieldSerializer<'a> {
             .collect::<Vec<_>>();
 
         match values.as_slice() {
-            [] => todo!(),
+            [] => {
+                let span = format_ident!("{}", self.span);
+                let count = syn::Index::from(self.shift / 8);
+                self.code.push(quote! {
+                    #span.put_bytes(0, #count);
+                });
+            }
             [value] => {
-                let put = self.put_uint(value, self.shift);
+                let put = types::put_uint(self.endianness, value, self.shift, self.span);
                 self.code.push(quote! {
                     #put;
                 });
             }
             _ => {
-                let put = self.put_uint(&quote!(value), self.shift);
+                let put = types::put_uint(self.endianness, &quote!(value), self.shift, self.span);
                 self.code.push(quote! {
                     let value = #(#values)|*;
                     #put;

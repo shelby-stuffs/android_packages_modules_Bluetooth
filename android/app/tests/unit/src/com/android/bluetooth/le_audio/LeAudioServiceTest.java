@@ -48,7 +48,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.media.AudioManager;
 import android.media.BluetoothProfileConnectionInfo;
-import android.os.Parcel;
 import android.os.ParcelUuid;
 
 import androidx.test.InstrumentationRegistry;
@@ -56,7 +55,6 @@ import androidx.test.filters.MediumTest;
 import androidx.test.rule.ServiceTestRule;
 import androidx.test.runner.AndroidJUnit4;
 
-import com.android.bluetooth.R;
 import com.android.bluetooth.TestUtils;
 import com.android.bluetooth.btservice.AdapterService;
 import com.android.bluetooth.btservice.ServiceFactory;
@@ -66,7 +64,6 @@ import com.android.bluetooth.mcp.McpService;
 import com.android.bluetooth.vc.VolumeControlService;
 
 import org.junit.After;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -652,9 +649,15 @@ public class LeAudioServiceTest {
         mService.bondStateChanged(mLeftDevice, BluetoothDevice.BOND_NONE);
         assertThat(mService.getDevices().contains(mLeftDevice)).isFalse();
 
+        // Remove bond will remove also device descriptor. Device has to be connected again
+        assertWithMessage("Connect failed").that(mService.connect(mLeftDevice)).isTrue();
+        verifyConnectionStateIntent(LeAudioStateMachine.sConnectTimeoutMs * 2,
+                mLeftDevice, BluetoothProfile.STATE_CONNECTING,
+                BluetoothProfile.STATE_DISCONNECTED);
+
         // stack event: CONNECTION_STATE_CONNECTED - state machine should be created
         generateConnectionMessageFromNative(mLeftDevice, BluetoothProfile.STATE_CONNECTED,
-                BluetoothProfile.STATE_DISCONNECTED);
+                BluetoothProfile.STATE_CONNECTING);
         assertThat(BluetoothProfile.STATE_CONNECTED)
                 .isEqualTo(mService.getConnectionState(mLeftDevice));
         assertThat(mService.getDevices().contains(mLeftDevice)).isTrue();
@@ -1141,7 +1144,7 @@ public class LeAudioServiceTest {
         /* Since LeAudioService called AudioManager - assume Audio manager calles properly callback
         * mAudioManager.onAudioDeviceAdded
         */
-        mService.notifyActiveDeviceChanged();
+        mService.notifyActiveDeviceChanged(mSingleDevice);
 
         String action = BluetoothLeAudio.ACTION_LE_AUDIO_ACTIVE_DEVICE_CHANGED;
         Intent intent = TestUtils.waitForIntent(TIMEOUT_MS, mDeviceQueueMap.get(mSingleDevice));
@@ -1357,7 +1360,7 @@ public class LeAudioServiceTest {
         /* Since LeAudioService called AudioManager - assume Audio manager calles properly callback
          * mAudioManager.onAudioDeviceAdded
          */
-        mService.notifyActiveDeviceChanged();
+        mService.notifyActiveDeviceChanged(leadDevice);
         doReturn(BluetoothDevice.BOND_BONDED).when(mAdapterService).getBondState(leadDevice);
         verifyActiveDeviceStateIntent(AUDIO_MANAGER_DEVICE_ADD_TIMEOUT_MS, leadDevice);
         injectNoVerifyDeviceDisconnected(leadDevice);
@@ -1426,7 +1429,7 @@ public class LeAudioServiceTest {
         /* Since LeAudioService called AudioManager - assume Audio manager calles properly callback
          * mAudioManager.onAudioDeviceAdded
          */
-        mService.notifyActiveDeviceChanged();
+        mService.notifyActiveDeviceChanged(leadDevice);
 
         verifyActiveDeviceStateIntent(AUDIO_MANAGER_DEVICE_ADD_TIMEOUT_MS, leadDevice);
         /* We don't want to distribute DISCONNECTION event, instead will try to reconnect
@@ -1552,6 +1555,8 @@ public class LeAudioServiceTest {
     @Test
     public void testDefaultValuesOfSeveralGetters() {
         assertThat(mService.getMaximumNumberOfBroadcasts()).isEqualTo(1);
+        assertThat(mService.getMaximumStreamsPerBroadcast()).isEqualTo(1);
+        assertThat(mService.getMaximumSubgroupsPerBroadcast()).isEqualTo(1);
         assertThat(mService.isPlaying(100)).isFalse();
         assertThat(mService.isValidDeviceGroup(LE_AUDIO_GROUP_ID_INVALID)).isFalse();
     }
