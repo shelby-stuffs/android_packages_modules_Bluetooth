@@ -93,7 +93,7 @@ static void bta_dm_inq_cmpl_cb(void* p_result);
 static void bta_dm_service_search_remname_cback(const RawAddress& bd_addr,
                                                 DEV_CLASS dc,
                                                 tBTM_BD_NAME bd_name);
-static void bta_dm_remname_cback(void* p);
+static void bta_dm_remname_cback(const tBTM_REMOTE_DEV_NAME* p);
 static void bta_dm_find_services(const RawAddress& bd_addr);
 static void bta_dm_discover_next_device(void);
 static void bta_dm_sdp_callback(tSDP_STATUS sdp_status);
@@ -289,8 +289,10 @@ void bta_dm_enable(tBTA_DM_SEC_CBACK* p_sec_cback) {
   btm_local_io_caps = btif_storage_get_local_io_caps();
 }
 
-void bta_dm_search_set_state(uint8_t state) { bta_dm_search_cb.state = state; }
-uint8_t bta_dm_search_get_state() { return bta_dm_search_cb.state; }
+void bta_dm_search_set_state(tBTA_DM_STATE state) {
+  bta_dm_search_cb.state = state;
+}
+tBTA_DM_STATE bta_dm_search_get_state() { return bta_dm_search_cb.state; }
 
 /*******************************************************************************
  *
@@ -2145,7 +2147,7 @@ static void bta_dm_service_search_remname_cback(const RawAddress& bd_addr,
  * Returns          void
  *
  ******************************************************************************/
-static void bta_dm_remname_cback(void* p) {
+static void bta_dm_remname_cback(const tBTM_REMOTE_DEV_NAME* p) {
   tBTM_REMOTE_DEV_NAME* p_remote_name = (tBTM_REMOTE_DEV_NAME*)p;
   APPL_TRACE_DEBUG("bta_dm_remname_cback len = %d name=<%s>",
                    p_remote_name->length, p_remote_name->remote_bd_name);
@@ -2210,7 +2212,7 @@ static void bta_dm_remname_cback(void* p) {
  * Returns          void
  *
  ******************************************************************************/
-static void bta_dm_pinname_cback(void* p_data) {
+static void bta_dm_pinname_cback(const tBTM_REMOTE_DEV_NAME* p_data) {
   tBTM_REMOTE_DEV_NAME* p_result = (tBTM_REMOTE_DEV_NAME*)p_data;
   tBTA_DM_SEC sec_event;
   uint32_t bytes_to_copy;
@@ -4389,13 +4391,14 @@ void bta_dm_set_event_filter_connection_setup_all_devices() {
  *
  * Description     Allow the device to be woken by HID devices
  *
- * Parameters      std::vector of (Address, Address Type)
+ * Parameters      std::vector of Classic Address and LE (Address, Address Type)
  *
  *******************************************************************************/
 void bta_dm_allow_wake_by_hid(
+    std::vector<RawAddress> classic_hid_devices,
     std::vector<std::pair<RawAddress, uint8_t>> le_hid_devices) {
-  // Autoplumbed
-  bluetooth::shim::BTM_AllowWakeByHid(le_hid_devices);
+  bluetooth::shim::BTM_AllowWakeByHid(std::move(classic_hid_devices),
+                                      std::move(le_hid_devices));
 }
 
 /*******************************************************************************
@@ -4407,9 +4410,10 @@ void bta_dm_allow_wake_by_hid(
  * Parameters
  *
  *******************************************************************************/
-void bta_dm_restore_filter_accept_list() {
+void bta_dm_restore_filter_accept_list(
+    std::vector<std::pair<RawAddress, uint8_t>> le_devices) {
   // Autoplumbed
-  bluetooth::shim::BTM_RestoreFilterAcceptList();
+  bluetooth::shim::BTM_RestoreFilterAcceptList(le_devices);
 }
 
 /*******************************************************************************
@@ -4565,7 +4569,9 @@ tBTA_DM_PEER_DEVICE* allocate_device_for(const RawAddress& bd_addr,
   return ::allocate_device_for(bd_addr, transport);
 }
 
-void bta_dm_remname_cback(void* p) { ::bta_dm_remname_cback(p); }
+void bta_dm_remname_cback(const tBTM_REMOTE_DEV_NAME* p) {
+  ::bta_dm_remname_cback(p);
+}
 
 }  // namespace testing
 }  // namespace legacy
