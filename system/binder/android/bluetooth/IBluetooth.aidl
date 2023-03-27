@@ -210,10 +210,13 @@ interface IBluetooth
 
     // For Socket
     @JavaPassthrough(annotation="@android.annotation.RequiresNoPermission")
+    oneway void logL2capcocServerConnection(in BluetoothDevice device, int port, boolean isSecured, int result, long connectionLatencyMillis, long timeoutMillis, in SynchronousResultReceiver receiver);
+
+    @JavaPassthrough(annotation="@android.annotation.RequiresNoPermission")
     IBluetoothSocketManager getSocketManager();
 
     @JavaPassthrough(annotation="@android.annotation.RequiresNoPermission")
-    oneway void logL2capcocClientConnection(in BluetoothDevice device, int port, boolean isSecured, int result, long connectionLatencyMillis);
+    oneway void logL2capcocClientConnection(in BluetoothDevice device, int port, boolean isSecured, int result, long connectionLatencyMillis, in SynchronousResultReceiver receiver);
 
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT,android.Manifest.permission.BLUETOOTH_PRIVILEGED})")
     oneway void factoryReset(in AttributionSource attributionSource, in SynchronousResultReceiver receiver);
@@ -365,5 +368,5 @@ interface IBluetooth
     oneway void notifyActiveDeviceChangeApplied(in BluetoothDevice device, in AttributionSource attributionSource, in SynchronousResultReceiver receiver);
 
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_SCAN,android.Manifest.permission.BLUETOOTH_PRIVILEGED})")
-    oneway void isOffloadedTransportDiscoveryDataScanSupported(in AttributionSource attributionSource, in SynchronousResultReceiver receiver);
+    oneway void getOffloadedTransportDiscoveryDataScanSupported(in AttributionSource attributionSource, in SynchronousResultReceiver receiver);
 }
