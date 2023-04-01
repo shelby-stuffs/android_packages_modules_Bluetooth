@@ -481,6 +481,11 @@ extern void BTA_GATTC_Open(tGATT_IF client_if, const RawAddress& remote_bda,
                            tBTM_BLE_CONN_TYPE connection_type,
                            tBT_TRANSPORT transport, bool opportunistic,
                            uint8_t initiating_phys);
+extern void BTA_GATTC_Open(tGATT_IF client_if, const RawAddress& remote_bda,
+                           tBLE_ADDR_TYPE addr_type,
+                           tBTM_BLE_CONN_TYPE connection_type,
+                           tBT_TRANSPORT transport, bool opportunistic,
+                           uint8_t initiating_phys);
 
 /*******************************************************************************
  *
@@ -1023,5 +1028,8 @@ extern void BTA_GATTS_CancelOpen(tGATT_IF server_if,
  *
  ******************************************************************************/
 extern void BTA_GATTS_Close(uint16_t conn_id);
+
+// Adds bonded device for GATT server tracking service changes
+extern void BTA_GATTS_InitBonded(void);
 
 #endif /* BTA_GATT_API_H */

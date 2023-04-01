@@ -11,7 +11,7 @@ pub mod ast {
     use serde::Serialize;
 
     // Field and declaration size information.
-    #[derive(Default, Debug)]
+    #[derive(Default, Debug, Clone)]
     #[allow(unused)]
     pub enum Size {
         // Constant size in bits.
@@ -62,6 +62,9 @@ pub struct Scope<'d> {
 
     // Collection of Packet, Struct, and Group scope declarations.
     pub scopes: HashMap<&'d parser::ast::Decl, PacketScope<'d>>,
+
+    // Children for the Decl with the given id.
+    pub children: HashMap<String, Vec<&'d parser::ast::Decl>>,
 }
 
 /// Gather information about a Packet, Struct, or Group declaration.
@@ -71,13 +74,13 @@ pub struct PacketScope<'d> {
     checksums: HashMap<String, &'d parser::ast::Field>,
 
     // Size or count fields, indexed by the field id.
-    sizes: HashMap<String, &'d parser::ast::Field>,
+    pub sizes: HashMap<String, &'d parser::ast::Field>,
 
     // Payload or body field.
-    payload: Option<&'d parser::ast::Field>,
+    pub payload: Option<&'d parser::ast::Field>,
 
     // Typedef, scalar, array fields.
-    named: HashMap<String, &'d parser::ast::Field>,
+    pub named: HashMap<String, &'d parser::ast::Field>,
 
     // Group fields.
     groups: HashMap<String, &'d parser::ast::Field>,
@@ -85,20 +88,18 @@ pub struct PacketScope<'d> {
     // Flattened field declarations.
     // Contains field declarations from the original Packet, Struct, or Group,
     // where Group fields have been substituted by their body.
-    // Constrained Scalar or Typedef Group fields are substituted by a Fixed
-    // field.
-    fields: Vec<&'d parser::ast::Field>,
+    pub fields: Vec<&'d parser::ast::Field>,
 
     // Constraint declarations gathered from Group inlining.
     constraints: HashMap<String, &'d Constraint>,
 
     // Local and inherited field declarations. Only named fields are preserved.
     // Saved here for reference for parent constraint resolving.
-    all_fields: HashMap<String, &'d parser::ast::Field>,
+    pub all_fields: HashMap<String, &'d parser::ast::Field>,
 
     // Local and inherited constraint declarations.
     // Saved here for constraint conflict checks.
-    all_constraints: HashMap<String, &'d Constraint>,
+    pub all_constraints: HashMap<String, &'d Constraint>,
 }
 
 impl std::cmp::Eq for &parser::ast::Decl {}
@@ -386,6 +387,21 @@ impl<'d> PacketScope<'d> {
         preceding_field
     }
 
+    /// Lookup a field by name. This will also find the special
+    /// `_payload_` and `_body_` fields.
+    pub fn get_packet_field(&self, id: &str) -> Option<&parser::ast::Field> {
+        self.named.get(id).copied().or(match id {
+            "_payload_" | "_body_" => self.payload,
+            _ => None,
+        })
+    }
+
+    /// Find the size field corresponding to the payload or body
+    /// field of this packet.
+    pub fn get_payload_size_field(&self) -> Option<&parser::ast::Field> {
+        self.sizes.get("_payload_").or_else(|| self.sizes.get("_body_")).copied()
+    }
+
     /// Cleanup scope after processing all fields.
     fn finalize(&mut self, result: &mut LintDiagnostics) {
         // Check field shadowing.
@@ -663,26 +679,6 @@ impl<'d> Scope<'d> {
 
         self.scopes = context.scopes;
         context.list
-    }
-}
-
-impl parser::ast::Field {
-    fn kind(&self) -> &str {
-        match &self.desc {
-            FieldDesc::Checksum { .. } => "payload",
-            FieldDesc::Padding { .. } => "padding",
-            FieldDesc::Size { .. } => "size",
-            FieldDesc::Count { .. } => "count",
-            FieldDesc::ElementSize { .. } => "elementsize",
-            FieldDesc::Body { .. } => "body",
-            FieldDesc::Payload { .. } => "payload",
-            FieldDesc::FixedScalar { .. } | FieldDesc::FixedEnum { .. } => "fixed",
-            FieldDesc::Reserved { .. } => "reserved",
-            FieldDesc::Group { .. } => "group",
-            FieldDesc::Array { .. } => "array",
-            FieldDesc::Scalar { .. } => "scalar",
-            FieldDesc::Typedef { .. } => "typedef",
-        }
     }
 }
 
@@ -1195,17 +1191,6 @@ fn lint_struct(
 }
 
 impl parser::ast::Decl {
-    fn constraints(&self) -> impl Iterator<Item = &Constraint> {
-        match &self.desc {
-            DeclDesc::Packet { constraints, .. } | DeclDesc::Struct { constraints, .. } => {
-                Some(constraints.iter())
-            }
-            _ => None,
-        }
-        .into_iter()
-        .flatten()
-    }
-
     fn scope<'d>(&'d self, result: &mut LintDiagnostics) -> Option<PacketScope<'d>> {
         match &self.desc {
             DeclDesc::Packet { fields, .. }
@@ -1248,23 +1233,12 @@ impl parser::ast::Decl {
             DeclDesc::Test { .. } => (),
         }
     }
-
-    fn kind(&self) -> &str {
-        match &self.desc {
-            DeclDesc::Checksum { .. } => "checksum",
-            DeclDesc::CustomField { .. } => "custom field",
-            DeclDesc::Enum { .. } => "enum",
-            DeclDesc::Packet { .. } => "packet",
-            DeclDesc::Struct { .. } => "struct",
-            DeclDesc::Group { .. } => "group",
-            DeclDesc::Test { .. } => "test",
-        }
-    }
 }
 
 impl parser::ast::File {
     fn scope<'d>(&'d self, result: &mut LintDiagnostics) -> Scope<'d> {
-        let mut scope = Scope { typedef: HashMap::new(), scopes: HashMap::new() };
+        let mut scope =
+            Scope { typedef: HashMap::new(), scopes: HashMap::new(), children: HashMap::new() };
 
         // Gather top-level declarations.
         // Validate the top-level scopes (Group, Packet, Typedef).
@@ -1278,6 +1252,12 @@ impl parser::ast::File {
             }
             if let Some(lscope) = decl.scope(result) {
                 scope.scopes.insert(decl, lscope);
+            }
+
+            if let DeclDesc::Packet { parent_id: Some(parent_id), .. }
+            | DeclDesc::Struct { parent_id: Some(parent_id), .. } = &decl.desc
+            {
+                scope.children.entry(parent_id.to_string()).or_default().push(decl);
             }
         }
 

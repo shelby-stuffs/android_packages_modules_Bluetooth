@@ -78,6 +78,7 @@
 #include "btif_keystore.h"
 #include "btif_metrics_logging.h"
 #include "btif_pan.h"
+#include "btif_profile_storage.h"
 #include "btif_sock.h"
 #include "btif_storage.h"
 #include "common/address_obfuscator.h"
@@ -732,16 +733,25 @@ static int set_default_event_mask_except(uint64_t mask, uint64_t le_mask) {
 
 static int restore_filter_accept_list() {
   if (!interface_ready()) return BT_STATUS_NOT_READY;
+  // TODO(b/260922031) - When restoring the filter accept list after a system
+  // suspend, we need to re-arm the LE connections that had `is_direct=False`.
+  // This should be the list of bonded devices and potentially any GATT
+  // connections that have `is_direct=False`. Currently, we only restore LE hid
+  // devices.
+  auto le_hid_addrs = btif_storage_get_le_hid_devices();
   do_in_main_thread(FROM_HERE,
-                    base::BindOnce(btif_dm_restore_filter_accept_list));
+                    base::BindOnce(btif_dm_restore_filter_accept_list,
+                                   std::move(le_hid_addrs)));
   return BT_STATUS_SUCCESS;
 }
 
 static int allow_wake_by_hid() {
   if (!interface_ready()) return BT_STATUS_NOT_READY;
-  auto hid_addrs = btif_storage_get_hid_device_addresses();
+  auto le_hid_addrs = btif_storage_get_le_hid_devices();
+  auto classic_hid_addrs = btif_storage_get_wake_capable_classic_hid_devices();
   do_in_main_thread(FROM_HERE, base::BindOnce(btif_dm_allow_wake_by_hid,
-                                              std::move(hid_addrs)));
+                                              std::move(classic_hid_addrs),
+                                              std::move(le_hid_addrs)));
   return BT_STATUS_SUCCESS;
 }
 
@@ -788,6 +798,27 @@ static void dump(int fd, const char** arguments) {
 
 static void dumpMetrics(std::string* output) {
   bluetooth::common::BluetoothMetricsLogger::GetInstance()->WriteString(output);
+}
+
+static int get_remote_pbap_pce_version(const RawAddress* bd_addr) {
+  // Read and restore the PCE version from local storage
+  uint16_t pce_version = 0;
+  size_t version_value_size = sizeof(pce_version);
+  if (!btif_config_get_bin(bd_addr->ToString(), BT_CONFIG_KEY_PBAP_PCE_VERSION,
+                           (uint8_t*)&pce_version, &version_value_size)) {
+    LOG_WARN("Failed to read cached peer PCE version for %s",
+             ADDRESS_TO_LOGGABLE_CSTR(*bd_addr));
+  }
+  return pce_version;
+}
+
+static bool pbap_pse_dynamic_version_upgrade_is_enabled() {
+  if (bluetooth::common::init_flags::
+          pbap_pse_dynamic_version_upgrade_is_enabled()) {
+    return true;
+  }
+  LOG_WARN("PBAP PSE dynamic version upgrade is not enabled");
+  return false;
 }
 
 static const void* get_profile_interface(const char* profile_id) {
@@ -1088,6 +1119,9 @@ EXPORT_SYMBOL bt_interface_t bluetoothInterface = {
     .interop_match_addr_or_name = interop_match_addr_or_name,
     .interop_database_add_remove_addr = interop_database_add_remove_addr,
     .interop_database_add_remove_name = interop_database_add_remove_name,
+    .get_remote_pbap_pce_version = get_remote_pbap_pce_version,
+    .pbap_pse_dynamic_version_upgrade_is_enabled =
+        pbap_pse_dynamic_version_upgrade_is_enabled,
 };
 
 // callback reporting helpers

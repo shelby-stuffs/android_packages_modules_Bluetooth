@@ -117,7 +117,7 @@ public class GattServiceTest {
     @Before
     public void setUp() throws Exception {
         mTargetContext = InstrumentationRegistry.getTargetContext();
-        Assume.assumeTrue("Ignore test when GattService is not enabled", GattService.isEnabled());
+
         MockitoAnnotations.initMocks(this);
         TestUtils.setAdapterService(mAdapterService);
         doReturn(true).when(mAdapterService).isStartedProfile(anyString());
@@ -152,9 +152,6 @@ public class GattServiceTest {
 
     @After
     public void tearDown() throws Exception {
-        if (!GattService.isEnabled()) {
-            return;
-        }
         doReturn(false).when(mAdapterService).isStartedProfile(anyString());
         TestUtils.stopService(mServiceRule, GattService.class);
         mService = GattService.getGattService();
@@ -306,6 +303,23 @@ public class GattServiceTest {
 
         mService.onBatchScanReportsInternal(status, scannerId, reportType, numRecords, recordData);
         verify(callback).onBatchScanResults(any());
+    }
+
+    @Test
+    public void clientConnect() throws Exception {
+        int clientIf = 1;
+        String address = REMOTE_DEVICE_ADDRESS;
+        int addressType = BluetoothDevice.ADDRESS_TYPE_RANDOM;
+        boolean isDirect = false;
+        int transport = 2;
+        boolean opportunistic = true;
+        int phy = 3;
+
+        mService.clientConnect(clientIf, address, addressType, isDirect, transport,
+                opportunistic, phy, mAttributionSource);
+
+        verify(mNativeInterface).gattClientConnect(clientIf, address, addressType,
+                isDirect, transport, opportunistic, phy);
     }
 
     @Test
@@ -754,7 +768,7 @@ public class GattServiceTest {
         UUID uuid = UUID.randomUUID();
         BluetoothDevice device = mAdapter.getRemoteDevice("00:01:02:03:04:05");
         DistanceMeasurementParams params = new DistanceMeasurementParams.Builder(device)
-                .setDuration(123)
+                .setDurationSeconds(123)
                 .setFrequency(DistanceMeasurementParams.REPORT_FREQUENCY_LOW)
                 .build();
         IDistanceMeasurementCallback callback = mock(IDistanceMeasurementCallback.class);

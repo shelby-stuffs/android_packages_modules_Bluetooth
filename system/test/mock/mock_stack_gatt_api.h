@@ -277,16 +277,19 @@ extern struct GATT_CancelConnect GATT_CancelConnect;
 struct GATT_Connect {
   static bool return_value;
   std::function<bool(tGATT_IF gatt_if, const RawAddress& bd_addr,
-                     bool is_direct, tBT_TRANSPORT transport,
-                     bool opportunistic, uint8_t initiating_phys)>
-      body{[](tGATT_IF gatt_if, const RawAddress& bd_addr, bool is_direct,
-              tBT_TRANSPORT transport, bool opportunistic,
+                     tBLE_ADDR_TYPE addr_type, bool is_direct,
+                     tBT_TRANSPORT transport, bool opportunistic,
+                     uint8_t initiating_phys)>
+      body{[](tGATT_IF gatt_if, const RawAddress& bd_addr,
+              tBLE_ADDR_TYPE addr_type, bool is_direct, tBT_TRANSPORT transport,
+              bool opportunistic,
               uint8_t initiating_phys) { return return_value; }};
-  bool operator()(tGATT_IF gatt_if, const RawAddress& bd_addr, bool is_direct,
+  bool operator()(tGATT_IF gatt_if, const RawAddress& bd_addr,
+                  tBLE_ADDR_TYPE addr_type, bool is_direct,
                   tBT_TRANSPORT transport, bool opportunistic,
                   uint8_t initiating_phys) {
-    return body(gatt_if, bd_addr, is_direct, transport, opportunistic,
-                initiating_phys);
+    return body(gatt_if, bd_addr, addr_type, is_direct, transport,
+                opportunistic, initiating_phys);
   };
 };
 extern struct GATT_Connect GATT_Connect;
@@ -348,11 +351,12 @@ extern struct GATT_GetConnectionInfor GATT_GetConnectionInfor;
 // bool eatt_support Return: tGATT_IF
 struct GATT_Register {
   static tGATT_IF return_value;
-  std::function<tGATT_IF(const Uuid& app_uuid128, std::string name,
+  std::function<tGATT_IF(const Uuid& app_uuid128, const std::string& name,
                          tGATT_CBACK* p_cb_info, bool eatt_support)>
-      body{[](const Uuid& app_uuid128, std::string name, tGATT_CBACK* p_cb_info,
+      body{[](const Uuid& app_uuid128, const std::string& name,
+              tGATT_CBACK* p_cb_info,
               bool eatt_support) { return return_value; }};
-  tGATT_IF operator()(const Uuid& app_uuid128, std::string name,
+  tGATT_IF operator()(const Uuid& app_uuid128, const std::string& name,
                       tGATT_CBACK* p_cb_info, bool eatt_support) {
     return body(app_uuid128, name, p_cb_info, eatt_support);
   };
