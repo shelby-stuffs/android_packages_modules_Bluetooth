@@ -46,6 +46,10 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 package android.bluetooth;
@@ -247,6 +251,8 @@ interface IBluetooth
     oneway void isDistanceMeasurementSupported(in AttributionSource attributionSource, in SynchronousResultReceiver receiver);
     @JavaPassthrough(annotation="@android.annotation.RequiresNoPermission")
     oneway void getLeMaximumAdvertisingDataLength(in SynchronousResultReceiver receiver);
+    @JavaPassthrough(annotation="@android.annotation.RequiresNoPermission")
+    oneway void getEncKeyMaterialValue(in SynchronousResultReceiver receiver);
 
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(allOf={android.Manifest.permission.BLUETOOTH_CONNECT,android.Manifest.permission.BLUETOOTH_PRIVILEGED})")
     oneway void reportActivityInfo(in AttributionSource attributionSource, in SynchronousResultReceiver receiver);

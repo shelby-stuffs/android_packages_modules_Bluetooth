@@ -13,6 +13,10 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 package android.bluetooth;
@@ -2911,6 +2915,33 @@ public final class BluetoothAdapter {
             mServiceLock.readLock().unlock();
         }
         return 0;
+    }
+
+    /**
+     * Return the Encrypted Data Key Material char value
+     *
+     * @hide
+     * @return the Enc Data Key Material char value.
+     */
+    @RequiresLegacyBluetoothPermission
+    @RequiresNoPermission
+    public byte[] getEncKeyMaterialValue() {
+        if (!getLeAccess()) {
+            return null;
+        }
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null) {
+                final SynchronousResultReceiver<byte[]> recv = SynchronousResultReceiver.get();
+                mService.getEncKeyMaterialValue(recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+            }
+        } catch (RemoteException | TimeoutException e) {
+            Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+        return null;
     }
 
     /**
