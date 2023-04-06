@@ -120,7 +120,7 @@ java_library {
     proto: {
         type: "stream",
         include_dirs: [
-             "external/protobuf/src",
+            "external/protobuf/src",
         ],
     },
     srcs: [
@@ -144,7 +144,9 @@ java_library {
     apex_available: [
         "com.android.btservices",
     ],
-    lint: { strict_updatability_linting: true },
+    lint: {
+        strict_updatability_linting: true,
+    },
 }
 
 java_library {

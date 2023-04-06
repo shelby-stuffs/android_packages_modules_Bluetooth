@@ -21,7 +21,7 @@ cc_test_library {
     include_dirs: [
         "packages/modules/Bluetooth/system",
     ],
-    srcs: crypto_toolbox_srcs
+    srcs: crypto_toolbox_srcs,
 }
 
 // Bluetooth stack static library for target
@@ -66,7 +66,6 @@ cc_library_static {
         "packages/modules/Bluetooth/system/bta/include",
         "packages/modules/Bluetooth/system/bta/sys",
         "packages/modules/Bluetooth/system/device/include",
-        "packages/modules/Bluetooth/system/utils/include",
         "packages/modules/Bluetooth/system/gd/rust/shim",
         "packages/modules/Bluetooth/system/gd/hal",
     ],
@@ -143,19 +142,19 @@ cc_library_static {
         "libaptxhd_enc",
     ],
     host_supported: true,
-    min_sdk_version: "Tiramisu"
+    min_sdk_version: "Tiramisu",
 }
 
 filegroup {
-  name: "LegacyStackSdp",
-  srcs: [
+    name: "LegacyStackSdp",
+    srcs: [
         "sdp/sdp_api.cc",
         "sdp/sdp_db.cc",
         "sdp/sdp_discovery.cc",
         "sdp/sdp_main.cc",
         "sdp/sdp_server.cc",
         "sdp/sdp_utils.cc",
-  ],
+    ],
 }
 
 cc_library_static {
@@ -192,7 +191,6 @@ cc_library_static {
         "packages/modules/Bluetooth/system/udrv/include",
         "packages/modules/Bluetooth/system/bta/include",
         "packages/modules/Bluetooth/system/bta/sys",
-        "packages/modules/Bluetooth/system/utils/include",
         "packages/modules/Bluetooth/system/gd/rust/shim",
     ],
     srcs: crypto_toolbox_srcs + [
@@ -286,7 +284,7 @@ cc_library_static {
         "libbt-hci",
     ],
     host_supported: true,
-    min_sdk_version: "Tiramisu"
+    min_sdk_version: "Tiramisu",
 }
 
 // Bluetooth stack unit tests for target
@@ -323,7 +321,6 @@ cc_test {
         "libfmq",
         "libhidlbase",
         "liblog",
-        "libprocessgroup",
         "libutils",
         "libtinyxml2",
         "libz",
@@ -343,7 +340,6 @@ cc_test {
         "libbt-common",
         "libbt-sbc-decoder",
         "libbt-sbc-encoder",
-        "libbt-utils",
         "libbtif",
         "libbtif-core",
         "libFraunhoferAAC",
@@ -360,6 +356,11 @@ cc_test {
     whole_static_libs: [
         "libbluetooth-for-tests",
     ],
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
 
 cc_test {
@@ -383,7 +384,6 @@ cc_test {
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/gd/hal",
         "packages/modules/Bluetooth/system/internal_include",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
         ":TestCommonMockFunctions",
@@ -429,6 +429,11 @@ cc_test {
     sanitize: {
         cfi: false,
     },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
 
 // Bluetooth stack smp unit tests for target
@@ -450,7 +455,6 @@ cc_test {
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/internal_include",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: crypto_toolbox_srcs + [
         ":TestCommonLogMsg",
@@ -494,6 +498,11 @@ cc_test {
         "libgmock",
         "libosi",
     ],
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
 
 // Bluetooth stack multi-advertising unit tests for target
@@ -513,7 +522,6 @@ cc_test {
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/internal_include",
         "packages/modules/Bluetooth/system/internal_include",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
         ":TestMockDevice",
@@ -535,6 +543,11 @@ cc_test {
     ],
     sanitize: {
         cfi: false,
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
     },
 }
 
@@ -564,6 +577,11 @@ cc_test {
         "liblog",
         "libgmock",
     ],
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
 
 // Bluetooth stack connection multiplexing
@@ -584,7 +602,6 @@ cc_test {
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/internal_include",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
         "gatt/connection_manager.cc",
@@ -603,6 +620,11 @@ cc_test {
     ],
     sanitize: {
         cfi: false,
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
     },
 }
 
@@ -624,7 +646,6 @@ cc_test {
         "packages/modules/Bluetooth/system/stack/eatt",
         "packages/modules/Bluetooth/system/stack/l2cap",
         "packages/modules/Bluetooth/system/stack/btm",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
         ":TestCommonMockFunctions",
@@ -654,6 +675,11 @@ cc_test {
         cfi: true,
         misc_undefined: ["bounds"],
     },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
 
 cc_test {
@@ -672,7 +698,6 @@ cc_test {
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/stack/include",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
         "test/stack_avdtp_test.cc",
@@ -710,6 +735,11 @@ cc_test {
         cfi: true,
         misc_undefined: ["bounds"],
     },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
 
 cc_test {
@@ -738,7 +768,6 @@ cc_test {
         "packages/modules/Bluetooth/system/embdrv/encoder_for_aptxhd/include",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/stack/include",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     target: {
         host: {
@@ -751,7 +780,7 @@ cc_test {
                 ":BluetoothAndroidTestingLogCapture",
             ],
             test_config: "test/a2dp/AndroidTest.xml",
-        }
+        },
     },
     data: [
         "test/a2dp/raw_data/*",
@@ -858,6 +887,11 @@ cc_test {
         cfi: true,
         misc_undefined: ["bounds"],
     },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
 
 // gatt sr hash test
@@ -875,7 +909,6 @@ cc_test {
         "packages/modules/Bluetooth/system/stack/btm",
         "packages/modules/Bluetooth/system/stack/eatt",
         "packages/modules/Bluetooth/system/stack/include",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: crypto_toolbox_srcs + [
         ":TestCommonMainHandler",
@@ -901,6 +934,11 @@ cc_test {
         "libgmock",
         "libosi",
     ],
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
 
 // Iso manager unit tests
@@ -930,7 +968,7 @@ cc_test {
         "test/common/mock_controller.cc",
         "test/common/mock_gatt_layer.cc",
         "test/common/mock_hcic_layer.cc",
-        ":TestCommonStackConfig"
+        ":TestCommonStackConfig",
     ],
     static_libs: [
         "libbt-common",
@@ -945,7 +983,12 @@ cc_test {
         all_undefined: true,
         integer_overflow: true,
         diag: {
-            undefined : true
+            undefined: true,
+        },
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
         },
     },
 }
@@ -971,10 +1014,10 @@ cc_test {
         "l2cap",
         "test/common",
     ],
-    include_dirs:[
+    include_dirs: [
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
-        "packages/modules/Bluetooth/system/internal_include"
+        "packages/modules/Bluetooth/system/internal_include",
     ],
     srcs: [
         "eatt/eatt.cc",
@@ -1002,6 +1045,11 @@ cc_test {
     ],
     sanitize: {
         cfi: false,
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
     },
 }
 
@@ -1096,7 +1144,6 @@ cc_test {
         "libbt-sbc-encoder",
         "libbt-protos-lite",
         "libbtdevice",
-        "libbt-utils",
         "libflatbuffers-cpp",
         "libgmock",
         "liblog",
@@ -1114,7 +1161,12 @@ cc_test {
         integer_overflow: true,
         scs: true,
         diag: {
-            undefined : true
+            undefined: true,
+        },
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
         },
     },
 }
@@ -1160,7 +1212,12 @@ cc_test {
         integer_overflow: true,
         scs: true,
         diag: {
-            undefined : true
+            undefined: true,
+        },
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
         },
     },
 }
@@ -1215,7 +1272,12 @@ cc_test {
         integer_overflow: true,
         scs: true,
         diag: {
-            undefined : true
+            undefined: true,
+        },
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
         },
     },
 }
@@ -1279,7 +1341,12 @@ cc_test {
         integer_overflow: true,
         scs: true,
         diag: {
-            undefined : true
+            undefined: true,
+        },
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
         },
     },
 }
@@ -1300,7 +1367,6 @@ cc_test {
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/stack/btm",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     generated_headers: [
         "BluetoothGeneratedDumpsysDataSchema_h",
@@ -1359,7 +1425,12 @@ cc_test {
         integer_overflow: true,
         scs: true,
         diag: {
-            undefined : true
+            undefined: true,
+        },
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
         },
     },
 }
@@ -1380,7 +1451,6 @@ cc_test {
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/stack/btm",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     generated_headers: [
         "BluetoothGeneratedDumpsysDataSchema_h",
@@ -1440,7 +1510,7 @@ cc_test {
         integer_overflow: true,
         scs: true,
         diag: {
-            undefined : true
+            undefined: true,
         },
     },
 }
@@ -1461,7 +1531,6 @@ cc_test {
         "packages/modules/Bluetooth/system",
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/stack/btm",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     generated_headers: [
         "BluetoothGeneratedDumpsysDataSchema_h",
@@ -1513,7 +1582,12 @@ cc_test {
         integer_overflow: true,
         scs: true,
         diag: {
-            undefined : true
+            undefined: true,
+        },
+    },
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
         },
     },
 }
@@ -1537,7 +1611,6 @@ cc_test {
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/internal_include",
         "packages/modules/Bluetooth/system/stack/btm",
-        "packages/modules/Bluetooth/system/utils/include",
     ],
     srcs: [
         ":TestCommonLogMsg",
@@ -1560,4 +1633,9 @@ cc_test {
         "liblog",
         "libgmock",
     ],
+    target: {
+        android: {
+            test_config_template: ":BluetoothGTestNotShardableConfigTemplate",
+        },
+    },
 }
