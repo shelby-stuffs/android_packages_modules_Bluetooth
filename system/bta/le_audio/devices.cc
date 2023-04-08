@@ -31,6 +31,7 @@
 #include "btm_iso_api_types.h"
 #include "device/include/controller.h"
 #include "gd/common/strings.h"
+#include "le_audio_log_history.h"
 #include "le_audio_set_configuration_provider.h"
 #include "metrics_collector.h"
 #include "osi/include/log.h"
@@ -141,6 +142,7 @@ int LeAudioDeviceGroup::NumOfConnected(types::LeAudioContextType context_type) {
       leAudioDevices_.begin(), leAudioDevices_.end(),
       [type_set, check_context_type](auto& iter) {
         if (iter.expired()) return false;
+        if (iter.lock()->conn_id_ == GATT_INVALID_CONN_ID) return false;
         if (iter.lock()->GetConnectionState() != DeviceConnectState::CONNECTED)
           return false;
 
@@ -2167,6 +2169,10 @@ void LeAudioDevice::SetConnectionState(DeviceConnectState state) {
   LOG_DEBUG("%s, %s --> %s", ADDRESS_TO_LOGGABLE_CSTR(address_),
             bluetooth::common::ToString(connection_state_).c_str(),
             bluetooth::common::ToString(state).c_str());
+  LeAudioLogHistory::Get()->AddLogHistory(
+      kLogConnectionTag, group_id_, address_,
+      bluetooth::common::ToString(connection_state_) + " -> ",
+      "->" + bluetooth::common::ToString(state));
   connection_state_ = state;
 }
 

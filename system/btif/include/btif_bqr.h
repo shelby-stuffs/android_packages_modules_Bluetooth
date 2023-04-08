@@ -78,6 +78,8 @@ static constexpr uint32_t kQualityEventMaskApproachLsto = 0x1 << 1;
 static constexpr uint32_t kQualityEventMaskA2dpAudioChoppy = 0x1 << 2;
 static constexpr uint32_t kQualityEventMaskScoVoiceChoppy = 0x1 << 3;
 static constexpr uint32_t kQualityEventMaskRootInflammation = 0x1 << 4;
+static constexpr uint32_t kQualityEventMaskEnergyMonitoring = 0x1 << 5;
+static constexpr uint32_t kQualityEventMaskLeAudioChoppy = 0x1 << 6;
 static constexpr uint32_t kQualityEventMaskVendorSpecificQuality = 0x1 << 15;
 static constexpr uint32_t kQualityEventMaskLmpMessageTrace = 0x1 << 16;
 static constexpr uint32_t kQualityEventMaskBtSchedulingTrace = 0x1 << 17;
@@ -86,7 +88,8 @@ static constexpr uint32_t kQualityEventMaskVendorSpecificTrace = 0x1 << 31;
 static constexpr uint32_t kQualityEventMaskAll =
     kQualityEventMaskMonitorMode | kQualityEventMaskApproachLsto |
     kQualityEventMaskA2dpAudioChoppy | kQualityEventMaskScoVoiceChoppy |
-    kQualityEventMaskRootInflammation | kQualityEventMaskVendorSpecificQuality |
+    kQualityEventMaskRootInflammation | kQualityEventMaskEnergyMonitoring |
+    kQualityEventMaskLeAudioChoppy | kQualityEventMaskVendorSpecificQuality |
     kQualityEventMaskLmpMessageTrace | kQualityEventMaskBtSchedulingTrace |
     kQualityEventMaskControllerDbgInfo | kQualityEventMaskVendorSpecificTrace;
 // Define the minimum time interval (in ms) of quality event reporting for the
@@ -116,6 +119,12 @@ static constexpr uint8_t kBqrEventQueueSize = 25;
 // The Property of BQR event mask configuration.
 static constexpr const char* kpPropertyEventMask =
     "persist.bluetooth.bqr.event_mask";
+// The Property of BQR Vendor Quality configuration.
+static constexpr const char* kpPropertyVndQualityMask =
+    "persist.bluetooth.bqr.vnd_quality_mask";
+// The Property of BQR Vendor Trace configuration.
+static constexpr const char* kpPropertyVndTraceMask =
+    "persist.bluetooth.bqr.vnd_trace_mask";
 // The Property of BQR minimum report interval configuration.
 static constexpr const char* kpPropertyMinReportIntervalMs =
     "persist.bluetooth.bqr.min_interval_ms";
@@ -141,7 +150,9 @@ static uint16_t LmpLlMessageTraceCounter = 0;
 // Counter of Bluetooth Multi-profile/Coex scheduling trace
 static uint16_t BtSchedulingTraceCounter = 0;
 // The version supports ISO packets start from v1.01(257)
-static constexpr uint16_t kBqrIsoVersion = 257;
+static constexpr uint16_t kBqrIsoVersion = 0x101;
+// The version supports vendor quality and trace log starting v1.02(258)
+static constexpr uint16_t kBqrVndLogVersion = 0x102;
 
 // Action definition
 //
@@ -207,6 +218,8 @@ typedef struct {
   BqrReportAction report_action;
   uint32_t quality_event_mask;
   uint16_t minimum_report_interval_ms;
+  uint32_t vnd_quality_mask;
+  uint32_t vnd_trace_mask;
 } BqrConfiguration;
 
 // Link quality related BQR event
