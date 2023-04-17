@@ -2033,7 +2033,6 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         synchronized (mCallbacks) {
             mBluetoothLock.readLock().lock();
             try {
-                mBluetoothLock.writeLock().lock();
                 int n = mCallbacks.beginBroadcast();
                 Log.d(TAG, "Broadcasting onBluetoothServiceUp() to " + n + " receivers.");
                 for (int i = 0; i < n; i++) {
@@ -2045,7 +2044,6 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 }
             } finally {
                 mCallbacks.finishBroadcast();
-                mBluetoothLock.writeLock().unlock();
                 mBluetoothLock.readLock().unlock();
             }
         }
