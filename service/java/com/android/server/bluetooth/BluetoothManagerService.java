@@ -1838,7 +1838,6 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         IBinder mService;
         ComponentName mClassName;
         Intent mIntent;
-        boolean mInvokingProxyCallbacks = false;
 
         ProfileServiceConnections(Intent intent) {
             mService = null;
@@ -1940,24 +1939,19 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                 Log.e(TAG, "Unable to linkToDeath", e);
             }
 
-            if (mInvokingProxyCallbacks) {
-                Log.e(TAG, "Proxy callbacks already in progress.");
-                return;
-            }
-            mInvokingProxyCallbacks = true;
-
-            final int n = mProxies.beginBroadcast();
-            try {
-                for (int i = 0; i < n; i++) {
-                    try {
-                        mProxies.getBroadcastItem(i).onServiceConnected(className, service);
-                    } catch (RemoteException e) {
-                        Log.e(TAG, "Unable to connect to proxy", e);
+            synchronized (mProxies) {
+                final int n = mProxies.beginBroadcast();
+                try {
+                    for (int i = 0; i < n; i++) {
+                        try {
+                            mProxies.getBroadcastItem(i).onServiceConnected(className, service);
+                        } catch (RemoteException e) {
+                            Log.e(TAG, "Unable to connect to proxy", e);
+                        }
                     }
+                } finally {
+                    mProxies.finishBroadcast();
                 }
-            } finally {
-                mProxies.finishBroadcast();
-                mInvokingProxyCallbacks = false;
             }
         }
 
@@ -1972,24 +1966,19 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
             mService = null;
             mClassName = null;
 
-            if (mInvokingProxyCallbacks) {
-                Log.e(TAG, "Proxy callbacks already in progress.");
-                return;
-            }
-            mInvokingProxyCallbacks = true;
-
-            final int n = mProxies.beginBroadcast();
-            try {
-                for (int i = 0; i < n; i++) {
-                    try {
-                        mProxies.getBroadcastItem(i).onServiceDisconnected(className);
-                    } catch (RemoteException e) {
-                        Log.e(TAG, "Unable to disconnect from proxy", e);
+            synchronized (mProxies) {
+                final int n = mProxies.beginBroadcast();
+                try {
+                    for (int i = 0; i < n; i++) {
+                        try {
+                            mProxies.getBroadcastItem(i).onServiceDisconnected(className);
+                        } catch (RemoteException e) {
+                            Log.e(TAG, "Unable to disconnect from proxy #" + i, e);
+                        }
                     }
+                } finally {
+                    mProxies.finishBroadcast();
                 }
-            } finally {
-                mProxies.finishBroadcast();
-                mInvokingProxyCallbacks = false;
             }
         }
 
@@ -2013,21 +2002,23 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     }
 
     private void sendBluetoothStateCallback(boolean isUp) {
-        try {
-            int n = mStateChangeCallbacks.beginBroadcast();
-            if (DBG) {
-                Log.d(TAG, "Broadcasting onBluetoothStateChange(" + isUp + ") to " + n
-                        + " receivers.");
-            }
-            for (int i = 0; i < n; i++) {
-                try {
-                    mStateChangeCallbacks.getBroadcastItem(i).onBluetoothStateChange(isUp);
-                } catch (RemoteException e) {
-                    Log.e(TAG, "Unable to call onBluetoothStateChange() on callback #" + i, e);
+        synchronized (mStateChangeCallbacks) {
+            try {
+                int n = mStateChangeCallbacks.beginBroadcast();
+                if (DBG) {
+                    Log.d(TAG, "Broadcasting onBluetoothStateChange(" + isUp + ") to " + n
+                            + " receivers.");
                 }
+                for (int i = 0; i < n; i++) {
+                    try {
+                        mStateChangeCallbacks.getBroadcastItem(i).onBluetoothStateChange(isUp);
+                    } catch (RemoteException e) {
+                        Log.e(TAG, "Unable to call onBluetoothStateChange() on callback #" + i, e);
+                    }
+                }
+            } finally {
+                mStateChangeCallbacks.finishBroadcast();
             }
-        } finally {
-            mStateChangeCallbacks.finishBroadcast();
         }
     }
 

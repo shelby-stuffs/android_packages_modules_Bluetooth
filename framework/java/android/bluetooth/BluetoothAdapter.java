@@ -13,6 +13,10 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 package android.bluetooth;
@@ -2911,6 +2915,33 @@ public final class BluetoothAdapter {
             mServiceLock.readLock().unlock();
         }
         return 0;
+    }
+
+    /**
+     * Return the Encrypted Data Key Material char value
+     *
+     * @hide
+     * @return the Enc Data Key Material char value.
+     */
+    @RequiresLegacyBluetoothPermission
+    @RequiresNoPermission
+    public byte[] getEncKeyMaterialValue() {
+        if (!getLeAccess()) {
+            return null;
+        }
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null) {
+                final SynchronousResultReceiver<byte[]> recv = SynchronousResultReceiver.get();
+                mService.getEncKeyMaterialValue(recv);
+                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+            }
+        } catch (RemoteException | TimeoutException e) {
+            Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+        return null;
     }
 
     /**
@@ -5878,12 +5909,13 @@ public final class BluetoothAdapter {
             BluetoothStatusCodes.ERROR_MISSING_BLUETOOTH_SCAN_PERMISSION,
             BluetoothStatusCodes.FEATURE_NOT_SUPPORTED
     })
-    public @interface IsOffloadedTransportDiscoveryDataScanSupportedReturnValues {}
+    public @interface GetOffloadedTransportDiscoveryDataScanSupportedReturnValues {}
 
     /**
      * Check if offloaded transport discovery data scan is supported or not.
      *
-     * @return true if chipset supports on-chip tds filter scan
+     * @return  {@code BluetoothStatusCodes.FEATURE_SUPPORTED} if chipset supports on-chip tds
+     *          filter scan
      * @hide
      */
     @SystemApi
@@ -5892,8 +5924,8 @@ public final class BluetoothAdapter {
             android.Manifest.permission.BLUETOOTH_SCAN,
             android.Manifest.permission.BLUETOOTH_PRIVILEGED,
     })
-    @IsOffloadedTransportDiscoveryDataScanSupportedReturnValues
-    public int isOffloadedTransportDiscoveryDataScanSupported() {
+    @GetOffloadedTransportDiscoveryDataScanSupportedReturnValues
+    public int getOffloadedTransportDiscoveryDataScanSupported() {
         if (!getLeAccess()) {
             return BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
         }
@@ -5901,7 +5933,7 @@ public final class BluetoothAdapter {
             mServiceLock.readLock().lock();
             if (mService != null) {
                 final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                mService.isOffloadedTransportDiscoveryDataScanSupported(mAttributionSource, recv);
+                mService.getOffloadedTransportDiscoveryDataScanSupported(mAttributionSource, recv);
                 return recv.awaitResultNoInterrupt(getSyncTimeout())
                         .getValue(BluetoothStatusCodes.ERROR_UNKNOWN);
             }
