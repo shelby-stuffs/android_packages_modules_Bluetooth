@@ -7,7 +7,6 @@ package {
     default_applicable_licenses: ["system_bt_license"],
 }
 
-
 rust_library {
   name : "libbt_common",
   defaults: ["libbt_common_defaults"],
@@ -110,13 +109,18 @@ cc_library_static {
     min_sdk_version: "30",
 }
 
-
 cc_library_static {
     name: "libbt_keystore_cc",
-    defaults: ["rust_static_cc_lib_defaults", "gd_ffi_defaults"],
+    defaults: [
+        "rust_static_cc_lib_defaults",
+        "gd_ffi_defaults",
+    ],
     header_libs: ["libbt_keystore_cc_headers"],
     srcs: ["keystore/fake_bt_keystore.cc"],
-    generated_headers: ["libbt_common_bridge_header", "cxx-bridge-header"],
+    generated_headers: [
+        "libbt_common_bridge_header",
+        "cxx-bridge-header",
+    ],
     generated_sources: ["libbt_common_bridge_code"],
     shared_libs: [
         "libchrome",

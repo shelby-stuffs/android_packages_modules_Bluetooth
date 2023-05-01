@@ -1,8 +1,6 @@
 // @generated rust packets from test
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use num_derive::{FromPrimitive, ToPrimitive};
-use num_traits::{FromPrimitive, ToPrimitive};
 use std::cell::Cell;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
@@ -10,6 +8,19 @@ use std::sync::Arc;
 use thiserror::Error;
 
 type Result<T> = std::result::Result<T, Error>;
+
+#[doc = r" Private prevents users from creating arbitrary scalar values"]
+#[doc = r" in situations where the value needs to be validated."]
+#[doc = r" Users can freely deref the value, but only the backend"]
+#[doc = r" may create it."]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Private<T>(T);
+impl<T> std::ops::Deref for Private<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -38,47 +49,54 @@ pub trait Packet {
     fn to_vec(self) -> Vec<u8>;
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, Hash, Eq, PartialEq, Clone, Copy)]
-#[repr(u64)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
 pub enum Enum16 {
     A = 0x1,
     B = 0x2,
 }
-#[cfg(feature = "serde")]
-impl serde::Serialize for Enum16 {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_u64(*self as u64)
-    }
-}
-#[cfg(feature = "serde")]
-struct Enum16Visitor;
-#[cfg(feature = "serde")]
-impl<'de> serde::de::Visitor<'de> for Enum16Visitor {
-    type Value = Enum16;
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a valid discriminant")
-    }
-    fn visit_u64<E>(self, value: u64) -> std::result::Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
+impl TryFrom<u16> for Enum16 {
+    type Error = u16;
+    fn try_from(value: u16) -> std::result::Result<Self, Self::Error> {
         match value {
             0x1 => Ok(Enum16::A),
             0x2 => Ok(Enum16::B),
-            _ => Err(E::custom(format!("invalid discriminant: {value}"))),
+            _ => Err(value),
         }
     }
 }
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for Enum16 {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_u64(Enum16Visitor)
+impl From<&Enum16> for u16 {
+    fn from(value: &Enum16) -> Self {
+        match value {
+            Enum16::A => 0x1,
+            Enum16::B => 0x2,
+        }
+    }
+}
+impl From<Enum16> for u16 {
+    fn from(value: Enum16) -> Self {
+        (&value).into()
+    }
+}
+impl From<Enum16> for i32 {
+    fn from(value: Enum16) -> Self {
+        u16::from(value) as Self
+    }
+}
+impl From<Enum16> for i64 {
+    fn from(value: Enum16) -> Self {
+        u16::from(value) as Self
+    }
+}
+impl From<Enum16> for u32 {
+    fn from(value: Enum16) -> Self {
+        u16::from(value) as Self
+    }
+}
+impl From<Enum16> for u64 {
+    fn from(value: Enum16) -> Self {
+        u16::from(value) as Self
     }
 }
 
@@ -131,7 +149,12 @@ impl ParentData {
     fn conforms(bytes: &[u8]) -> bool {
         bytes.len() >= 7
     }
-    fn parse(mut bytes: &mut Cell<&[u8]>) -> Result<Self> {
+    fn parse(bytes: &[u8]) -> Result<Self> {
+        let mut cell = Cell::new(bytes);
+        let packet = Self::parse_inner(&mut cell)?;
+        Ok(packet)
+    }
+    fn parse_inner(mut bytes: &mut Cell<&[u8]>) -> Result<Self> {
         if bytes.get().remaining() < 2 {
             return Err(Error::InvalidLengthError {
                 obj: "Parent".to_string(),
@@ -139,7 +162,7 @@ impl ParentData {
                 got: bytes.get().remaining(),
             });
         }
-        let foo = Enum16::from_u16(bytes.get_mut().get_u16()).unwrap();
+        let foo = Enum16::try_from(bytes.get_mut().get_u16()).unwrap();
         if bytes.get().remaining() < 2 {
             return Err(Error::InvalidLengthError {
                 obj: "Parent".to_string(),
@@ -147,7 +170,7 @@ impl ParentData {
                 got: bytes.get().remaining(),
             });
         }
-        let bar = Enum16::from_u16(bytes.get_mut().get_u16()).unwrap();
+        let bar = Enum16::try_from(bytes.get_mut().get_u16()).unwrap();
         if bytes.get().remaining() < 2 {
             return Err(Error::InvalidLengthError {
                 obj: "Parent".to_string(),
@@ -155,7 +178,7 @@ impl ParentData {
                 got: bytes.get().remaining(),
             });
         }
-        let baz = Enum16::from_u16(bytes.get_mut().get_u16()).unwrap();
+        let baz = Enum16::try_from(bytes.get_mut().get_u16()).unwrap();
         if bytes.get().remaining() < 1 {
             return Err(Error::InvalidLengthError {
                 obj: "Parent".to_string(),
@@ -174,12 +197,9 @@ impl ParentData {
         let payload = &bytes.get()[..payload_size];
         bytes.get_mut().advance(payload_size);
         let child = match (foo) {
-            (Enum16::A) => {
+            (Enum16::A) if ChildData::conforms(&payload) => {
                 let mut cell = Cell::new(payload);
-                let child_data = ChildData::parse(&mut cell, bar, baz)?;
-                if !cell.get().is_empty() {
-                    return Err(Error::InvalidPacketError);
-                }
+                let child_data = ChildData::parse_inner(&mut cell, bar, baz)?;
                 ParentDataChild::Child(Arc::new(child_data))
             }
             _ if !payload.is_empty() => ParentDataChild::Payload(Bytes::copy_from_slice(payload)),
@@ -188,9 +208,9 @@ impl ParentData {
         Ok(Self { foo, bar, baz, child })
     }
     fn write_to(&self, buffer: &mut BytesMut) {
-        buffer.put_u16(self.foo.to_u16().unwrap());
-        buffer.put_u16(self.bar.to_u16().unwrap());
-        buffer.put_u16(self.baz.to_u16().unwrap());
+        buffer.put_u16(u16::from(self.foo));
+        buffer.put_u16(u16::from(self.bar));
+        buffer.put_u16(u16::from(self.baz));
         if self.child.get_total_size() > 0xff {
             panic!(
                 "Invalid length for {}::{}: {} > {}",
@@ -238,14 +258,20 @@ impl Parent {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         let mut cell = Cell::new(bytes);
         let packet = Self::parse_inner(&mut cell)?;
-        if !cell.get().is_empty() {
-            return Err(Error::InvalidPacketError);
-        }
         Ok(packet)
     }
     fn parse_inner(mut bytes: &mut Cell<&[u8]>) -> Result<Self> {
-        let data = ParentData::parse(&mut bytes)?;
+        let data = ParentData::parse_inner(&mut bytes)?;
         Ok(Self::new(Arc::new(data)).unwrap())
+    }
+    pub fn specialize(&self) -> ParentChild {
+        match &self.parent.child {
+            ParentDataChild::Child(_) => {
+                ParentChild::Child(Child::new(self.parent.clone()).unwrap())
+            }
+            ParentDataChild::Payload(payload) => ParentChild::Payload(payload.clone()),
+            ParentDataChild::None => ParentChild::None,
+        }
     }
     fn new(parent: Arc<ParentData>) -> std::result::Result<Self, &'static str> {
         Ok(Self { parent })
@@ -335,7 +361,12 @@ impl ChildData {
     fn conforms(bytes: &[u8]) -> bool {
         bytes.len() >= 2
     }
-    fn parse(mut bytes: &mut Cell<&[u8]>, bar: Enum16, baz: Enum16) -> Result<Self> {
+    fn parse(bytes: &[u8], bar: Enum16, baz: Enum16) -> Result<Self> {
+        let mut cell = Cell::new(bytes);
+        let packet = Self::parse_inner(&mut cell, bar, baz)?;
+        Ok(packet)
+    }
+    fn parse_inner(mut bytes: &mut Cell<&[u8]>, bar: Enum16, baz: Enum16) -> Result<Self> {
         if bytes.get().remaining() < 2 {
             return Err(Error::InvalidLengthError {
                 obj: "Child".to_string(),
@@ -343,16 +374,13 @@ impl ChildData {
                 got: bytes.get().remaining(),
             });
         }
-        let quux = Enum16::from_u16(bytes.get_mut().get_u16()).unwrap();
+        let quux = Enum16::try_from(bytes.get_mut().get_u16()).unwrap();
         let payload = bytes.get();
         bytes.get_mut().advance(payload.len());
         let child = match (bar, quux) {
-            (Enum16::A, Enum16::A) => {
+            (Enum16::A, Enum16::A) if GrandChildData::conforms(&payload) => {
                 let mut cell = Cell::new(payload);
-                let child_data = GrandChildData::parse(&mut cell, baz)?;
-                if !cell.get().is_empty() {
-                    return Err(Error::InvalidPacketError);
-                }
+                let child_data = GrandChildData::parse_inner(&mut cell, baz)?;
                 ChildDataChild::GrandChild(Arc::new(child_data))
             }
             _ if !payload.is_empty() => ChildDataChild::Payload(Bytes::copy_from_slice(payload)),
@@ -361,7 +389,7 @@ impl ChildData {
         Ok(Self { quux, child })
     }
     fn write_to(&self, buffer: &mut BytesMut) {
-        buffer.put_u16(self.quux.to_u16().unwrap());
+        buffer.put_u16(u16::from(self.quux));
         match &self.child {
             ChildDataChild::GrandChild(child) => child.write_to(buffer),
             ChildDataChild::Payload(payload) => buffer.put_slice(payload),
@@ -410,14 +438,20 @@ impl Child {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         let mut cell = Cell::new(bytes);
         let packet = Self::parse_inner(&mut cell)?;
-        if !cell.get().is_empty() {
-            return Err(Error::InvalidPacketError);
-        }
         Ok(packet)
     }
     fn parse_inner(mut bytes: &mut Cell<&[u8]>) -> Result<Self> {
-        let data = ParentData::parse(&mut bytes)?;
+        let data = ParentData::parse_inner(&mut bytes)?;
         Ok(Self::new(Arc::new(data)).unwrap())
+    }
+    pub fn specialize(&self) -> ChildChild {
+        match &self.child.child {
+            ChildDataChild::GrandChild(_) => {
+                ChildChild::GrandChild(GrandChild::new(self.parent.clone()).unwrap())
+            }
+            ChildDataChild::Payload(payload) => ChildChild::Payload(payload.clone()),
+            ChildDataChild::None => ChildChild::None,
+        }
     }
     fn new(parent: Arc<ParentData>) -> std::result::Result<Self, &'static str> {
         let child = match &parent.child {
@@ -522,16 +556,18 @@ impl GrandChildData {
     fn conforms(bytes: &[u8]) -> bool {
         true
     }
-    fn parse(mut bytes: &mut Cell<&[u8]>, baz: Enum16) -> Result<Self> {
+    fn parse(bytes: &[u8], baz: Enum16) -> Result<Self> {
+        let mut cell = Cell::new(bytes);
+        let packet = Self::parse_inner(&mut cell, baz)?;
+        Ok(packet)
+    }
+    fn parse_inner(mut bytes: &mut Cell<&[u8]>, baz: Enum16) -> Result<Self> {
         let payload = bytes.get();
         bytes.get_mut().advance(payload.len());
         let child = match (baz) {
-            (Enum16::A) => {
+            (Enum16::A) if GrandGrandChildData::conforms(&payload) => {
                 let mut cell = Cell::new(payload);
-                let child_data = GrandGrandChildData::parse(&mut cell)?;
-                if !cell.get().is_empty() {
-                    return Err(Error::InvalidPacketError);
-                }
+                let child_data = GrandGrandChildData::parse_inner(&mut cell)?;
                 GrandChildDataChild::GrandGrandChild(Arc::new(child_data))
             }
             _ if !payload.is_empty() => {
@@ -595,14 +631,20 @@ impl GrandChild {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         let mut cell = Cell::new(bytes);
         let packet = Self::parse_inner(&mut cell)?;
-        if !cell.get().is_empty() {
-            return Err(Error::InvalidPacketError);
-        }
         Ok(packet)
     }
     fn parse_inner(mut bytes: &mut Cell<&[u8]>) -> Result<Self> {
-        let data = ParentData::parse(&mut bytes)?;
+        let data = ParentData::parse_inner(&mut bytes)?;
         Ok(Self::new(Arc::new(data)).unwrap())
+    }
+    pub fn specialize(&self) -> GrandChildChild {
+        match &self.grandchild.child {
+            GrandChildDataChild::GrandGrandChild(_) => {
+                GrandChildChild::GrandGrandChild(GrandGrandChild::new(self.parent.clone()).unwrap())
+            }
+            GrandChildDataChild::Payload(payload) => GrandChildChild::Payload(payload.clone()),
+            GrandChildDataChild::None => GrandChildChild::None,
+        }
     }
     fn new(parent: Arc<ParentData>) -> std::result::Result<Self, &'static str> {
         let child = match &parent.child {
@@ -715,7 +757,12 @@ impl GrandGrandChildData {
     fn conforms(bytes: &[u8]) -> bool {
         true
     }
-    fn parse(mut bytes: &mut Cell<&[u8]>) -> Result<Self> {
+    fn parse(bytes: &[u8]) -> Result<Self> {
+        let mut cell = Cell::new(bytes);
+        let packet = Self::parse_inner(&mut cell)?;
+        Ok(packet)
+    }
+    fn parse_inner(mut bytes: &mut Cell<&[u8]>) -> Result<Self> {
         let payload = bytes.get();
         bytes.get_mut().advance(payload.len());
         let child = match () {
@@ -784,14 +831,19 @@ impl GrandGrandChild {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         let mut cell = Cell::new(bytes);
         let packet = Self::parse_inner(&mut cell)?;
-        if !cell.get().is_empty() {
-            return Err(Error::InvalidPacketError);
-        }
         Ok(packet)
     }
     fn parse_inner(mut bytes: &mut Cell<&[u8]>) -> Result<Self> {
-        let data = ParentData::parse(&mut bytes)?;
+        let data = ParentData::parse_inner(&mut bytes)?;
         Ok(Self::new(Arc::new(data)).unwrap())
+    }
+    pub fn specialize(&self) -> GrandGrandChildChild {
+        match &self.grandgrandchild.child {
+            GrandGrandChildDataChild::Payload(payload) => {
+                GrandGrandChildChild::Payload(payload.clone())
+            }
+            GrandGrandChildDataChild::None => GrandGrandChildChild::None,
+        }
     }
     fn new(parent: Arc<ParentData>) -> std::result::Result<Self, &'static str> {
         let child = match &parent.child {

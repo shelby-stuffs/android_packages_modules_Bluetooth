@@ -31,6 +31,7 @@
 #include "btm_iso_api_types.h"
 #include "device/include/controller.h"
 #include "gd/common/strings.h"
+#include "le_audio_log_history.h"
 #include "le_audio_set_configuration_provider.h"
 #include "metrics_collector.h"
 #include "osi/include/log.h"
@@ -142,6 +143,8 @@ int LeAudioDeviceGroup::NumOfConnected(types::LeAudioContextType context_type) {
       [type_set, check_context_type](auto& iter) {
         if (iter.expired()) return false;
         if (iter.lock()->conn_id_ == GATT_INVALID_CONN_ID) return false;
+        if (iter.lock()->GetConnectionState() != DeviceConnectState::CONNECTED)
+          return false;
 
         if (!check_context_type) return true;
 
@@ -1945,6 +1948,51 @@ void LeAudioDeviceGroup::ClearPendingConfiguration(void) {
   stream_conf.pending_configuration = false;
 }
 
+void LeAudioDeviceGroup::AddToAllowListNotConnectedGroupMembers(int gatt_if) {
+  for (const auto& device_iter : leAudioDevices_) {
+    auto connection_state = device_iter.lock()->GetConnectionState();
+    if (connection_state == DeviceConnectState::CONNECTED ||
+        connection_state == DeviceConnectState::CONNECTING_BY_USER ||
+        connection_state ==
+            DeviceConnectState::CONNECTED_BY_USER_GETTING_READY ||
+        connection_state ==
+            DeviceConnectState::CONNECTED_AUTOCONNECT_GETTING_READY) {
+      continue;
+    }
+
+    auto address = device_iter.lock()->address_;
+    LOG_INFO("Group %d in state %s. Adding %s to allow list ", group_id_,
+             bluetooth::common::ToString(GetState()).c_str(),
+             ADDRESS_TO_LOGGABLE_CSTR(address));
+
+    BTA_GATTC_CancelOpen(gatt_if, address, false);
+    BTA_GATTC_Open(gatt_if, address, BTM_BLE_BKG_CONNECT_ALLOW_LIST, false);
+    device_iter.lock()->SetConnectionState(
+        DeviceConnectState::CONNECTING_AUTOCONNECT);
+  }
+}
+
+void LeAudioDeviceGroup::RemoveFromAllowListNotConnectedGroupMembers(
+    int gatt_if) {
+  for (const auto& device_iter : leAudioDevices_) {
+    auto connection_state = device_iter.lock()->GetConnectionState();
+    if (connection_state != DeviceConnectState::CONNECTING_AUTOCONNECT) {
+      continue;
+    }
+
+    auto address = device_iter.lock()->address_;
+    LOG_INFO(
+        "Group %d in state %s. Adding %s back to target announcement"
+        "reconnect policy",
+        group_id_, bluetooth::common::ToString(GetState()).c_str(),
+        ADDRESS_TO_LOGGABLE_CSTR(address));
+
+    BTA_GATTC_CancelOpen(gatt_if, address, false);
+    BTA_GATTC_Open(gatt_if, address, BTM_BLE_BKG_CONNECT_TARGETED_ANNOUNCEMENTS,
+                   false);
+  }
+}
+
 bool LeAudioDeviceGroup::IsConfigurationSupported(
     LeAudioDevice* leAudioDevice,
     const set_configurations::AudioSetConfiguration* audio_set_conf) {
@@ -2089,7 +2137,7 @@ void LeAudioDeviceGroup::PrintDebugState(void) {
 
 void LeAudioDeviceGroup::Dump(int fd, int active_group_id) {
   bool is_active = (group_id_ == active_group_id);
-  std::stringstream stream;
+  std::stringstream stream, stream_pacs;
   auto* active_conf = GetActiveConfiguration();
 
   stream << "\n    == Group id: " << group_id_
@@ -2152,13 +2200,24 @@ void LeAudioDeviceGroup::Dump(int fd, int active_group_id) {
   for (const auto& device_iter : leAudioDevices_) {
     device_iter.lock()->Dump(fd);
   }
+
+  for (const auto& device_iter : leAudioDevices_) {
+    auto device = device_iter.lock();
+    stream_pacs << "\n\taddress: " << device->address_;
+    device->DumpPacsDebugState(stream_pacs);
+  }
+  dprintf(fd, "%s", stream_pacs.str().c_str());
 }
 
 /* LeAudioDevice Class methods implementation */
 void LeAudioDevice::SetConnectionState(DeviceConnectState state) {
-  LOG_DEBUG(" %s --> %s",
+  LOG_DEBUG("%s, %s --> %s", ADDRESS_TO_LOGGABLE_CSTR(address_),
             bluetooth::common::ToString(connection_state_).c_str(),
             bluetooth::common::ToString(state).c_str());
+  LeAudioLogHistory::Get()->AddLogHistory(
+      kLogConnectionTag, group_id_, address_,
+      bluetooth::common::ToString(connection_state_) + " -> ",
+      "->" + bluetooth::common::ToString(state));
   connection_state_ = state;
 }
 
@@ -2193,7 +2252,9 @@ void LeAudioDevice::RegisterPACs(
               << loghex(pac.codec_id.vendor_company_id)
               << "\n\tVendor codec ID: " << loghex(pac.codec_id.vendor_codec_id)
               << "\n\tCodec spec caps:\n"
-              << pac.codec_spec_caps.ToString() << "\n\tMetadata: "
+              << pac.codec_spec_caps.ToString("",
+                                              types::CodecCapabilitiesLtvFormat)
+              << "\n\tMetadata: "
               << base::HexEncode(pac.metadata.data(), pac.metadata.size());
   }
 
@@ -2612,6 +2673,38 @@ void LeAudioDevice::PrintDebugState(void) {
   LOG_INFO("%s", debug_str.str().c_str());
 }
 
+void LeAudioDevice::DumpPacsDebugState(std::stringstream& stream,
+                                       types::PublishedAudioCapabilities pacs) {
+  if (pacs.size() > 0) {
+    for (auto& pac : pacs) {
+      stream << "\n\t\tvalue handle: " << loghex(std::get<0>(pac).val_hdl)
+             << " / CCC handle: " << loghex(std::get<0>(pac).ccc_hdl);
+
+      for (auto& record : std::get<1>(pac)) {
+        stream << "\n\n\t\tCodecId(Coding format: "
+               << static_cast<int>(record.codec_id.coding_format)
+               << ", Vendor company ID: "
+               << static_cast<int>(record.codec_id.vendor_company_id)
+               << ", Vendor codec ID: "
+               << static_cast<int>(record.codec_id.vendor_codec_id) << ")";
+        stream << "\n\t\tCodec specific capabilities:\n"
+               << record.codec_spec_caps.ToString(
+                      "\t\t\t", types::CodecCapabilitiesLtvFormat);
+        stream << "\t\tMetadata: "
+               << base::HexEncode(record.metadata.data(),
+                                  record.metadata.size());
+      }
+    }
+  }
+}
+
+void LeAudioDevice::DumpPacsDebugState(std::stringstream& stream) {
+  stream << "\n\tSink PACs";
+  DumpPacsDebugState(stream, snk_pacs_);
+  stream << "\n\tSource PACs";
+  DumpPacsDebugState(stream, src_pacs_);
+}
+
 void LeAudioDevice::Dump(int fd) {
   uint16_t acl_handle = BTM_GetHCIConnHandle(address_, BT_TRANSPORT_LE);
   std::string location = "unknown location";
@@ -2659,6 +2752,7 @@ void LeAudioDevice::Dump(int fd) {
              << bluetooth::common::ToString(ase.data_path_state);
     }
   }
+
   stream << "\n\t====";
 
   dprintf(fd, "%s", stream.str().c_str());
@@ -2967,9 +3061,15 @@ void LeAudioDevices::SetInitialGroupAutoconnectState(
 size_t LeAudioDevices::Size() { return (leAudioDevices_.size()); }
 
 void LeAudioDevices::Dump(int fd, int group_id) {
+  std::stringstream stream, stream_pacs;
+
   for (auto const& device : leAudioDevices_) {
     if (device->group_id_ == group_id) {
       device->Dump(fd);
+
+      stream_pacs << "\n\taddress: " << device->address_;
+      device->DumpPacsDebugState(stream_pacs);
+      dprintf(fd, "%s", stream_pacs.str().c_str());
     }
   }
 }

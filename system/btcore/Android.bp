@@ -57,7 +57,7 @@ cc_library_static {
 cc_library_static {
     name: "libbtcore",
     defaults: ["libbtcore_defaults"],
-    min_sdk_version: "Tiramisu"
+    min_sdk_version: "Tiramisu",
 }
 
 cc_library_headers {
@@ -82,6 +82,7 @@ cc_test {
     defaults: [
         "fluoride_defaults",
         "mts_defaults",
+        "bluetooth_gtest_x86_asan_workaround",
     ],
     local_include_dirs: ["include"],
     include_dirs: ["packages/modules/Bluetooth/system"],

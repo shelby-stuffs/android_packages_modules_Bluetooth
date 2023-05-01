@@ -19,7 +19,7 @@ cc_library_headers {
         "//apex_available:platform",
         "com.android.media",
         "com.android.media.swcodec",
-        "com.android.btservices"
+        "com.android.btservices",
     ],
     // As part of updatable mainline modules(media, swcodec), it should support at least 29(Q)
     min_sdk_version: "29",
@@ -55,9 +55,10 @@ cc_test {
     defaults: [
         "fluoride_defaults",
         "mts_defaults",
+        "bluetooth_gtest_x86_asan_workaround",
     ],
     include_dirs: [
-            "packages/modules/Bluetooth/system",
+        "packages/modules/Bluetooth/system",
     ],
     host_supported: true,
     srcs: [

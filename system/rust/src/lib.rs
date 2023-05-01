@@ -32,6 +32,7 @@ mod do_not_use {
     use bt_shim::*;
 }
 
+pub mod connection;
 pub mod core;
 pub mod gatt;
 pub mod packets;
@@ -83,10 +84,7 @@ impl GlobalModuleRegistry {
             // Then follow the pure-Rust modules
             let gatt_incoming_callbacks =
                 Rc::new(gatt::callbacks::CallbackTransactionManager::new(gatt_callbacks.clone()));
-            let gatt_module = &mut gatt::server::GattModule::new(
-                gatt_incoming_callbacks.clone(),
-                att_transport.clone(),
-            );
+            let gatt_module = &mut gatt::server::GattModule::new(att_transport.clone());
 
             // All modules that are visible from incoming JNI / top-level interfaces should
             // be exposed here

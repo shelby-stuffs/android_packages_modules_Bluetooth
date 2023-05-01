@@ -137,7 +137,14 @@ class LinkLayerController {
                              uint8_t page_scan_mode, uint16_t clock_offset,
                              uint8_t allow_role_switch);
   ErrorCode CreateConnectionCancel(const Address& addr);
-  ErrorCode Disconnect(uint16_t handle, ErrorCode reason);
+
+  // Disconnect a link.
+  // \p host_reason is taken from the Disconnect command, and sent over
+  // to the remote as disconnect error. \p controller_reason is the code
+  // used in the DisconnectionComplete event.
+  ErrorCode Disconnect(uint16_t handle, ErrorCode host_reason,
+                       ErrorCode controller_reason =
+                           ErrorCode::CONNECTION_TERMINATED_BY_LOCAL_HOST);
 
   // Internal task scheduler.
   // This scheduler is driven by the tick function only,
@@ -380,6 +387,11 @@ class LinkLayerController {
 
   void HandleIso(bluetooth::hci::IsoView iso);
 
+  // BR/EDR Commands
+
+  // HCI Read Rssi command (Vol 4, Part E § 7.5.4).
+  ErrorCode ReadRssi(uint16_t connection_handle, int8_t* rssi);
+
   // LE Commands
 
   // HCI LE Set Random Address command (Vol 4, Part E § 7.8.4).
@@ -388,6 +400,22 @@ class LinkLayerController {
   // HCI LE Set Resolvable Private Address Timeout command
   // (Vol 4, Part E § 7.8.45).
   ErrorCode LeSetResolvablePrivateAddressTimeout(uint16_t rpa_timeout);
+
+  // HCI LE Read Phy command (Vol 4, Part E § 7.8.47).
+  ErrorCode LeReadPhy(uint16_t connection_handle,
+                      bluetooth::hci::PhyType* tx_phy,
+                      bluetooth::hci::PhyType* rx_phy);
+
+  // HCI LE Set Default Phy command (Vol 4, Part E § 7.8.48).
+  ErrorCode LeSetDefaultPhy(bool all_phys_no_transmit_preference,
+                            bool all_phys_no_receive_preference,
+                            uint8_t tx_phys, uint8_t rx_phys);
+
+  // HCI LE Set Phy command (Vol 4, Part E § 7.8.49).
+  ErrorCode LeSetPhy(uint16_t connection_handle,
+                     bool all_phys_no_transmit_preference,
+                     bool all_phys_no_receive_preference, uint8_t tx_phys,
+                     uint8_t rx_phys, bluetooth::hci::PhyOptions phy_options);
 
   // HCI LE Set Host Feature command (Vol 4, Part E § 7.8.115).
   ErrorCode LeSetHostFeature(uint8_t bit_number, uint8_t bit_value);
@@ -553,7 +581,8 @@ class LinkLayerController {
       std::unique_ptr<model::packets::LinkLayerPacketBuilder> packet,
       int8_t tx_power = 0);
 
-  void IncomingAclPacket(model::packets::LinkLayerPacketView incoming);
+  void IncomingAclPacket(model::packets::LinkLayerPacketView incoming,
+                         int8_t rssi);
   void IncomingScoPacket(model::packets::LinkLayerPacketView incoming);
   void IncomingDisconnectPacket(model::packets::LinkLayerPacketView incoming);
   void IncomingEncryptConnection(model::packets::LinkLayerPacketView incoming);
@@ -667,6 +696,8 @@ class LinkLayerController {
   void IncomingScoDisconnect(model::packets::LinkLayerPacketView incoming);
 
   void IncomingPingRequest(model::packets::LinkLayerPacketView incoming);
+  void IncomingRoleSwitchRequest(model::packets::LinkLayerPacketView incoming);
+  void IncomingRoleSwitchResponse(model::packets::LinkLayerPacketView incoming);
 
  public:
   bool IsEventUnmasked(bluetooth::hci::EventCode event) const;

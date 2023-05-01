@@ -32,7 +32,6 @@ cc_defaults {
         "packages/modules/Bluetooth/system/stack/include",
         "packages/modules/Bluetooth/system/stack/l2cap",
         "packages/modules/Bluetooth/system/udrv/include",
-        "packages/modules/Bluetooth/system/utils/include",
         "packages/modules/Bluetooth/system/vnd/include",
         "system/libfmq/include",
         "system/libhwbinder/include",
@@ -87,7 +86,6 @@ cc_defaults {
         "libbt-sbc-encoder",
         "libbt-stack",
         "libbt-stack-core",
-        "libbt-utils",
         "libcom.android.sysprop.bluetooth",
         "libflatbuffers-cpp",
         "libFraunhoferAAC",
@@ -118,10 +116,15 @@ cc_test {
     defaults: [
         "net_test_defaults",
         "mts_defaults",
+        "bluetooth_gtest_x86_asan_workaround",
     ],
     srcs: [
         "adapter/adapter_unittest.cc",
         "gatt/gatt_test.cc",
         "gatt/gatt_unittest.cc",
+    ],
+    static_libs: [
+        "android.hardware.bluetooth@1.0",
+        "android.hardware.bluetooth@1.1",
     ],
 }

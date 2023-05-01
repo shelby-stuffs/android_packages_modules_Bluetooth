@@ -12,6 +12,7 @@ use bt_topshim::profiles::gatt::{
     GattScannerInbandCallbacks, GattScannerInbandCallbacksDispatcher, GattServerCallbacks,
     GattServerCallbacksDispatcher, GattStatus, LePhy, MsftAdvMonitor, MsftAdvMonitorPattern,
 };
+use bt_topshim::sysprop;
 use bt_topshim::topstack;
 use bt_utils::adv_parser;
 use bt_utils::array_utils;
@@ -519,6 +520,9 @@ pub trait IBluetoothGatt {
 
     /// Enumerates all GATT services on a connected device.
     fn discover_services(&self, client_id: i32, addr: String);
+
+    /// Discovers all GATT services on a connected device. Only used by PTS.
+    fn btif_gattc_discover_service_by_uuid(&self, client_id: i32, addr: String, uuid: String);
 
     /// Search a GATT service on a connected device based on a UUID.
     fn discover_service_by_uuid(&self, client_id: i32, addr: String, uuid: String);
@@ -1711,6 +1715,31 @@ impl BluetoothGatt {
 
         self.advertisers.set_suspend_mode(SuspendMode::Normal);
     }
+
+    /// Start an active scan on given scanner id. This will look up and assign
+    /// the correct ScanSettings for it as well.
+    pub(crate) fn start_active_scan(&mut self, scanner_id: u8) -> BtStatus {
+        let interval: u16 = sysprop::get_i32(sysprop::Property::LeInquiryScanInterval)
+            .try_into()
+            .expect("Bad value configured for LeInquiryScanInterval");
+        let window: u16 = sysprop::get_i32(sysprop::Property::LeInquiryScanWindow)
+            .try_into()
+            .expect("Bad value configured for LeInquiryScanWindow");
+
+        self.gatt
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .scanner
+            .set_scan_parameters(scanner_id, interval, window);
+
+        self.start_scan(scanner_id, ScanSettings::default(), /*filter=*/ None)
+    }
+
+    pub(crate) fn stop_active_scan(&mut self, scanner_id: u8) -> BtStatus {
+        self.stop_scan(scanner_id)
+    }
 }
 
 #[derive(Debug, FromPrimitive, ToPrimitive)]
@@ -2279,6 +2308,26 @@ impl IBluetoothGatt for BluetoothGatt {
         }
 
         self.gatt.as_ref().unwrap().lock().unwrap().client.search_service(conn_id.unwrap(), uuid);
+    }
+
+    fn btif_gattc_discover_service_by_uuid(&self, client_id: i32, addr: String, uuid: String) {
+        let conn_id = match self.context_map.get_conn_id_from_address(client_id, &addr) {
+            None => return,
+            Some(id) => id,
+        };
+
+        let uuid = match UuidHelper::parse_string(uuid) {
+            None => return,
+            Some(uuid) => uuid,
+        };
+
+        self.gatt
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .client
+            .btif_gattc_discover_service_by_uuid(conn_id, &uuid);
     }
 
     fn read_characteristic(&self, client_id: i32, addr: String, handle: i32, auth_req: i32) {

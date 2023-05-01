@@ -299,11 +299,33 @@ pub enum BtScanMode {
     None_,
     Connectable,
     ConnectableDiscoverable,
+    ConnectableLimitedDiscoverable,
 }
 
 impl From<bindings::bt_scan_mode_t> for BtScanMode {
     fn from(item: bindings::bt_scan_mode_t) -> Self {
         BtScanMode::from_u32(item).unwrap_or(BtScanMode::None_)
+    }
+}
+
+#[derive(Clone, Debug, FromPrimitive, ToPrimitive, PartialEq, PartialOrd)]
+#[repr(u32)]
+pub enum BtDiscMode {
+    // reference to system/stack/btm/neighbor_inquiry.h
+    NonDiscoverable = 0,
+    LimitedDiscoverable = 1,
+    GeneralDiscoverable = 2,
+}
+
+impl From<u32> for BtDiscMode {
+    fn from(num: u32) -> Self {
+        BtDiscMode::from_u32(num).unwrap_or(BtDiscMode::NonDiscoverable)
+    }
+}
+
+impl Into<u32> for BtDiscMode {
+    fn into(self) -> u32 {
+        self.to_u32().unwrap_or(0)
     }
 }
 
@@ -705,6 +727,7 @@ pub enum SupportedProfiles {
     Sdp,
     Socket,
     HfClient,
+    AvrcpCtrl,
 }
 
 impl From<SupportedProfiles> for Vec<u8> {
@@ -717,6 +740,7 @@ impl From<SupportedProfiles> for Vec<u8> {
             SupportedProfiles::Sdp => "sdp",
             SupportedProfiles::Socket => "socket",
             SupportedProfiles::HfClient => "handsfree_client",
+            SupportedProfiles::AvrcpCtrl => "avrcp_ctrl",
         }
         .bytes()
         .chain("\0".bytes())
@@ -816,13 +840,17 @@ impl RawAddress {
     pub fn to_byte_arr(&self) -> [u8; 6] {
         self.address.clone()
     }
+
+    pub fn empty() -> RawAddress {
+        unsafe { bindings::RawAddress_kEmpty }
+    }
 }
 
 /// Address that is safe to display in logs.
 pub struct DisplayAddress<'a>(pub &'a RawAddress);
 impl<'a> Display for DisplayAddress<'a> {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "xx:xx:xx:xx:{:2X}:{:2X}", &self.0.address[4], &self.0.address[5])
+        write!(f, "xx:xx:xx:xx:{:02X}:{:02X}", &self.0.address[4], &self.0.address[5])
     }
 }
 
@@ -1364,5 +1392,25 @@ mod tests {
                 _ => false,
             });
         }
+    }
+
+    #[test]
+    fn test_display_address() {
+        assert_eq!(
+            format!("{}", DisplayAddress(&RawAddress::from_string("00:00:00:00:00:00").unwrap())),
+            String::from("xx:xx:xx:xx:00:00")
+        );
+        assert_eq!(
+            format!("{}", DisplayAddress(&RawAddress::from_string("1a:2b:1a:2b:1a:2b").unwrap())),
+            String::from("xx:xx:xx:xx:1A:2B")
+        );
+        assert_eq!(
+            format!("{}", DisplayAddress(&RawAddress::from_string("3C:4D:3C:4D:3C:4D").unwrap())),
+            String::from("xx:xx:xx:xx:3C:4D")
+        );
+        assert_eq!(
+            format!("{}", DisplayAddress(&RawAddress::from_string("11:35:11:35:11:35").unwrap())),
+            String::from("xx:xx:xx:xx:11:35")
+        );
     }
 }

@@ -676,7 +676,9 @@ public class AdapterService extends Service {
             int port,
             boolean isSecured,
             int result,
-            long connectionLatencyMillis,
+            long socketCreationTimeMillis,
+            long socketCreationLatencyMillis,
+            long socketConnectionTimeMillis,
             long timeoutMillis,
             int appUid) {
 
@@ -684,13 +686,19 @@ public class AdapterService extends Service {
         if (device != null) {
             metricId = getMetricId(device);
         }
+        long currentTime = System.currentTimeMillis();
+        long endToEndLatencyMillis = currentTime - socketCreationTimeMillis;
+        long socketAcceptanceLatencyMillis = currentTime - socketConnectionTimeMillis;
         Log.i(TAG, "Statslog L2capcoc server connection. metricId "
                 + metricId + " port " + port + " isSecured " + isSecured
-                + " result " + result + " connectionLatencyMillis " + connectionLatencyMillis
+                + " result " + result + " endToEndLatencyMillis " + endToEndLatencyMillis
+                + " socketCreationLatencyMillis " + socketCreationLatencyMillis
+                + " socketAcceptanceLatencyMillis " + socketAcceptanceLatencyMillis
                 + " timeout set by app " + timeoutMillis + " appUid " + appUid);
         BluetoothStatsLog.write(
                 BluetoothStatsLog.BLUETOOTH_L2CAP_COC_SERVER_CONNECTION,
-                metricId, port, isSecured, result, connectionLatencyMillis, timeoutMillis, appUid);
+                metricId, port, isSecured, result, endToEndLatencyMillis, timeoutMillis, appUid,
+                socketCreationLatencyMillis, socketAcceptanceLatencyMillis);
     }
 
     public void setMetricsLogger(MetricsLogger metricsLogger) {
@@ -712,17 +720,25 @@ public class AdapterService extends Service {
             int port,
             boolean isSecured,
             int result,
-            long connectionLatencyMillis,
+            long socketCreationTimeMillis,
+            long socketCreationLatencyMillis,
+            long socketConnectionTimeMillis,
             int appUid) {
 
         int metricId = getMetricId(device);
+        long currentTime = System.currentTimeMillis();
+        long endToEndLatencyMillis = currentTime - socketCreationTimeMillis;
+        long socketConnectionLatencyMillis = currentTime - socketConnectionTimeMillis;
         Log.i(TAG, "Statslog L2capcoc client connection. metricId "
                 + metricId + " port " + port + " isSecured " + isSecured
-                + " result " + result + " connectionLatencyMillis " + connectionLatencyMillis
+                + " result " + result + " endToEndLatencyMillis " + endToEndLatencyMillis
+                + " socketCreationLatencyMillis " + socketCreationLatencyMillis
+                + " socketConnectionLatencyMillis " + socketConnectionLatencyMillis
                 + " appUid " + appUid);
         BluetoothStatsLog.write(
                 BluetoothStatsLog.BLUETOOTH_L2CAP_COC_CLIENT_CONNECTION,
-                metricId, port, isSecured, result, connectionLatencyMillis, appUid);
+                metricId, port, isSecured, result, endToEndLatencyMillis,
+                appUid, socketCreationLatencyMillis, socketConnectionLatencyMillis);
     }
 
     @RequiresPermission(allOf = {
@@ -1365,10 +1381,6 @@ public class AdapterService extends Service {
         }
         if (mBassClientService != null && mBassClientService.getConnectionPolicy(device)
                  > BluetoothProfile.CONNECTION_POLICY_FORBIDDEN) {
-            return true;
-        }
-        if (mBatteryService != null && mBatteryService.getConnectionPolicy(device)
-                > BluetoothProfile.CONNECTION_POLICY_FORBIDDEN) {
             return true;
         }
         return false;
@@ -3440,7 +3452,9 @@ public class AdapterService extends Service {
                 int port,
                 boolean isSecured,
                 int result,
-                long connectionLatencyMillis,
+                long socketCreationTimeMillis,
+                long socketCreationLatencyMillis,
+                long socketConnectionTimeMillis,
                 long timeoutMillis,
                 SynchronousResultReceiver receiver) {
             AdapterService service = getService();
@@ -3453,7 +3467,9 @@ public class AdapterService extends Service {
                         port,
                         isSecured,
                         result,
-                        connectionLatencyMillis,
+                        socketCreationTimeMillis,
+                        socketCreationLatencyMillis,
+                        socketConnectionTimeMillis,
                         timeoutMillis,
                         Binder.getCallingUid());
                 receiver.send(null);
@@ -3478,7 +3494,9 @@ public class AdapterService extends Service {
                 int port,
                 boolean isSecured,
                 int result,
-                long connectionLatencyMillis,
+                long socketCreationTimeMillis,
+                long socketCreationLatencyMillis,
+                long socketConnectionTimeMillis,
                 SynchronousResultReceiver receiver) {
             AdapterService service = getService();
             if (service == null) {
@@ -3490,7 +3508,9 @@ public class AdapterService extends Service {
                         port,
                         isSecured,
                         result,
-                        connectionLatencyMillis,
+                        socketCreationTimeMillis,
+                        socketCreationLatencyMillis,
+                        socketConnectionTimeMillis,
                         Binder.getCallingUid());
                 receiver.send(null);
             } catch (RuntimeException e) {
@@ -5213,14 +5233,22 @@ public class AdapterService extends Service {
                 || mLeAudioService.getConnectionPolicy(device)
                 == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
             Log.i(TAG, "setActiveDevice: Setting active Le Audio device " + device);
-            mLeAudioService.setActiveDevice(device);
+            if (device == null) {
+                mLeAudioService.removeActiveDevice(false);
+            } else {
+                mLeAudioService.setActiveDevice(device);
+            }
         }
 
         if (setA2dp && mA2dpService != null && (device == null
                 || mA2dpService.getConnectionPolicy(device)
                 == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
             Log.i(TAG, "setActiveDevice: Setting active A2dp device " + device);
-            mA2dpService.setActiveDevice(device);
+            if (device == null) {
+                mA2dpService.removeActiveDevice(false);
+            } else {
+                mA2dpService.setActiveDevice(device);
+            }
         }
 
         if (mHearingAidService != null && (device == null
@@ -5422,6 +5450,13 @@ public class AdapterService extends Service {
                     BluetoothProfile.CONNECTION_POLICY_ALLOWED);
             numProfilesConnected++;
         }
+        if (mBatteryService != null && isProfileSupported(
+                device, BluetoothProfile.BATTERY)) {
+            Log.i(TAG, "connectAllEnabledProfiles: Connecting Battery Service");
+            mBatteryService.setConnectionPolicy(device,
+                    BluetoothProfile.CONNECTION_POLICY_ALLOWED);
+            numProfilesConnected++;
+        }
 
         Log.i(TAG, "connectAllEnabledProfiles: Number of Profiles Connected: "
                 + numProfilesConnected);
@@ -5570,6 +5605,14 @@ public class AdapterService extends Service {
             Log.i(TAG, "disconnectAllEnabledProfiles: Disconnecting "
                             + "LE Broadcast Assistant Profile");
             mBassClientService.disconnect(device);
+        }
+        if (mBatteryService != null && (mBatteryService.getConnectionState(device)
+                == BluetoothProfile.STATE_CONNECTED
+                || mBatteryService.getConnectionState(device)
+                == BluetoothProfile.STATE_CONNECTING)) {
+            Log.i(TAG, "disconnectAllEnabledProfiles: Disconnecting "
+                            + "Battery Service");
+            mBatteryService.disconnect(device);
         }
 
         return BluetoothStatusCodes.SUCCESS;

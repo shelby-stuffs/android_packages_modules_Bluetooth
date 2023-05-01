@@ -41,7 +41,6 @@ cc_library_static {
         "packages/modules/Bluetooth/system/gd",
         "packages/modules/Bluetooth/system/internal_include",
         "packages/modules/Bluetooth/system/stack/include",
-        "packages/modules/Bluetooth/system/utils/include",
         "packages/modules/Bluetooth/system/bta/include",
         "packages/modules/Bluetooth/system/btif/include",
         "system/libhwbinder/include",
@@ -55,7 +54,7 @@ cc_library_static {
         },
     },
     host_supported: true,
-    min_sdk_version: "Tiramisu"
+    min_sdk_version: "Tiramisu",
 }
 
 // HCI unit tests for target
@@ -66,6 +65,7 @@ cc_test {
         "fluoride_basic_defaults",
         "fluoride_test_defaults",
         "mts_defaults",
+        "bluetooth_gtest_x86_asan_workaround",
     ],
     host_supported: false,
     local_include_dirs: [
@@ -76,7 +76,6 @@ cc_test {
         "packages/modules/Bluetooth/system/internal_include",
         "packages/modules/Bluetooth/system/osi/test",
         "packages/modules/Bluetooth/system/stack/include",
-        "packages/modules/Bluetooth/system/utils/include",
         "system/libhwbinder/include",
         "packages/modules/Bluetooth/system/gd/rust/shim",
     ],
@@ -101,6 +100,7 @@ cc_test {
     defaults: [
         "fluoride_unit_test_defaults",
         "mts_defaults",
+        "bluetooth_gtest_x86_asan_workaround",
     ],
     local_include_dirs: [
         "include",
@@ -116,4 +116,3 @@ cc_test {
         "test/packet_fragmenter_host_test.cc",
     ],
 }
-

@@ -50,7 +50,6 @@
 #include <unistd.h>
 
 #include "audio_hal_interface/a2dp_encoding.h"
-#include "bt_utils.h"
 #include "bta/hh/bta_hh_int.h"  // for HID HACK profile methods
 #include "bta/include/bta_ar_api.h"
 #include "bta/include/bta_csis_api.h"
@@ -335,7 +334,6 @@ static bluetooth::core::CoreInterface* CreateInterfaceToProfiles() {
       .btif_hh_virtual_unplug = btif_hh_virtual_unplug,
       .bta_hh_read_ssr_param = bta_hh_read_ssr_param,
       .bta_hh_le_is_hh_gatt_if = bta_hh_le_is_hh_gatt_if,
-      .bta_hh_cleanup_disable = bta_hh_cleanup_disable,
 
       // AVDTP
       .btif_av_set_dynamic_audio_buffer_size =

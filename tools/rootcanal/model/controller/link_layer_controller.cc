@@ -225,6 +225,24 @@ LinkLayerController::GenerateResolvablePrivateAddress(AddressWithType address,
 }
 
 // =============================================================================
+//  BR/EDR Commands
+// =============================================================================
+
+// HCI Read Rssi command (Vol 4, Part E § 7.5.4).
+ErrorCode LinkLayerController::ReadRssi(uint16_t connection_handle,
+                                        int8_t* rssi) {
+  // Not documented: If the connection handle is not found, the Controller
+  // shall return the error code Unknown Connection Identifier (0x02).
+  if (!connections_.HasHandle(connection_handle)) {
+    LOG_INFO("unknown connection identifier");
+    return ErrorCode::UNKNOWN_CONNECTION;
+  }
+
+  *rssi = connections_.GetRssi(connection_handle);
+  return ErrorCode::SUCCESS;
+}
+
+// =============================================================================
 //  General LE Commands
 // =============================================================================
 
@@ -263,6 +281,132 @@ ErrorCode LinkLayerController::LeSetResolvablePrivateAddressTimeout(
   }
 
   resolvable_private_address_timeout_ = seconds(rpa_timeout);
+  return ErrorCode::SUCCESS;
+}
+
+// HCI LE Read Phy command (Vol 4, Part E § 7.8.47).
+ErrorCode LinkLayerController::LeReadPhy(uint16_t connection_handle,
+                                         bluetooth::hci::PhyType* tx_phy,
+                                         bluetooth::hci::PhyType* rx_phy) {
+  // Note: no documented status code for this case.
+  if (!connections_.HasHandle(connection_handle) ||
+      connections_.GetPhyType(connection_handle) != Phy::Type::LOW_ENERGY) {
+    LOG_INFO("unknown or invalid connection handle");
+    return ErrorCode::UNKNOWN_CONNECTION;
+  }
+
+  // TODO(b/275970864) save the phy in the connection state.
+  *tx_phy = bluetooth::hci::PhyType::LE_1M;
+  *rx_phy = bluetooth::hci::PhyType::LE_1M;
+  return ErrorCode::SUCCESS;
+}
+
+// HCI LE Set Default Phy command (Vol 4, Part E § 7.8.48).
+ErrorCode LinkLayerController::LeSetDefaultPhy(
+    bool all_phys_no_transmit_preference, bool all_phys_no_receive_preference,
+    uint8_t tx_phys, uint8_t rx_phys) {
+  uint8_t supported_phys = properties_.LeSupportedPhys();
+
+  // If the All_PHYs parameter specifies that the Host has no preference,
+  // the TX_PHYs parameter shall be ignored; otherwise at least one bit shall
+  // be set to 1.
+  if (all_phys_no_transmit_preference) {
+    tx_phys = 0x1;  // LE_1M_PHY by default.
+  }
+  if (tx_phys == 0) {
+    LOG_INFO("TX_Phys does not configure any bit");
+    return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
+  }
+
+  // If the All_PHYs parameter specifies that the Host has no preference,
+  // the RX_PHYs parameter shall be ignored; otherwise at least one bit shall
+  // be set to 1.
+  if (all_phys_no_receive_preference) {
+    rx_phys = 0x1;  // LE_1M_PHY by default.
+  }
+  if (rx_phys == 0) {
+    LOG_INFO("RX_Phys does not configure any bit");
+    return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
+  }
+
+  // If the Host sets, in the TX_PHYs or RX_PHYs parameter, a bit for a PHY that
+  // the Controller does not support, including a bit that is reserved for
+  // future use, the Controller shall return the error code Unsupported Feature
+  // or Parameter Value (0x11).
+  if ((tx_phys & ~supported_phys) != 0) {
+    LOG_INFO("TX_PhyS (%x) configures unsupported or reserved bits", tx_phys);
+    return ErrorCode::UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE;
+  }
+  if ((rx_phys & ~supported_phys) != 0) {
+    LOG_INFO("RX_PhyS (%x) configures unsupported or reserved bits", rx_phys);
+    return ErrorCode::UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE;
+  }
+
+  // TODO(b/275970864) save the phy default preference.
+  return ErrorCode::SUCCESS;
+}
+
+// HCI LE Set Phy command (Vol 4, Part E § 7.8.49).
+ErrorCode LinkLayerController::LeSetPhy(
+    uint16_t connection_handle, bool all_phys_no_transmit_preference,
+    bool all_phys_no_receive_preference, uint8_t tx_phys, uint8_t rx_phys,
+    bluetooth::hci::PhyOptions phy_options) {
+  uint8_t supported_phys = properties_.LeSupportedPhys();
+
+  // Note: no documented status code for this case.
+  if (!connections_.HasHandle(connection_handle) ||
+      connections_.GetPhyType(connection_handle) != Phy::Type::LOW_ENERGY) {
+    LOG_INFO("unknown or invalid connection handle");
+    return ErrorCode::UNKNOWN_CONNECTION;
+  }
+
+  // If the All_PHYs parameter specifies that the Host has no preference,
+  // the TX_PHYs parameter shall be ignored; otherwise at least one bit shall
+  // be set to 1.
+  if (all_phys_no_transmit_preference) {
+    tx_phys = 0x1;  // LE_1M_PHY by default.
+  }
+  if (tx_phys == 0) {
+    LOG_INFO("TX_Phys does not configure any bit");
+    return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
+  }
+
+  // If the All_PHYs parameter specifies that the Host has no preference,
+  // the RX_PHYs parameter shall be ignored; otherwise at least one bit shall
+  // be set to 1.
+  if (all_phys_no_receive_preference) {
+    rx_phys = 0x1;  // LE_1M_PHY by default.
+  }
+  if (rx_phys == 0) {
+    LOG_INFO("RX_Phys does not configure any bit");
+    return ErrorCode::INVALID_HCI_COMMAND_PARAMETERS;
+  }
+
+  // If the Host sets, in the TX_PHYs or RX_PHYs parameter, a bit for a PHY that
+  // the Controller does not support, including a bit that is reserved for
+  // future use, the Controller shall return the error code Unsupported Feature
+  // or Parameter Value (0x11).
+  if ((tx_phys & ~supported_phys) != 0) {
+    LOG_INFO("TX_PhyS (%x) configures unsupported or reserved bits", tx_phys);
+    return ErrorCode::UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE;
+  }
+  if ((rx_phys & ~supported_phys) != 0) {
+    LOG_INFO("RX_PhyS (%x) configures unsupported or reserved bits", rx_phys);
+    return ErrorCode::UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE;
+  }
+
+  // The HCI_LE_PHY_Update_Complete event shall be generated either when one
+  // or both PHY changes or when the Controller determines that neither PHY
+  // will change immediately.
+  // TODO(b/275970864) send LL_PHY_REQ to the peer.
+  ScheduleTask(0ms, [this, connection_handle] {
+    send_event_(bluetooth::hci::LePhyUpdateCompleteBuilder::Create(
+        ErrorCode::SUCCESS, connection_handle,
+        static_cast<uint8_t>(bluetooth::hci::PhyType::LE_1M),
+        static_cast<uint8_t>(bluetooth::hci::PhyType::LE_1M)));
+  });
+
+  // TODO(b/275970864) save the phy preference.
   return ErrorCode::SUCCESS;
 }
 
@@ -665,6 +809,8 @@ ErrorCode LinkLayerController::LeSetExtendedScanParameters(
     bluetooth::hci::LeScanningFilterPolicy scanning_filter_policy,
     uint8_t scanning_phys,
     std::vector<bluetooth::hci::PhyScanParameters> scanning_phy_parameters) {
+  uint8_t supported_phys = properties_.LeSupportedPhys();
+
   // Extended advertising commands are disallowed when legacy advertising
   // commands were used since the last reset.
   if (!SelectExtendedAdvertising()) {
@@ -684,7 +830,7 @@ ErrorCode LinkLayerController::LeSetExtendedScanParameters(
   // If the Host specifies a PHY that is not supported by the Controller,
   // including a bit that is reserved for future use, it should return the
   // error code Unsupported Feature or Parameter Value (0x11).
-  if ((scanning_phys & 0xfa) != 0) {
+  if ((scanning_phys & ~supported_phys) != 0) {
     LOG_INFO(
         "scanning_phys (%02x) enables PHYs that are not supported by"
         " the controller",
@@ -1365,8 +1511,10 @@ LinkLayerController::LinkLayerController(const Address& address,
           [](void* user, uint16_t handle, uint8_t(*result)[6]) {
             auto controller = static_cast<LinkLayerController*>(user);
 
-            auto address =
-                controller->connections_.GetAddress(handle).GetAddress();
+            auto address_opt = controller->connections_.GetAddressSafe(handle);
+            Address address = address_opt.has_value()
+                                  ? address_opt.value().GetAddress()
+                                  : Address::kEmpty;
             std::copy(address.data(), address.data() + 6,
                       reinterpret_cast<uint8_t*>(result));
           },
@@ -1635,7 +1783,7 @@ void LinkLayerController::IncomingPacket(
 
   switch (incoming.GetType()) {
     case model::packets::PacketType::ACL:
-      IncomingAclPacket(incoming);
+      IncomingAclPacket(incoming, rssi);
       break;
     case model::packets::PacketType::SCO:
       IncomingScoPacket(incoming);
@@ -1797,6 +1945,12 @@ void LinkLayerController::IncomingPacket(
     case model::packets::PacketType::PING_RESPONSE:
       // ping responses require no action
       break;
+    case model::packets::PacketType::ROLE_SWITCH_REQUEST:
+      IncomingRoleSwitchRequest(incoming);
+      break;
+    case model::packets::PacketType::ROLE_SWITCH_RESPONSE:
+      IncomingRoleSwitchResponse(incoming);
+      break;
     default:
       LOG_WARN("Dropping unhandled packet of type %s",
                model::packets::PacketTypeText(incoming.GetType()).c_str());
@@ -1804,7 +1958,7 @@ void LinkLayerController::IncomingPacket(
 }
 
 void LinkLayerController::IncomingAclPacket(
-    model::packets::LinkLayerPacketView incoming) {
+    model::packets::LinkLayerPacketView incoming, int8_t rssi) {
   auto acl = model::packets::AclView::Create(incoming);
   ASSERT(acl.IsValid());
   auto payload = acl.GetPayload();
@@ -1827,6 +1981,9 @@ void LinkLayerController::IncomingAclPacket(
       LOG_INFO("Dropping packet since connection does not exist");
       return;
   }
+
+  // Update the RSSI for the local ACL connection.
+  connections_.SetRssi(local_handle, rssi);
 
   std::vector<uint8_t> payload_data(acl_view.GetPayload().begin(),
                                     acl_view.GetPayload().end());
@@ -2716,8 +2873,7 @@ void LinkLayerController::ScanIncomingLeLegacyAdvertisingPdu(
       // shall be ignored unless either:
       //  • the TargetA field is identical to the scanner's device address, or
       //  • the TargetA field is a resolvable private address, address
-      //  resolution is
-      //    enabled, and the address is resolved successfully
+      //  resolution is enabled, and the address is resolved successfully
       case bluetooth::hci::LeScanningFilterPolicy::ACCEPT_ALL:
       case bluetooth::hci::LeScanningFilterPolicy::FILTER_ACCEPT_LIST_ONLY:
         if (!IsLocalPublicOrRandomAddress(target_address) &&
@@ -2832,13 +2988,20 @@ void LinkLayerController::ScanIncomingLeLegacyAdvertisingPdu(
     response.address_ = resolved_advertising_address.GetAddress();
     response.primary_phy_ = bluetooth::hci::PrimaryPhyType::LE_1M;
     response.secondary_phy_ = bluetooth::hci::SecondaryPhyType::NO_PACKETS;
-    response.advertising_sid_ = 0xff;  // Not ADI field provided.
+    response.advertising_sid_ = 0xff;  // ADI not provided.
     response.tx_power_ = 0x7f;         // TX power information not available.
     response.rssi_ = rssi;
     response.periodic_advertising_interval_ = 0;  // No periodic advertising.
-    response.direct_address_type_ =
-        bluetooth::hci::DirectAdvertisingAddressType::NO_ADDRESS_PROVIDED;
-    response.direct_address_ = Address::kEmpty;
+    if (directed_advertising) {
+      response.direct_address_type_ =
+          bluetooth::hci::DirectAdvertisingAddressType(
+              target_address.GetAddressType());
+      response.direct_address_ = target_address.GetAddress();
+    } else {
+      response.direct_address_type_ =
+          bluetooth::hci::DirectAdvertisingAddressType::NO_ADDRESS_PROVIDED;
+      response.direct_address_ = Address::kEmpty;
+    }
     response.advertising_data_ = advertising_data;
 
     send_event_(bluetooth::hci::LeExtendedAdvertisingReportRawBuilder::Create(
@@ -3248,17 +3411,40 @@ void LinkLayerController::ScanIncomingLeExtendedAdvertisingPdu(
     response.address_ = resolved_advertising_address.GetAddress();
     response.primary_phy_ = bluetooth::hci::PrimaryPhyType::LE_1M;
     response.secondary_phy_ = bluetooth::hci::SecondaryPhyType::NO_PACKETS;
-    response.advertising_sid_ = 0xff;  // Not ADI field provided.
+    response.advertising_sid_ = pdu.GetSid();
     response.tx_power_ = 0x7f;         // TX power information not available.
     response.rssi_ = rssi;
     response.periodic_advertising_interval_ = 0;  // No periodic advertising.
-    response.direct_address_type_ =
-        bluetooth::hci::DirectAdvertisingAddressType::NO_ADDRESS_PROVIDED;
-    response.direct_address_ = Address::kEmpty;
+    if (directed_advertising) {
+      response.direct_address_type_ =
+          bluetooth::hci::DirectAdvertisingAddressType(
+              target_address.GetAddressType());
+      response.direct_address_ = target_address.GetAddress();
+    } else {
+      response.direct_address_type_ =
+          bluetooth::hci::DirectAdvertisingAddressType::NO_ADDRESS_PROVIDED;
+      response.direct_address_ = Address::kEmpty;
+    }
     response.advertising_data_ = advertising_data;
 
-    send_event_(bluetooth::hci::LeExtendedAdvertisingReportRawBuilder::Create(
-        {response}));
+    // Each extended advertising report can only pass 229 bytes of
+    // advertising data (255 - size of report fields).
+    // RootCanal must fragment the report as necessary.
+    const size_t max_fragment_size = 229;
+    size_t offset = 0;
+    do {
+      size_t remaining_size = advertising_data.size() - offset;
+      size_t fragment_size = std::min(max_fragment_size, remaining_size);
+      response.data_status_ = remaining_size <= max_fragment_size
+                                  ? bluetooth::hci::DataStatus::COMPLETE
+                                  : bluetooth::hci::DataStatus::CONTINUING;
+      response.advertising_data_ =
+          std::vector(advertising_data.begin() + offset,
+                      advertising_data.begin() + offset + fragment_size);
+      offset += fragment_size;
+      send_event_(bluetooth::hci::LeExtendedAdvertisingReportRawBuilder::Create(
+          {response}));
+    } while (offset < advertising_data.size());
   }
 
   // Did the user enable Active scanning ?
@@ -4143,9 +4329,11 @@ void LinkLayerController::IncomingLeEncryptConnectionResponse(
       model::packets::LeEncryptConnectionResponseView::Create(incoming);
   ASSERT(response.IsValid());
 
+  bool success = true;
   // Zero LTK is a rejection
   if (response.GetLtk() == std::array<uint8_t, 16>{0}) {
     status = ErrorCode::AUTHENTICATION_FAILURE;
+    success = false;
   }
 
   if (connections_.IsEncrypted(handle)) {
@@ -4153,11 +4341,16 @@ void LinkLayerController::IncomingLeEncryptConnectionResponse(
       send_event_(bluetooth::hci::EncryptionKeyRefreshCompleteBuilder::Create(
           status, handle));
     }
-  } else {
+  } else if (success) {
     connections_.Encrypt(handle);
     if (IsEventUnmasked(EventCode::ENCRYPTION_CHANGE)) {
       send_event_(bluetooth::hci::EncryptionChangeBuilder::Create(
           status, handle, bluetooth::hci::EncryptionEnabled::ON));
+    }
+  } else {
+    if (IsEventUnmasked(EventCode::ENCRYPTION_CHANGE)) {
+      send_event_(bluetooth::hci::EncryptionChangeBuilder::Create(
+          status, handle, bluetooth::hci::EncryptionEnabled::OFF));
     }
   }
 }
@@ -4672,9 +4865,11 @@ void LinkLayerController::IncomingPagePacket(
   ASSERT(page.IsValid());
   LOG_INFO("from %s", incoming.GetSourceAddress().ToString().c_str());
 
+  bool allow_role_switch = page.GetAllowRoleSwitch();
   if (!connections_.CreatePendingConnection(
           incoming.GetSourceAddress(),
-          authentication_enable_ == AuthenticationEnable::REQUIRED)) {
+          authentication_enable_ == AuthenticationEnable::REQUIRED,
+          allow_role_switch)) {
     // Send a response to indicate that we're busy, or drop the packet?
     LOG_WARN("Failed to create a pending connection for %s",
              incoming.GetSourceAddress().ToString().c_str());
@@ -4726,10 +4921,27 @@ void LinkLayerController::IncomingPageResponsePacket(
 
   CheckExpiringConnection(handle);
 
+  auto addr = incoming.GetSourceAddress();
+  auto response = model::packets::PageResponseView::Create(incoming);
+  ASSERT(response.IsValid());
+  /* Role change event before connection complete is a quirk commonly exists in
+   * Android-capatable Bluetooth controllers.
+   * On the initiator side, only connection in peripheral role should be
+   * accompanied with a role change event */
+  // TODO(b/274476773): Add a config option for this quirk
+  if (connections_.IsRoleSwitchAllowedForPendingConnection() &&
+      response.GetTryRoleSwitch()) {
+    auto role = bluetooth::hci::Role::PERIPHERAL;
+    connections_.SetAclRole(handle, role);
+    if (IsEventUnmasked(EventCode::ROLE_CHANGE)) {
+      send_event_(bluetooth::hci::RoleChangeBuilder::Create(ErrorCode::SUCCESS,
+                                                            addr, role));
+    }
+  }
   if (IsEventUnmasked(EventCode::CONNECTION_COMPLETE)) {
     send_event_(bluetooth::hci::ConnectionCompleteBuilder::Create(
-        ErrorCode::SUCCESS, handle, incoming.GetSourceAddress(),
-        bluetooth::hci::LinkType::ACL, bluetooth::hci::Enable::DISABLED));
+        ErrorCode::SUCCESS, handle, addr, bluetooth::hci::LinkType::ACL,
+        bluetooth::hci::Enable::DISABLED));
   }
 
 #ifndef ROOTCANAL_LMP
@@ -4755,7 +4967,8 @@ void LinkLayerController::Tick() {
 
 void LinkLayerController::Close() {
   for (auto handle : connections_.GetAclHandles()) {
-    Disconnect(handle, ErrorCode::CONNECTION_TIMEOUT);
+    Disconnect(handle, ErrorCode::CONNECTION_TIMEOUT,
+               ErrorCode::CONNECTION_TIMEOUT);
   }
 }
 
@@ -5331,6 +5544,21 @@ void LinkLayerController::MakePeripheralConnection(const Address& addr,
 
   CheckExpiringConnection(handle);
 
+  /* Role change event before connection complete is a quirk commonly exists in
+   * Android-capatable Bluetooth controllers.
+   * On the responder side, any connection should be accompanied with a role
+   * change event */
+  // TODO(b/274476773): Add a config option for this quirk
+  auto role =
+      try_role_switch && connections_.IsRoleSwitchAllowedForPendingConnection()
+          ? bluetooth::hci::Role::CENTRAL
+          : bluetooth::hci::Role::PERIPHERAL;
+  connections_.SetAclRole(handle, role);
+  if (IsEventUnmasked(EventCode::ROLE_CHANGE)) {
+    send_event_(bluetooth::hci::RoleChangeBuilder::Create(ErrorCode::SUCCESS,
+                                                          addr, role));
+  }
+
   LOG_INFO("CreateConnection returned handle 0x%x", handle);
   if (IsEventUnmasked(EventCode::CONNECTION_COMPLETE)) {
     send_event_(bluetooth::hci::ConnectionCompleteBuilder::Create(
@@ -5373,7 +5601,8 @@ ErrorCode LinkLayerController::CreateConnection(const Address& addr,
                                                 uint16_t /* clock_offset */,
                                                 uint8_t allow_role_switch) {
   if (!connections_.CreatePendingConnection(
-          addr, authentication_enable_ == AuthenticationEnable::REQUIRED)) {
+          addr, authentication_enable_ == AuthenticationEnable::REQUIRED,
+          allow_role_switch)) {
     return ErrorCode::CONTROLLER_BUSY;
   }
 
@@ -5409,18 +5638,20 @@ void LinkLayerController::SendDisconnectionCompleteEvent(uint16_t handle,
   }
 }
 
-ErrorCode LinkLayerController::Disconnect(uint16_t handle, ErrorCode reason) {
+ErrorCode LinkLayerController::Disconnect(uint16_t handle,
+                                          ErrorCode host_reason,
+                                          ErrorCode controller_reason) {
   if (connections_.HasScoHandle(handle)) {
     const Address remote = connections_.GetScoAddress(handle);
     LOG_INFO("Disconnecting eSCO connection with %s",
              remote.ToString().c_str());
 
     SendLinkLayerPacket(model::packets::ScoDisconnectBuilder::Create(
-        GetAddress(), remote, static_cast<uint8_t>(reason)));
+        GetAddress(), remote, static_cast<uint8_t>(host_reason)));
 
     connections_.Disconnect(
         handle, [this](TaskId task_id) { CancelScheduledTask(task_id); });
-    SendDisconnectionCompleteEvent(handle, reason);
+    SendDisconnectionCompleteEvent(handle, controller_reason);
     return ErrorCode::SUCCESS;
   }
 
@@ -5437,26 +5668,27 @@ ErrorCode LinkLayerController::Disconnect(uint16_t handle, ErrorCode reason) {
     uint16_t sco_handle = connections_.GetScoHandle(remote.GetAddress());
     if (sco_handle != kReservedHandle) {
       SendLinkLayerPacket(model::packets::ScoDisconnectBuilder::Create(
-          GetAddress(), remote.GetAddress(), static_cast<uint8_t>(reason)));
+          GetAddress(), remote.GetAddress(),
+          static_cast<uint8_t>(host_reason)));
 
       connections_.Disconnect(
           sco_handle, [this](TaskId task_id) { CancelScheduledTask(task_id); });
-      SendDisconnectionCompleteEvent(sco_handle, reason);
+      SendDisconnectionCompleteEvent(sco_handle, controller_reason);
     }
 
     SendLinkLayerPacket(model::packets::DisconnectBuilder::Create(
-        GetAddress(), remote.GetAddress(), static_cast<uint8_t>(reason)));
+        GetAddress(), remote.GetAddress(), static_cast<uint8_t>(host_reason)));
   } else {
     LOG_INFO("Disconnecting LE connection with %s", remote.ToString().c_str());
 
     SendLeLinkLayerPacket(model::packets::DisconnectBuilder::Create(
         connections_.GetOwnAddress(handle).GetAddress(), remote.GetAddress(),
-        static_cast<uint8_t>(reason)));
+        static_cast<uint8_t>(host_reason)));
   }
 
   connections_.Disconnect(
       handle, [this](TaskId task_id) { CancelScheduledTask(task_id); });
-  SendDisconnectionCompleteEvent(handle, ErrorCode(reason));
+  SendDisconnectionCompleteEvent(handle, controller_reason);
 #ifdef ROOTCANAL_LMP
   if (is_br_edr) {
     ASSERT(link_manager_remove_link(
@@ -5573,12 +5805,59 @@ ErrorCode LinkLayerController::SwitchRole(Address addr,
   if (handle == rootcanal::kReservedHandle) {
     return ErrorCode::UNKNOWN_CONNECTION;
   }
-  connections_.SetAclRole(handle, role);
-  ScheduleTask(kNoDelayMs, [this, addr, role]() {
-    send_event_(bluetooth::hci::RoleChangeBuilder::Create(ErrorCode::SUCCESS,
-                                                          addr, role));
-  });
+  // TODO(b/274248798): Reject role switch if disabled in link policy
+  SendLinkLayerPacket(model::packets::RoleSwitchRequestBuilder::Create(
+      GetAddress(), addr, static_cast<uint8_t>(role)));
   return ErrorCode::SUCCESS;
+}
+
+void LinkLayerController::IncomingRoleSwitchRequest(
+    model::packets::LinkLayerPacketView incoming) {
+  auto addr = incoming.GetSourceAddress();
+  auto handle = connections_.GetHandleOnlyAddress(addr);
+  auto request = model::packets::RoleSwitchRequestView::Create(incoming);
+  ASSERT(request.IsValid());
+
+  // TODO(b/274248798): Reject role switch if disabled in link policy
+  Role remote_role = static_cast<Role>(request.GetInitiatorNewRole());
+  Role local_role =
+      remote_role == Role::CENTRAL ? Role::PERIPHERAL : Role::CENTRAL;
+  connections_.SetAclRole(handle, local_role);
+  if (IsEventUnmasked(EventCode::ROLE_CHANGE)) {
+    ScheduleTask(kNoDelayMs, [this, addr, local_role]() {
+      send_event_(bluetooth::hci::RoleChangeBuilder::Create(ErrorCode::SUCCESS,
+                                                            addr, local_role));
+    });
+  }
+  ScheduleTask(kNoDelayMs, [this, addr, remote_role]() {
+    SendLinkLayerPacket(model::packets::RoleSwitchResponseBuilder::Create(
+        GetAddress(), addr, static_cast<uint8_t>(ErrorCode::SUCCESS),
+        static_cast<uint8_t>(remote_role)));
+  });
+}
+
+void LinkLayerController::IncomingRoleSwitchResponse(
+    model::packets::LinkLayerPacketView incoming) {
+  auto addr = incoming.GetSourceAddress();
+  auto handle = connections_.GetHandleOnlyAddress(addr);
+  auto response = model::packets::RoleSwitchResponseView::Create(incoming);
+  ASSERT(response.IsValid());
+
+  // TODO(b/274248798): Reject role switch if disabled in link policy
+  ErrorCode status = ErrorCode::SUCCESS;
+  Role role = static_cast<Role>(response.GetInitiatorNewRole());
+  if (response.GetStatus() == static_cast<uint8_t>(ErrorCode::SUCCESS)) {
+    connections_.SetAclRole(handle, role);
+  } else {
+    status = static_cast<ErrorCode>(response.GetStatus());
+  }
+
+  if (IsEventUnmasked(EventCode::ROLE_CHANGE)) {
+    ScheduleTask(kNoDelayMs, [this, status, addr, role]() {
+      send_event_(
+          bluetooth::hci::RoleChangeBuilder::Create(status, addr, role));
+    });
+  }
 }
 
 ErrorCode LinkLayerController::ReadLinkPolicySettings(uint16_t handle,
@@ -6311,7 +6590,8 @@ void LinkLayerController::CheckExpiringConnection(uint16_t handle) {
   }
 
   if (connections_.HasLinkExpired(handle)) {
-    Disconnect(handle, ErrorCode::CONNECTION_TIMEOUT);
+    Disconnect(handle, ErrorCode::CONNECTION_TIMEOUT,
+               ErrorCode::CONNECTION_TIMEOUT);
     return;
   }
 
