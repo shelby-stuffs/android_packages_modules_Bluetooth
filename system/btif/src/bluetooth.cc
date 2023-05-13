@@ -333,7 +333,6 @@ static bluetooth::core::CoreInterface* CreateInterfaceToProfiles() {
       .btif_hh_connect = btif_hh_connect,
       .btif_hh_virtual_unplug = btif_hh_virtual_unplug,
       .bta_hh_read_ssr_param = bta_hh_read_ssr_param,
-      .bta_hh_le_is_hh_gatt_if = bta_hh_le_is_hh_gatt_if,
 
       // AVDTP
       .btif_av_set_dynamic_audio_buffer_size =
@@ -890,6 +889,13 @@ static const void* get_profile_interface(const char* profile_id) {
 
   if (is_profile(profile_id, BT_PROFILE_CSIS_CLIENT_ID))
     return btif_csis_client_get_interface();
+
+  bool isBqrEnabled =
+      bluetooth::common::InitFlags::IsBluetoothQualityReportCallbackEnabled();
+  if (isBqrEnabled) {
+    if (is_profile(profile_id, BT_BQR_ID))
+      return bluetooth::bqr::getBluetoothQualityReportInterface();
+  }
 
   return NULL;
 }

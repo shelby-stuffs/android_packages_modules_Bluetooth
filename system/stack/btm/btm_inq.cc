@@ -532,7 +532,10 @@ void BTM_CancelInquiry(void) {
 }
 
 static void btm_classic_inquiry_timeout(UNUSED_ATTR void* data) {
-  btm_process_inq_complete(HCI_SUCCESS, BTM_BR_INQUIRY_MASK);
+  // We mark both classic inquiry and BLE inquiry complete so that we stop
+  // processing BLE results as inquiry results.
+  btm_process_inq_complete(HCI_SUCCESS,
+                           (BTM_BR_INQUIRY_MASK | BTM_BLE_INQUIRY_MASK));
 }
 
 /*******************************************************************************
@@ -845,6 +848,30 @@ tBTM_STATUS BTM_ClearInqDb(const RawAddress* p_bda) {
   btm_clr_inq_db(p_bda);
 
   return (BTM_SUCCESS);
+}
+
+/*******************************************************************************
+ *
+ * Function         btm_clear_all_pending_le_entry
+ *
+ * Description      This function is called to clear all LE pending entry in
+ *                  inquiry database.
+ *
+ * Returns          void
+ *
+ ******************************************************************************/
+void btm_clear_all_pending_le_entry(void) {
+  uint16_t xx;
+  tINQ_DB_ENT* p_ent = btm_cb.btm_inq_vars.inq_db;
+
+  for (xx = 0; xx < BTM_INQ_DB_SIZE; xx++, p_ent++) {
+    /* mark all pending LE entry as unused if an LE only device has scan
+     * response outstanding */
+    if ((p_ent->in_use) &&
+        (p_ent->inq_info.results.device_type == BT_DEVICE_TYPE_BLE) &&
+        !p_ent->scan_rsp)
+      p_ent->in_use = false;
+  }
 }
 
 /*******************************************************************************
@@ -1383,8 +1410,6 @@ void btm_process_inq_complete(tHCI_STATUS status, uint8_t mode) {
 
   p_inq->inqparms.mode &= ~(mode);
   const auto inq_active = p_inq->inq_active;
-
-  alarm_cancel(p_inq->classic_inquiry_timer);
 
 #if (BTM_INQ_DEBUG == TRUE)
   BTM_TRACE_DEBUG("btm_process_inq_complete inq_active:0x%x state:%d",
