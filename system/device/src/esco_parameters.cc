@@ -288,6 +288,16 @@ enh_esco_params_t esco_parameters_for_codec(esco_codec_t codec, bool offload) {
   CHECK(codec >= 0) << "codec index " << (int)codec << "< 0";
   CHECK(codec < ESCO_NUM_CODECS)
       << "codec index " << (int)codec << " > " << ESCO_NUM_CODECS;
+
+  if (codec == ESCO_CODEC_LC3_T1 || codec == ESCO_CODEC_LC3_T2) {
+    enh_esco_params_t param = default_esco_parameters[codec];
+    param.input_coding_format.coding_format = ESCO_CODING_FORMAT_LC3;
+    param.output_coding_format.coding_format = ESCO_CODING_FORMAT_LC3;
+    param.input_bandwidth = TXRX_64KBITS_RATE;
+    param.output_bandwidth = TXRX_64KBITS_RATE;
+    return param;
+  }
+
   if (offload) {
     return default_esco_parameters[codec];
   }
