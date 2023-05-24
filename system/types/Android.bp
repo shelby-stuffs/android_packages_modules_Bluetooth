@@ -44,6 +44,7 @@ cc_library_static {
         "class_of_device.cc",
         "raw_address.cc",
     ],
+    static_libs: ["libchrome"],
     header_libs: ["libbluetooth-types-header"],
     export_header_lib_headers: ["libbluetooth-types-header"],
     min_sdk_version: "29",
@@ -51,6 +52,7 @@ cc_library_static {
 
 cc_test {
     name: "net_test_types",
+    static_libs: ["libchrome"],
     test_suites: ["device-tests"],
     defaults: [
         "bluetooth_gtest_x86_asan_workaround",
