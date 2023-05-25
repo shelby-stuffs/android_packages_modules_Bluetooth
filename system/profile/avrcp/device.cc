@@ -215,12 +215,29 @@ void Device::VendorPacketHandler(uint8_t label,
     } break;
 
     case CommandPdu::LIST_PLAYER_APPLICATION_SETTING_ATTRIBUTES: {
+      if (player_settings_interface_ == nullptr) {
+        LOG(ERROR) << __func__
+                   << ": Player Settings Interface not initialized.";
+        auto response = RejectBuilder::MakeBuilder(pkt->GetCommandPdu(),
+                                                   Status::INVALID_COMMAND);
+        send_message(label, false, std::move(response));
+        return;
+      }
+
       player_settings_interface_->ListPlayerSettings(
           base::Bind(&Device::ListPlayerApplicationSettingAttributesResponse,
                      weak_ptr_factory_.GetWeakPtr(), label));
     } break;
 
     case CommandPdu::LIST_PLAYER_APPLICATION_SETTING_VALUES: {
+      if (player_settings_interface_ == nullptr) {
+        LOG(ERROR) << __func__
+                   << ": Player Settings Interface not initialized.";
+        auto response = RejectBuilder::MakeBuilder(pkt->GetCommandPdu(),
+                                                   Status::INVALID_COMMAND);
+        send_message(label, false, std::move(response));
+        return;
+      }
       auto list_player_setting_values_request =
           Packet::Specialize<ListPlayerApplicationSettingValuesRequest>(pkt);
 
@@ -251,6 +268,14 @@ void Device::VendorPacketHandler(uint8_t label,
     } break;
 
     case CommandPdu::GET_CURRENT_PLAYER_APPLICATION_SETTING_VALUE: {
+      if (player_settings_interface_ == nullptr) {
+        LOG(ERROR) << __func__
+                   << ": Player Settings Interface not initialized.";
+        auto response = RejectBuilder::MakeBuilder(pkt->GetCommandPdu(),
+                                                   Status::INVALID_COMMAND);
+        send_message(label, false, std::move(response));
+        return;
+      }
       auto get_current_player_setting_value_request =
           Packet::Specialize<GetCurrentPlayerApplicationSettingValueRequest>(
               pkt);
@@ -284,6 +309,14 @@ void Device::VendorPacketHandler(uint8_t label,
     } break;
 
     case CommandPdu::SET_PLAYER_APPLICATION_SETTING_VALUE: {
+      if (player_settings_interface_ == nullptr) {
+        LOG(ERROR) << __func__
+                   << ": Player Settings Interface not initialized.";
+        auto response = RejectBuilder::MakeBuilder(pkt->GetCommandPdu(),
+                                                   Status::INVALID_COMMAND);
+        send_message(label, false, std::move(response));
+        return;
+      }
       auto set_player_setting_value_request =
           Packet::Specialize<SetPlayerApplicationSettingValueRequest>(pkt);
 
@@ -380,7 +413,9 @@ void Device::HandleGetCapabilities(
               Event::PLAYBACK_STATUS_CHANGED);
       response->AddEvent(Event::TRACK_CHANGED);
       response->AddEvent(Event::PLAYBACK_POS_CHANGED);
-      response->AddEvent(Event::PLAYER_APPLICATION_SETTING_CHANGED);
+      if (player_settings_interface_ != nullptr) {
+        response->AddEvent(Event::PLAYER_APPLICATION_SETTING_CHANGED);
+      }
 
       if (!avrcp13_compatibility_) {
         response->AddEvent(Event::AVAILABLE_PLAYERS_CHANGED);
@@ -435,6 +470,14 @@ void Device::HandleNotification(
     } break;
 
     case Event::PLAYER_APPLICATION_SETTING_CHANGED: {
+      if (player_settings_interface_ == nullptr) {
+        LOG(ERROR) << __func__
+                   << ": Player Settings Interface not initialized.";
+        auto response = RejectBuilder::MakeBuilder(pkt->GetCommandPdu(),
+                                                   Status::INVALID_COMMAND);
+        send_message(label, false, std::move(response));
+        return;
+      }
       std::vector<PlayerAttribute> attributes = {
           PlayerAttribute::EQUALIZER, PlayerAttribute::REPEAT,
           PlayerAttribute::SHUFFLE, PlayerAttribute::SCAN};
@@ -1684,7 +1727,7 @@ void Device::HandlePlayerSettingChanged(std::vector<PlayerAttribute> attributes,
   auto response =
       RegisterNotificationResponseBuilder::MakePlayerSettingChangedBuilder(
           false, attributes, values);
-  send_message(now_playing_changed_.second, false, std::move(response));
+  send_message(player_setting_changed_.second, false, std::move(response));
 }
 
 void Device::PlayerSettingChangedNotificationResponse(
@@ -1713,11 +1756,11 @@ void Device::PlayerSettingChangedNotificationResponse(
   auto response =
       RegisterNotificationResponseBuilder::MakePlayerSettingChangedBuilder(
           interim, attributes, values);
-  send_message(now_playing_changed_.second, false, std::move(response));
+  send_message(player_setting_changed_.second, false, std::move(response));
 
   if (!interim) {
     active_labels_.erase(label);
-    now_playing_changed_ = Notification(false, 0);
+    player_setting_changed_ = Notification(false, 0);
   }
 }
 
