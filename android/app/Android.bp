@@ -168,12 +168,13 @@ java_library {
     ],
     min_sdk_version: "Tiramisu",
     sdk_version: "module_current",
+
 }
 
-platform_compat_config {
-    name: "bluetoothapk-platform-compat-config",
-    src: ":bluetooth.change-ids",
-}
+//platform_compat_config {
+//    name: "bluetoothapk-platform-compat-config",
+//    src: ":bluetooth.change-ids",
+//}
 
 genrule {
     name: "statslog-bt-restricted-java-gen",
