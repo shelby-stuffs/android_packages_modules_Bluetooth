@@ -265,6 +265,7 @@ class PhonePolicy {
     // Policy API functions for lifecycle management (protected)
     protected void start() {
         IntentFilter filter = new IntentFilter();
+        filter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
         filter.addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED);
         filter.addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
         filter.addAction(BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED);
@@ -420,6 +421,8 @@ class PhonePolicy {
                 == BluetoothProfile.CONNECTION_POLICY_UNKNOWN)) {
             if (isLeAudioProfileAllowed) {
                 debugLog("LE Audio preferred over ASHA for device " + device);
+                mAdapterService.getDatabase().setProfileConnectionPolicy(device,
+                        BluetoothProfile.HEARING_AID, BluetoothProfile.CONNECTION_POLICY_FORBIDDEN);
             } else {
                 debugLog("setting hearing aid profile priority for device " + device);
                 if (mAutoConnectProfilesSupported) {

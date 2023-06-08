@@ -29,7 +29,7 @@ filegroup {
     name: "services.bluetooth-sources",
     srcs: [
         ":statslog-bluetooth-java-gen",
-        "java/**/*.java",
+        "src/**/*.java",
     ],
     visibility: [
         "//frameworks/base/services",
@@ -48,6 +48,10 @@ java_defaults {
             enabled: false,
         },
     },
+    apex_available: [
+        "com.android.btservices",
+    ],
+    min_sdk_version: "Tiramisu",
 }
 
 // pre-jarjar version of service-bluetooth that builds against pre-jarjar version of framework-bluetooth
@@ -219,3 +223,4 @@ cc_library {
     host_supported: true,
     min_sdk_version: "Tiramisu",
 }
+

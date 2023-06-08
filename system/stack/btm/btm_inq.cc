@@ -72,15 +72,15 @@ void btm_log_history_scan_mode(uint8_t scan_mode) {
 
 extern tBTM_CB btm_cb;
 
-extern void btm_inq_remote_name_timer_timeout(void* data);
-extern tBTM_STATUS btm_ble_read_remote_name(const RawAddress& remote_bda,
-                                            tBTM_NAME_CMPL_CB* p_cb);
-extern bool btm_ble_cancel_remote_name(const RawAddress& remote_bda);
-extern tBTM_STATUS btm_ble_set_discoverability(uint16_t combined_mode);
-extern tBTM_STATUS btm_ble_set_connectability(uint16_t combined_mode);
+void btm_inq_remote_name_timer_timeout(void* data);
+tBTM_STATUS btm_ble_read_remote_name(const RawAddress& remote_bda,
+                                     tBTM_NAME_CMPL_CB* p_cb);
+bool btm_ble_cancel_remote_name(const RawAddress& remote_bda);
+tBTM_STATUS btm_ble_set_discoverability(uint16_t combined_mode);
+tBTM_STATUS btm_ble_set_connectability(uint16_t combined_mode);
 
-extern tBTM_STATUS btm_ble_start_inquiry(uint8_t duration);
-extern void btm_ble_stop_inquiry(void);
+tBTM_STATUS btm_ble_start_inquiry(uint8_t duration);
+void btm_ble_stop_inquiry(void);
 
 using bluetooth::Uuid;
 
@@ -409,10 +409,13 @@ tBTM_STATUS BTM_SetConnectability(uint16_t page_mode) {
 
   uint8_t scan_mode = 0;
   uint16_t window = BTM_DEFAULT_CONN_WINDOW;
-  uint16_t interval = BTM_DEFAULT_CONN_INTERVAL;
+  uint16_t interval = (uint16_t)osi_property_get_int32(
+      BTM_PAGE_SCAN_INTERVAL_PROPERTY, BTM_DEFAULT_CONN_INTERVAL);
+
   tBTM_INQUIRY_VAR_ST* p_inq = &btm_cb.btm_inq_vars;
 
-  BTM_TRACE_API("BTM_SetConnectability");
+  BTM_TRACE_API("BTM_SetConnectability page scan interval  = (%d * 0.625)ms",
+                interval);
 
   if (controller_get_interface()->supports_ble()) {
     if (btm_ble_set_connectability(page_mode) != BTM_SUCCESS) {

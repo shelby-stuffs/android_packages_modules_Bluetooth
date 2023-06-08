@@ -342,7 +342,7 @@ init_flags!(
         irk_rotation,
         leaudio_targeted_announcement_reconnection_mode = true,
         pass_phy_update_callback = true,
-        pbap_pse_dynamic_version_upgrade = true,
+        pbap_pse_dynamic_version_upgrade = false,
         periodic_advertising_adi = true,
         private_gatt = true,
         queue_l2cap_coc_while_encrypting = true,
@@ -355,6 +355,7 @@ init_flags!(
         set_min_encryption = true,
         subrating = true,
         trigger_advertising_callbacks_on_first_resume_after_pause = true,
+        use_unified_connection_manager,
     }
     // dynamic flags can be updated at runtime and should be accessed directly
     // to check.
@@ -397,6 +398,9 @@ pub fn load(raw_flags: Vec<String>) {
     let flags = InitFlags::parse(raw_flags);
     info!("Flags loaded: {}", flags);
     *FLAGS.lock().unwrap() = flags;
+
+    // re-init to respect log levels set by flags
+    crate::init_logging();
 }
 
 #[cfg(test)]

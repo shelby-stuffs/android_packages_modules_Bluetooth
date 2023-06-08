@@ -10,7 +10,6 @@ package {
 cc_library_static {
     name: "avrcp-target-service",
     defaults: [
-        "clang_file_coverage",
         "fluoride_defaults",
         "libchrome_support_defaults",
     ],
@@ -47,7 +46,6 @@ cc_test {
     test_suites: ["general-tests"],
     defaults: [
         "bluetooth_gtest_x86_asan_workaround",
-        "clang_coverage_bin",
         "fluoride_defaults",
         "libchrome_support_defaults",
         "mts_defaults",
@@ -64,10 +62,6 @@ cc_test {
     srcs: [
         "tests/avrcp_connection_handler_test.cc",
         "tests/avrcp_device_test.cc",
-    ],
-    shared_libs: [
-        "android.hardware.bluetooth@1.0",
-        "android.hardware.bluetooth@1.1",
     ],
     static_libs: [
         "avrcp-target-service",

@@ -944,6 +944,7 @@ public class DatabaseManager {
         mHandler = new DatabaseHandler(mHandlerThread.getLooper());
 
         IntentFilter filter = new IntentFilter();
+        filter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
         filter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
         filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
         mAdapterService.registerReceiver(mReceiver, filter);
@@ -1254,19 +1255,18 @@ public class DatabaseManager {
         String modelName = "";
         String hardwareVersion = "";
         String softwareVersion = "";
-        String value = Utils.byteArrayToUtf8String(bytesValue);
         switch (key) {
             case BluetoothDevice.METADATA_MANUFACTURER_NAME:
-                manufacturerName = value;
+                manufacturerName = Utils.byteArrayToUtf8String(bytesValue);
                 break;
             case BluetoothDevice.METADATA_MODEL_NAME:
-                modelName = value;
+                modelName = Utils.byteArrayToUtf8String(bytesValue);
                 break;
             case BluetoothDevice.METADATA_HARDWARE_VERSION:
-                hardwareVersion = value;
+                hardwareVersion = Utils.byteArrayToUtf8String(bytesValue);
                 break;
             case BluetoothDevice.METADATA_SOFTWARE_VERSION:
-                softwareVersion = value;
+                softwareVersion = Utils.byteArrayToUtf8String(bytesValue);
                 break;
             default:
                 // Do not log anything if metadata doesn't fall into above categories

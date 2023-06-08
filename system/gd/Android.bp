@@ -53,39 +53,6 @@ cc_defaults {
     header_libs: ["jni_headers"],
 }
 
-// Enables code coverage for a set of source files. Must be combined with
-// "clang_coverage_bin" in order to work. See //test/gen_coverage.py for more information
-// on generating code coverage.
-cc_defaults {
-    name: "gd_clang_file_coverage",
-    target: {
-        glibc: {
-            cflags: [
-                "-fcoverage-mapping",
-                "-fprofile-instr-generate",
-            ],
-        },
-    },
-}
-
-// Enabled code coverage on a binary. These flags allow libraries that were
-// compiled with "clang_file_coverage" to be properly linked together in
-// order to create a binary that will create a profraw file when ran. Note
-// these flags themselves don't enable code coverage for the source files
-// compiled in the binary. See //test/gen_coverage.py for more information
-// on generating code coverage.
-cc_defaults {
-    name: "gd_clang_coverage_bin",
-    target: {
-        glibc: {
-            ldflags: [
-                "-fcoverage-mapping",
-                "-fprofile-instr-generate",
-            ],
-        },
-    },
-}
-
 cc_defaults {
     name: "gd_clang_tidy",
     tidy: true,
@@ -139,7 +106,6 @@ cc_defaults {
 cc_defaults {
     name: "libbluetooth_gd_defaults",
     defaults: [
-        "gd_clang_file_coverage",
         "gd_defaults",
         "libchrome_support_defaults",
     ],
@@ -267,7 +233,6 @@ cc_library {
 cc_binary {
     name: "bluetooth_stack_with_facade",
     defaults: [
-        "gd_clang_coverage_bin",
         "gd_defaults",
         "libchrome_support_defaults",
     ],
@@ -349,7 +314,6 @@ cc_test {
     test_suites: ["device-tests"],
     defaults: [
         "bluetooth_gtest_x86_asan_workaround",
-        "gd_clang_coverage_bin",
         "gd_defaults",
         "libchrome_support_defaults",
         "mts_defaults",
@@ -379,13 +343,13 @@ cc_test {
                 ":BluetoothOsTestSources_android",
             ],
             static_libs: [
+                "android.hardware.bluetooth@1.0",
+                "android.hardware.bluetooth@1.1",
                 "android.system.suspend-V1-ndk",
                 "android.system.suspend.control-V1-ndk",
                 "libstatslog_bt",
             ],
             shared_libs: [
-                "android.hardware.bluetooth@1.0",
-                "android.hardware.bluetooth@1.1",
                 "libbinder_ndk",
                 "libcutils",
                 "libhidlbase",
@@ -425,10 +389,10 @@ cc_test {
         "libbluetooth_gd_unit_tests",
         "libbluetooth_rust_interop",
         "libbt-platform-protos-lite",
+        "libbt-platform-protos-lite",
         "libbt_callbacks_cxx",
         "libbt_shim_bridge",
         "libbt_shim_ffi",
-        "libbt-platform-protos-lite",
         "libc++fs",
         "libflatbuffers-cpp",
         "libgmock",
@@ -447,7 +411,6 @@ cc_test {
     test_suites: ["device-tests"],
     defaults: [
         "bluetooth_gtest_x86_asan_workaround",
-        "gd_clang_coverage_bin",
         "gd_defaults",
         "libchrome_support_defaults",
         "mts_defaults",
@@ -478,8 +441,6 @@ cc_test {
     target: {
         android: {
             shared_libs: [
-                "android.hardware.bluetooth@1.0",
-                "android.hardware.bluetooth@1.1",
                 "libcutils",
                 "libhidlbase",
                 "libutils",
@@ -487,8 +448,6 @@ cc_test {
         },
         host_linux: {
             shared_libs: [
-                "android.hardware.bluetooth@1.0",
-                "android.hardware.bluetooth@1.1",
                 "libcutils",
                 "libhidlbase",
                 "libutils",

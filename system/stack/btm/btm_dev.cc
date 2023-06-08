@@ -38,13 +38,13 @@
 #include "main/shim/shim.h"
 #include "osi/include/allocator.h"
 #include "osi/include/compat.h"
+#include "rust/src/connection/ffi/connection_shim.h"
 #include "stack/include/acl_api.h"
 #include "stack/include/bt_octets.h"
 #include "types/raw_address.h"
 
 extern tBTM_CB btm_cb;
-extern void gatt_consolidate(const RawAddress& identity_addr,
-                             const RawAddress& rpa);
+void gatt_consolidate(const RawAddress& identity_addr, const RawAddress& rpa);
 
 namespace {
 
@@ -146,7 +146,7 @@ void wipe_secrets_and_remove(tBTM_SEC_DEV_REC* p_dev_rec) {
 }
 
 /** Removes the device from acceptlist */
-extern void BTM_AcceptlistRemove(const RawAddress& address);
+void BTM_AcceptlistRemove(const RawAddress& address);
 
 /** Free resources associated with the device associated with |bd_addr| address.
  *
@@ -176,7 +176,17 @@ bool BTM_SecDeleteDevice(const RawAddress& bd_addr) {
 
     LOG_INFO("Remove device %s from filter accept list before delete record",
              ADDRESS_TO_LOGGABLE_CSTR(bd_addr));
-    BTM_AcceptlistRemove(p_dev_rec->bd_addr);
+    if (bluetooth::common::init_flags::
+            use_unified_connection_manager_is_enabled()) {
+      bluetooth::connection::GetConnectionManager()
+          .stop_all_connections_to_device(
+              bluetooth::connection::ResolveRawAddress(p_dev_rec->bd_addr));
+    } else {
+      BTM_AcceptlistRemove(p_dev_rec->bd_addr);
+    }
+
+    const auto device_type = p_dev_rec->device_type;
+    const auto bond_type = p_dev_rec->bond_type;
 
     /* Clear out any saved BLE keys */
     btm_sec_clear_ble_keys(p_dev_rec);
@@ -184,11 +194,10 @@ bool BTM_SecDeleteDevice(const RawAddress& bd_addr) {
     /* Tell controller to get rid of the link key, if it has one stored */
     BTM_DeleteStoredLinkKey(&bda, NULL);
     LOG_INFO("%s %s complete", __func__, ADDRESS_TO_LOGGABLE_CSTR(bd_addr));
-    BTM_LogHistory(
-        kBtmLogTag, bd_addr, "Device removed",
-        base::StringPrintf("device_type:%s bond_type:%s",
-                           DeviceTypeText(p_dev_rec->device_type).c_str(),
-                           bond_type_text(p_dev_rec->bond_type).c_str()));
+    BTM_LogHistory(kBtmLogTag, bd_addr, "Device removed",
+                   base::StringPrintf("device_type:%s bond_type:%s",
+                                      DeviceTypeText(device_type).c_str(),
+                                      bond_type_text(bond_type).c_str()));
   } else {
     LOG_WARN("%s Unable to delete link key for unknown device %s", __func__,
              ADDRESS_TO_LOGGABLE_CSTR(bd_addr));

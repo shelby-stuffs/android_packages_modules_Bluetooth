@@ -120,19 +120,18 @@ static tHID_KB_LIST hid_kb_numlock_on_list[] = {{LOGITECH_KB_MX5500_PRODUCT_ID,
 /*******************************************************************************
  *  Externs
  ******************************************************************************/
-extern bool check_cod(const RawAddress* remote_bdaddr, uint32_t cod);
-extern bool check_cod_hid(const RawAddress* remote_bdaddr);
-extern void bta_hh_co_destroy(int fd);
-extern void bta_hh_co_send_hid_info(btif_hh_device_t* p_dev,
-                                    const char* dev_name, uint16_t vendor_id,
-                                    uint16_t product_id, uint16_t version,
-                                    uint8_t ctry_code, int dscp_len,
-                                    uint8_t* p_dscp);
-extern void bta_hh_co_write(int fd, uint8_t* rpt, uint16_t len);
-extern void bte_hh_evt(tBTA_HH_EVT event, tBTA_HH* p_data);
-extern void btif_dm_hh_open_failed(RawAddress* bdaddr);
-extern void btif_hd_service_registration();
-extern void btif_hh_timer_timeout(void* data);
+bool check_cod(const RawAddress* remote_bdaddr, uint32_t cod);
+bool check_cod_hid(const RawAddress* remote_bdaddr);
+void bta_hh_co_destroy(int fd);
+void bta_hh_co_send_hid_info(btif_hh_device_t* p_dev, const char* dev_name,
+                             uint16_t vendor_id, uint16_t product_id,
+                             uint16_t version, uint8_t ctry_code, int dscp_len,
+                             uint8_t* p_dscp);
+void bta_hh_co_write(int fd, uint8_t* rpt, uint16_t len);
+void bte_hh_evt(tBTA_HH_EVT event, tBTA_HH* p_data);
+void btif_dm_hh_open_failed(RawAddress* bdaddr);
+void btif_hd_service_registration();
+void btif_hh_timer_timeout(void* data);
 
 /*******************************************************************************
  *  Functions
@@ -825,7 +824,6 @@ static void btif_hh_upstreams_evt(uint16_t event, char* p_param) {
           BTIF_TRACE_WARNING(
               "BTA_HH_OPEN_EVT: Error, failed to find the uhid driver...");
           p_dev->bd_addr = p_data->conn.bda;
-          p_dev->le_hid = p_data->conn.le_hid;
           // remove the connection  and then try again to reconnect from the
           // mouse side to recover
           btif_hh_cb.status = (BTIF_HH_STATUS)BTIF_HH_DEV_DISCONNECTED;
@@ -836,7 +834,6 @@ static void btif_hh_upstreams_evt(uint16_t event, char* p_param) {
               "... %d",
               p_data->conn.handle);
           p_dev->bd_addr = p_data->conn.bda;
-          p_dev->le_hid = p_data->conn.le_hid;
           btif_hh_cb.status = (BTIF_HH_STATUS)BTIF_HH_DEV_CONNECTED;
           // Send set_idle if the peer_device is a keyboard
           if (check_cod(&p_data->conn.bda, COD_HID_KEYBOARD) ||
@@ -868,10 +865,10 @@ static void btif_hh_upstreams_evt(uint16_t event, char* p_param) {
     case BTA_HH_CLOSE_EVT:
       BTIF_TRACE_DEBUG("BTA_HH_CLOSE_EVT: status = %d, handle = %d",
                        p_data->dev_status.status, p_data->dev_status.handle);
-      HAL_CBACK(bt_hh_callbacks, connection_state_cb,
-                (RawAddress*)&p_data->conn.bda, BTHH_CONN_STATE_DISCONNECTING);
       p_dev = btif_hh_find_connected_dev_by_handle(p_data->dev_status.handle);
       if (p_dev != NULL) {
+        HAL_CBACK(bt_hh_callbacks, connection_state_cb, &(p_dev->bd_addr),
+                  BTHH_CONN_STATE_DISCONNECTING);
         BTIF_TRACE_DEBUG("%s: uhid fd=%d local_vup=%d", __func__, p_dev->fd,
                          p_dev->local_vup);
         btif_hh_stop_vup_timer(&(p_dev->bd_addr));
@@ -899,22 +896,23 @@ static void btif_hh_upstreams_evt(uint16_t event, char* p_param) {
       break;
 
     case BTA_HH_GET_RPT_EVT: {
-      BT_HDR* hdr = p_data->hs_data.rsp_data.p_rpt_data;
-      uint8_t* data = NULL;
-      uint16_t len = 0;
-
       BTIF_TRACE_DEBUG("BTA_HH_GET_RPT_EVT: status = %d, handle = %d",
                        p_data->hs_data.status, p_data->hs_data.handle);
       p_dev = btif_hh_find_connected_dev_by_handle(p_data->hs_data.handle);
       if (p_dev) {
-        /* p_rpt_data is NULL in HANDSHAKE response case */
-        if (hdr) {
-          data = (uint8_t*)(hdr + 1) + hdr->offset;
-          len = hdr->len;
+        BT_HDR* hdr = p_data->hs_data.rsp_data.p_rpt_data;
+
+        if (hdr) { /* Get report response */
+          uint8_t* data = (uint8_t*)(hdr + 1) + hdr->offset;
+          uint16_t len = hdr->len;
           HAL_CBACK(bt_hh_callbacks, get_report_cb,
                     (RawAddress*)&(p_dev->bd_addr),
                     (bthh_status_t)p_data->hs_data.status, data, len);
-        } else {
+
+          bta_hh_co_get_rpt_rsp(p_dev->dev_handle,
+                                (tBTA_HH_STATUS)p_data->hs_data.status, data,
+                                len);
+        } else { /* Handshake */
           HAL_CBACK(bt_hh_callbacks, handshake_cb,
                     (RawAddress*)&(p_dev->bd_addr),
                     (bthh_status_t)p_data->hs_data.status);
@@ -934,17 +932,7 @@ static void btif_hh_upstreams_evt(uint16_t event, char* p_param) {
         HAL_CBACK(bt_hh_callbacks, handshake_cb, (RawAddress*)&(p_dev->bd_addr),
                   (bthh_status_t)p_data->hs_data.status);
 
-#if ENABLE_UHID_SET_REPORT
-        if (p_dev->le_hid && p_dev->set_rpt_id_queue) {
-          /* There is no handshake response for HOGP. Conclude the
-           * UHID_SET_REPORT procedure here. */
-          uint32_t* set_rpt_id =
-              (uint32_t*)fixed_queue_try_peek_first(p_dev->set_rpt_id_queue);
-          if (set_rpt_id) {
-            bta_hh_co_set_rpt_rsp(p_dev->dev_handle, p_data->dev_status.status);
-          }
-        }
-#endif  // ENABLE_UHID_SET_REPORT
+        bta_hh_co_set_rpt_rsp(p_dev->dev_handle, p_data->dev_status.status);
       }
       break;
 
