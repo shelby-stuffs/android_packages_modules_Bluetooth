@@ -1276,7 +1276,6 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
 
     // Disable ble scan only mode.
     private void disableBleScanMode() {
-        mBluetoothLock.writeLock().lock();
         try {
             mBluetoothLock.readLock().lock();
             if (mBluetooth != null && (synchronousGetState() != BluetoothAdapter.STATE_ON) && (!isBluetoothPersistedStateOnBluetooth())) {
