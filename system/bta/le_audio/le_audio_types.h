@@ -591,6 +591,14 @@ struct LeAudioLc3Config {
     return 0;
   }
 
+  /** Returns the frame duration representation in us */
+  uint16_t GetOctetsPerFrame() const {
+    if (octets_per_codec_frame)
+      return *octets_per_codec_frame;
+
+    return 0;
+  }
+
   uint8_t GetChannelCount(void) const {
     if (channel_count) return channel_count;
 
@@ -756,6 +764,8 @@ struct CodecCapabilitySetting {
   uint8_t GetConfigBitsPerSample() const;
   /* Audio channels number for stream */
   uint8_t GetConfigChannelCount() const;
+  /* Octets per frame requested for codec */
+  uint16_t GetConfigOctetsPerFrame()  const;
 };
 
 struct QosConfigSetting {
