@@ -1805,8 +1805,9 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     public boolean isBluetoothAvailableForBinding() {
         try {
             mBluetoothLock.readLock().lock();
-            if (mBluetooth != null && ((getState() == BluetoothAdapter.STATE_ON) ||
-                (getState() == BluetoothAdapter.STATE_TURNING_ON))) {
+            int state = getState();
+            if (mBluetooth != null && ((state == BluetoothAdapter.STATE_ON) ||
+                (state == BluetoothAdapter.STATE_TURNING_ON))) {
                 return true;
             } else {
                 return false;
